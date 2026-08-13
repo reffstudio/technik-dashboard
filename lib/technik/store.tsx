@@ -96,7 +96,11 @@ import {
 } from "./live"
 import type { InboxEvent } from "./notifications"
 import { fetchRemoteWorkspace, pushRemoteWorkspace } from "./remote-workspace"
-import { getSupabaseBrowser, isSupabaseConfigured } from "@/lib/supabase/browser"
+import {
+  getSupabaseBrowser,
+  isSupabaseConfigured,
+  setSupabasePublicConfig,
+} from "@/lib/supabase/browser"
 import { userFromProfile, type ProfileRow } from "./auth-profile"
 
 interface TechnikState {
@@ -281,7 +285,14 @@ function nowStamp() {
   return `${date} ${time}`
 }
 
-export function TechnikProvider({ children }: { children: React.ReactNode }) {
+export function TechnikProvider({
+  children,
+  supabase,
+}: {
+  children: React.ReactNode
+  supabase?: { url: string; key: string }
+}) {
+  if (supabase) setSupabasePublicConfig(supabase)
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [users, setUsers] = useState<User[]>(SEED_USERS)
@@ -904,7 +915,7 @@ export function TechnikProvider({ children }: { children: React.ReactNode }) {
       if (!isSupabaseConfigured()) {
         return {
           ok: false as const,
-          error: "Supabase no está configurado. Revisa .env.local y reinicia el servidor.",
+          error: "Supabase no está configurado. Revisa las variables en Vercel y vuelve a desplegar.",
         }
       }
       const supabase = getSupabaseBrowser()

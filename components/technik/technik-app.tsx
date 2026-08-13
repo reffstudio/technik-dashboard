@@ -1,5 +1,6 @@
 "use client"
 
+import type { SupabasePublicConfig } from "@/lib/supabase/public-env"
 import { TechnikProvider, useTechnik } from "@/lib/technik/store"
 import { LoginScreen } from "./login-screen"
 import { AppShell } from "./app-shell"
@@ -16,9 +17,9 @@ function Gate() {
   return authed ? <AppShell /> : <LoginScreen />
 }
 
-export function TechnikApp() {
+export function TechnikApp({ supabase }: { supabase?: SupabasePublicConfig }) {
   return (
-    <TechnikProvider>
+    <TechnikProvider supabase={supabase}>
       <Gate />
     </TechnikProvider>
   )
