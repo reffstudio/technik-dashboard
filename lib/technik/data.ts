@@ -1,0 +1,2153 @@
+// ─── Technik Solutions — Modelo de dominio y datos semilla ───────
+
+import {
+  DEFAULT_ISR_RETENTION_RATE,
+  DEFAULT_LABOR_HOURLY_RATE,
+  DEFAULT_QUOTE_TERMS,
+  DEFAULT_TAX_RATE,
+  LABOR_BURDEN_RATE,
+  MATERIAL_PUBLIC_MARKUP,
+  INTERNAL_PROFIT_RATE,
+  ANNUAL_BONUS_RATE,
+} from "./company"
+
+export type Role = "admin" | "empleado"
+
+export type QuoteStatus =
+  | "draft"
+  | "pending_review"
+  | "approved"
+  | "closed"
+
+export type CatalogKind = "material" | "labor" | "extra"
+
+export type MaterialCategory = "Material" | "Componente" | "Consumible"
+export type ExtraCategory = "Extra" | "Viático" | "Flete" | "Otro"
+export type CatalogCategory = MaterialCategory | "Mano de obra" | ExtraCategory
+
+export type SupplierChannel = "email" | "whatsapp" | "both"
+
+/** ID de departamento de trabajo (dinámico; ej. maquinados, TKS-D-004). */
+export type WorkDepartment = string
+
+/**
+ * Respuesta del cliente a la cotización enviada
+ * (columna "Notas" del Excel: En espera / Aprobada / Rechazada).
+ */
+export type ClientResponse = "en_espera" | "aprobada" | "rechazada"
+
+export interface User {
+  /** Username único — también es el ID del usuario (ej. iochoa) */
+  id: string
+  username: string
+  name: string
+  email: string
+  role: Role
+  password: string
+  /** ID del departamento de trabajo asignado */
+  department: WorkDepartment
+  location: string
+  since: string
+  active: boolean
+  /** Data URL o ruta de foto de perfil */
+  avatarUrl?: string
+}
+
+export interface Client {
+  id: string
+  company: string
+  /** RFC fiscal (persona moral o física) */
+  rfc: string
+  contact: string
+  email: string
+  phone: string
+  industry: string
+  location: string
+  since: string
+}
+
+export interface Supplier {
+  id: string
+  name: string
+  contact: string
+  email: string
+  phone: string
+  whatsapp: string
+  preferredChannel: SupplierChannel
+  specialty: string
+  location: string
+}
+
+export interface CatalogItem {
+  id: string
+  kind: CatalogKind
+  name: string
+  /** Código de fabricante / referencia comercial */
+  sku: string
+  category: CatalogCategory
+  unit: string
+  unitCost: number
+  supplierId?: string
+}
+
+export interface QuoteLine {
+  itemId: string
+  quantity: number
+  unitPrice?: number
+}
+
+/** Línea visible en la cotización PDF al cliente (no es material/mano de obra interna). */
+export type PublicQuoteItem = {
+  id: string
+  quantity: number
+  title: string
+  description: string
+  unitPrice: number
+  /** Data URL opcional — imagen de referencia */
+  imageUrl?: string
+}
+
+/**
+ * Foto de visita (contexto de campo).
+ * Solo metadatos en la cotización / DB; los bytes viven en storage
+ * (`visit-photos/{quotationId}/{id}.jpg`) y se sirven por URL.
+ */
+export type VisitPhoto = {
+  id: string
+  quotationId: string
+  url: string
+  thumbUrl: string
+  caption?: string
+  takenAt: string
+  uploadedById: string
+  uploadedBy: string
+  mime: "image/jpeg" | "image/webp"
+  bytes: number
+  thumbBytes: number
+  width: number
+  height: number
+}
+
+export interface QuoteEvent {
+  at: string
+  by: string
+  action: string
+}
+
+/** Etapa operativa de un proyecto (post-aprobación del cliente). */
+export type ProjectStage =
+  | "procesando_solicitud"
+  | "listo_para_iniciar"
+  | "en_proceso"
+  | "atrasado"
+  | "completado"
+
+export interface ProjectEvent {
+  at: string
+  by: string
+  action: string
+}
+
+/** Evento de cobro append-only (espejo de payment_events en Supabase). */
+export type PaymentEventKind = "collected" | "correction_note"
+
+export type PaymentEvent = {
+  id: string
+  projectId: string
+  installmentId: string
+  kind: PaymentEventKind
+  amount: number
+  method?: PaymentMethod
+  paidAt?: string
+  note?: string
+  at: string
+  by: string
+}
+
+export type PaymentMethod =
+  | "transferencia"
+  | "efectivo"
+  | "cheque"
+  | "tarjeta"
+  | "otro"
+
+/**
+ * Método de pago CFDI (cómo se factura al cliente).
+ * En el Excel del admin aparece como “Método de pago”.
+ */
+export type PaymentMode = "unico" | "abonos"
+
+/** Estado del complemento de pago CFDI (parcialidades). */
+export type PaymentComplementStatus = "na" | "pending" | "sent"
+
+export type BillingStatus = "sin_pagos" | "parcial" | "pagado" | "vencido"
+
+/**
+ * Cuota / factura del plan de cobro (una fila ≈ una factura del Excel).
+ * Puede estar solo programada (dueDate) o ya cobrada (paidAt).
+ */
+export type ProjectInstallment = {
+  id: string
+  amount: number
+  /** Fecha programada de cobro / recordatorio (YYYY-MM-DD) */
+  dueDate: string
+  note?: string
+  /** UUID del CFDI (ID factura SAT) */
+  invoiceUuid?: string
+  /** Día en que se generó la factura (YYYY-MM-DD) */
+  invoiceDate?: string
+  /** Complemento de pago: N/A · pendiente · hecho y enviado */
+  paymentComplement?: PaymentComplementStatus
+  /** Si existe, la cuota ya fue cobrada (YYYY-MM-DD) */
+  paidAt?: string
+  /** Medio de cobro (transferencia, efectivo…) — distinto del método CFDI */
+  method?: PaymentMethod
+}
+
+/** Canal de caja para el libro de tesorería (Excel banco / efectivo). */
+export type CashChannel = "banco" | "efectivo"
+
+/** Egreso capturado a mano en Facturación → Balance general. */
+export type ExpenseEntry = {
+  id: string
+  amount: number
+  /** YYYY-MM-DD */
+  date: string
+  description: string
+  channel: CashChannel
+  createdAt: string
+}
+
+/** Aperturas del mes calendario (YYYY-MM). */
+export type TreasuryMonth = {
+  yearMonth: string
+  openingBank: number
+  openingCash: number
+}
+
+/** Separado / apartado de caja (reserva creada por el admin). */
+export type SeparadoKind = "percent" | "amount"
+/** `iva` / `isr` son legado del apartado fiscal automático; ya no se crean. */
+export type ApartadoCategory = "custom" | "iva" | "isr"
+export type ApartadoStatus = "open" | "paid"
+/** Entrada (abono) o salida (adelanto / retiro) del apartado. */
+export type ApartadoMovementKind = "in" | "out"
+
+export type ApartadoMovement = {
+  id: string
+  apartadoId: string
+  kind: ApartadoMovementKind
+  amount: number
+  /** YYYY-MM-DD */
+  date: string
+  note?: string
+  /** Si la salida generó egreso de tesorería. */
+  expenseId?: string
+  createdAt: string
+  createdById?: string
+}
+
+export type TreasurySeparado = {
+  id: string
+  name: string
+  category: ApartadoCategory
+  kind: SeparadoKind
+  /**
+   * Si `percent`: porcentaje 0–100 (ej. 10 = 10%).
+   * Si `amount`: pesos MXN (override efectivo para impuestos).
+   */
+  value: number
+  /** Solo impuestos: monto sugerido del motor fiscal (no pisa override en `value`). */
+  suggestedAmount?: number
+  status: ApartadoStatus
+  /** Egreso de tesorería que liquidó la obligación. */
+  paidExpenseId?: string
+  /** Obligaciones fiscales son del mes; custom es plantilla global (sin yearMonth). */
+  yearMonth?: string
+  /** Si true, el admin ya fijó `value` y no se resetea al refrescar la sugerencia. */
+  amountOverridden?: boolean
+  createdAt: string
+}
+
+/** Reserva manual (no el IVA/ISR que se generaba solo por mes). */
+export function isManualReserve(s: Pick<TreasurySeparado, "category" | "yearMonth">): boolean {
+  return (s.category ?? "custom") === "custom" && !s.yearMonth
+}
+
+/** Normaliza snapshots viejos sin category/status. */
+export function normalizeTreasurySeparado(
+  raw: Partial<TreasurySeparado> & Pick<TreasurySeparado, "id" | "name" | "kind" | "value" | "createdAt">,
+): TreasurySeparado {
+  const category = raw.category ?? "custom"
+  return {
+    id: raw.id,
+    name: raw.name,
+    category,
+    kind: raw.kind,
+    value: raw.value,
+    suggestedAmount: raw.suggestedAmount,
+    status: raw.status ?? "open",
+    paidExpenseId: raw.paidExpenseId,
+    yearMonth: raw.yearMonth,
+    amountOverridden: raw.amountOverridden,
+    createdAt: raw.createdAt,
+  }
+}
+
+export function normalizeApartadoMovement(
+  raw: Partial<ApartadoMovement> &
+    Pick<ApartadoMovement, "id" | "apartadoId" | "kind" | "amount" | "date" | "createdAt">,
+): ApartadoMovement {
+  return {
+    id: raw.id,
+    apartadoId: raw.apartadoId,
+    kind: raw.kind === "out" ? "out" : "in",
+    amount: Number.isFinite(raw.amount) ? raw.amount : 0,
+    date: raw.date,
+    note: raw.note?.trim() || undefined,
+    expenseId: raw.expenseId,
+    createdAt: raw.createdAt,
+    createdById: raw.createdById,
+  }
+}
+
+export const CASH_CHANNEL_LABEL: Record<CashChannel, string> = {
+  banco: "Banco",
+  efectivo: "Efectivo",
+}
+
+/**
+ * Proyecto de seguimiento.
+ * Folio (`id`): si viene de cotización = mismo `TKS-Q-…`; si es N/A = `TKS-P-…`.
+ * Si hay `quotationId`, cliente/título/totales salen de la cotización.
+ * Sin cotización (N/A en Excel): usar `title`, `clientId`, `totalDue`.
+ */
+export interface Project {
+  /** Folio público (cotización o serie P para N/A) */
+  id: string
+  /** Cotización origen; ausente = proyecto/cobro sin cotización */
+  quotationId?: string
+  /** Snapshot cuando no hay cotización */
+  title?: string
+  clientId?: string
+  departments?: WorkDepartment[]
+  /** Total a cobrar (con IVA) cuando no hay cotización */
+  totalDue?: number
+  createdById?: string
+  stage: ProjectStage
+  /** Fecha compromiso de entrega (YYYY-MM-DD) */
+  dueDate?: string
+  /** Fecha de entrega real (YYYY-MM-DD) */
+  deliveredAt?: string
+  notes?: string
+  /** Pago en una exhibición o en parcialidades (método CFDI) */
+  paymentMode?: PaymentMode
+  /** Plan de cuotas / facturas (programados y/o cobrados) */
+  installments: ProjectInstallment[]
+  createdAt: string
+  updatedAt: string
+  history: ProjectEvent[]
+}
+
+export interface Quotation {
+  /** Igual a reference: TKS-Q-YYYY-#### */
+  id: string
+  reference: string
+  clientId: string
+  title: string
+  status: QuoteStatus
+  /** Departamentos de fabricación / servicio (multi) */
+  departments: WorkDepartment[]
+  /** Materiales y mano de obra — uso interno / proveedores */
+  lines: QuoteLine[]
+  /** Ítems que ve el cliente en el PDF */
+  publicItems: PublicQuoteItem[]
+  createdBy: string
+  createdById: string
+  createdAt: string
+  updatedAt: string
+  notes?: string
+  /** Fotos de la visita (metadatos; blobs en /api/quotes/:id/photos) */
+  visitPhotos?: VisitPhoto[]
+  /** Comentarios operativos (columna Comentarios del Excel) */
+  comments?: string
+  /** Condiciones comerciales del PDF al cliente */
+  terms?: string
+  /** IVA (fracción, ej. 0.16) */
+  taxRate?: number
+  /** Retención ISR (fracción) */
+  isrRetentionRate?: number
+  /**
+   * Respuesta del cliente tras el envío.
+   * Solo aplica con sentido cuando ya se envió PDF (`clientSentAt`).
+   */
+  clientResponse?: ClientResponse
+  /** Fecha en que se envió PDF al cliente (Fecha de envío) */
+  clientSentAt?: string
+  supplierSentAt?: string
+  supplierId?: string
+  /**
+   * Borrador en papelera. Si está definido, no aparece en la mesa;
+   * se borra del todo a los 7 días.
+   */
+  deletedAt?: string
+  history: QuoteEvent[]
+}
+
+// ─── Seed: Users ────────────────────────────────────────────────
+
+export const SEED_USERS: User[] = [
+  {
+    id: "iochoa",
+    username: "iochoa",
+    name: "Isaac Ochoa",
+    email: "admin@technik.solutions",
+    role: "admin",
+    password: "admin123",
+    department: "maquinados",
+    location: "Oficina central",
+    since: "2024",
+    active: true,
+    avatarUrl: "/avatars/iochoa.png",
+  },
+  {
+    id: "empleado1",
+    username: "empleado1",
+    name: "Colaborador de Ejemplo 1",
+    email: "empleado1@email.com",
+    role: "empleado",
+    password: "empleado123",
+    department: "maquinados",
+    location: "Equipo A",
+    since: "2024",
+    active: true,
+  },
+  {
+    id: "empleado2",
+    username: "empleado2",
+    name: "Colaborador de Ejemplo 2",
+    email: "empleado2@email.com",
+    role: "empleado",
+    password: "empleado123",
+    department: "soldadura",
+    location: "Equipo B",
+    since: "2025",
+    active: true,
+  },
+]
+
+// ─── Seed: Clients ──────────────────────────────────────────────
+
+export const SEED_CLIENTS: Client[] = [
+  {
+    id: "TKS-C-1042",
+    company: "Cliente de Ejemplo 1",
+    rfc: "XAXX010101000",
+    contact: "Contacto Ejemplo 1",
+    email: "cliente1@email.com",
+    phone: "+00 000 000 0001",
+    industry: "Industria ejemplo",
+    location: "Ciudad Ejemplo 1",
+    since: "2021",
+  },
+  {
+    id: "TKS-C-1078",
+    company: "Cliente de Ejemplo 2",
+    rfc: "XEXX010101000",
+    contact: "Contacto Ejemplo 2",
+    email: "cliente2@email.com",
+    phone: "+00 000 000 0002",
+    industry: "Industria ejemplo",
+    location: "Ciudad Ejemplo 2",
+    since: "2022",
+  },
+  {
+    id: "TKS-C-1103",
+    company: "Cliente de Ejemplo 3",
+    rfc: "CACX7605101R2",
+    contact: "Contacto Ejemplo 3",
+    email: "cliente3@email.com",
+    phone: "+00 000 000 0003",
+    industry: "Industria ejemplo",
+    location: "Ciudad Ejemplo 3",
+    since: "2020",
+  },
+  {
+    id: "TKS-C-1156",
+    company: "Cliente de Ejemplo 4",
+    rfc: "ABC130710T8A",
+    contact: "Contacto Ejemplo 4",
+    email: "cliente4@email.com",
+    phone: "+00 000 000 0004",
+    industry: "Industria ejemplo",
+    location: "Ciudad Ejemplo 4",
+    since: "2023",
+  },
+  {
+    id: "TKS-C-1189",
+    company: "Cliente de Ejemplo 5",
+    rfc: "DEF850101ABC",
+    contact: "Contacto Ejemplo 5",
+    email: "cliente5@email.com",
+    phone: "+00 000 000 0005",
+    industry: "Industria ejemplo",
+    location: "Ciudad Ejemplo 5",
+    since: "2019",
+  },
+]
+
+// ─── Seed: Suppliers ────────────────────────────────────────────
+
+export const SEED_SUPPLIERS: Supplier[] = [
+  {
+    id: "TKS-V-001",
+    name: "Proveedor de Ejemplo 1",
+    contact: "Contacto Proveedor 1",
+    email: "proveedor1@email.com",
+    phone: "+00 000 000 1001",
+    whatsapp: "+00 000 000 1001",
+    preferredChannel: "email",
+    specialty: "Especialidad ejemplo",
+    location: "Ciudad Ejemplo 1",
+  },
+  {
+    id: "TKS-V-002",
+    name: "Proveedor de Ejemplo 2",
+    contact: "Contacto Proveedor 2",
+    email: "proveedor2@email.com",
+    phone: "+00 000 000 1002",
+    whatsapp: "+00 000 000 1002",
+    preferredChannel: "whatsapp",
+    specialty: "Especialidad ejemplo",
+    location: "Ciudad Ejemplo 2",
+  },
+  {
+    id: "TKS-V-003",
+    name: "Proveedor de Ejemplo 3",
+    contact: "Contacto Proveedor 3",
+    email: "proveedor3@email.com",
+    phone: "+00 000 000 1003",
+    whatsapp: "+00 000 000 1003",
+    preferredChannel: "email",
+    specialty: "Especialidad ejemplo",
+    location: "Ciudad Ejemplo 3",
+  },
+  {
+    id: "TKS-V-004",
+    name: "Proveedor de Ejemplo 4",
+    contact: "Contacto Proveedor 4",
+    email: "proveedor4@email.com",
+    phone: "+00 000 000 1004",
+    whatsapp: "+00 000 000 1004",
+    preferredChannel: "email",
+    specialty: "Especialidad ejemplo",
+    location: "Ciudad Ejemplo 4",
+  },
+  {
+    id: "TKS-V-005",
+    name: "Proveedor de Ejemplo 5",
+    contact: "Contacto Proveedor 5",
+    email: "proveedor5@email.com",
+    phone: "+00 000 000 1005",
+    whatsapp: "+00 000 000 1005",
+    preferredChannel: "whatsapp",
+    specialty: "Especialidad ejemplo",
+    location: "Ciudad Ejemplo 5",
+  },
+]
+
+// ─── Seed: Catalog ──────────────────────────────────────────────
+
+export const SEED_CATALOG: CatalogItem[] = [
+  { id: "TKS-M-001", kind: "material", name: "Material de ejemplo 1", sku: "SKU-M-001", category: "Material", unit: "m²", unitCost: 84.5, supplierId: "TKS-V-001" },
+  { id: "TKS-M-002", kind: "material", name: "Material de ejemplo 2", sku: "SKU-M-002", category: "Material", unit: "m", unitCost: 12.9, supplierId: "TKS-V-001" },
+  { id: "TKS-M-003", kind: "material", name: "Material de ejemplo 3", sku: "SKU-M-003", category: "Material", unit: "m²", unitCost: 46.2, supplierId: "TKS-V-002" },
+  { id: "TKS-K-010", kind: "material", name: "Componente de ejemplo 1", sku: "SKU-K-010", category: "Componente", unit: "ud", unitCost: 312.0, supplierId: "TKS-V-003" },
+  { id: "TKS-K-011", kind: "material", name: "Componente de ejemplo 2", sku: "SKU-K-011", category: "Componente", unit: "ud", unitCost: 645.0, supplierId: "TKS-V-004" },
+  { id: "TKS-K-012", kind: "material", name: "Componente de ejemplo 3", sku: "SKU-K-012", category: "Componente", unit: "ud", unitCost: 128.75, supplierId: "TKS-V-003" },
+  { id: "TKS-K-013", kind: "material", name: "Componente de ejemplo 4", sku: "SKU-K-013", category: "Componente", unit: "ud", unitCost: 489.0, supplierId: "TKS-V-004" },
+  { id: "TKS-N-020", kind: "material", name: "Consumible de ejemplo 1", sku: "SKU-N-020", category: "Consumible", unit: "ud", unitCost: 58.4, supplierId: "TKS-V-002" },
+  { id: "TKS-N-021", kind: "material", name: "Consumible de ejemplo 2", sku: "SKU-N-021", category: "Consumible", unit: "ud", unitCost: 94.0, supplierId: "TKS-V-005" },
+  { id: "TKS-N-022", kind: "material", name: "Consumible de ejemplo 3", sku: "SKU-N-022", category: "Consumible", unit: "caja", unitCost: 31.5, supplierId: "TKS-V-001" },
+  { id: "TKS-L-001", kind: "labor", name: "Mano de obra ejemplo 1", sku: "LAB-001", category: "Mano de obra", unit: "h", unitCost: DEFAULT_LABOR_HOURLY_RATE },
+  { id: "TKS-L-002", kind: "labor", name: "Mano de obra ejemplo 2", sku: "LAB-002", category: "Mano de obra", unit: "h", unitCost: DEFAULT_LABOR_HOURLY_RATE },
+  { id: "TKS-L-003", kind: "labor", name: "Mano de obra ejemplo 3", sku: "LAB-003", category: "Mano de obra", unit: "h", unitCost: DEFAULT_LABOR_HOURLY_RATE },
+  { id: "TKS-L-004", kind: "labor", name: "Mano de obra ejemplo 4", sku: "LAB-004", category: "Mano de obra", unit: "h", unitCost: DEFAULT_LABOR_HOURLY_RATE },
+  { id: "TKS-L-005", kind: "labor", name: "Mano de obra ejemplo 5", sku: "LAB-005", category: "Mano de obra", unit: "h", unitCost: DEFAULT_LABOR_HOURLY_RATE },
+  { id: "TKS-E-001", kind: "extra", name: "Flete / envío", sku: "EXT-001", category: "Flete", unit: "ud", unitCost: 2500 },
+  { id: "TKS-E-002", kind: "extra", name: "Viáticos", sku: "EXT-002", category: "Viático", unit: "ud", unitCost: 1800 },
+  { id: "TKS-E-003", kind: "extra", name: "Extra / imprevisto", sku: "EXT-003", category: "Extra", unit: "ud", unitCost: 500 },
+]
+
+// ─── Seed: Quotations ───────────────────────────────────────────
+
+export const SEED_QUOTATIONS: Quotation[] = [
+  {
+    id: "TKS-Q-2026-2041",
+    reference: "TKS-Q-2026-2041",
+    clientId: "TKS-C-1042",
+    title: "Fabricación de unidad maquinada — carro para grúa viajera",
+    departments: ["maquinados"],
+    status: "pending_review",
+    lines: [
+      { itemId: "TKS-K-010", quantity: 6 },
+      { itemId: "TKS-K-012", quantity: 8 },
+      { itemId: "TKS-M-002", quantity: 45 },
+      { itemId: "TKS-N-022", quantity: 4 },
+      { itemId: "TKS-L-001", quantity: 40 },
+      { itemId: "TKS-L-002", quantity: 80 },
+      { itemId: "TKS-E-001", quantity: 1 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2041-1",
+        quantity: 1,
+        title: "FABRICACIÓN DE UNIDAD MAQUINADA — CARRO PARA GRÚA",
+        description:
+          "ALCANCE:\n- Mecanizado de componentes principales\n- Ensamble y ajuste de carro\n\nCONSIDERACIONES:\n- Se inspeccionará por completo antes de la entrega correspondiente.",
+        unitPrice: 185000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-08-04",
+    updatedAt: "2026-08-06",
+    notes: "Nota de ejemplo: revisar plazos con el cliente.",
+    comments: "",
+    history: [
+      { at: "2026-08-04 09:12", by: "Colaborador de Ejemplo 1", action: "Creó borrador" },
+      { at: "2026-08-06 16:40", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2042",
+    reference: "TKS-Q-2026-2042",
+    clientId: "TKS-C-1078",
+    title: "Reparación de golpe en lámina",
+    departments: ["soldadura"],
+    status: "pending_review",
+    lines: [
+      { itemId: "TKS-K-011", quantity: 2 },
+      { itemId: "TKS-K-013", quantity: 2 },
+      { itemId: "TKS-M-003", quantity: 12 },
+      { itemId: "TKS-L-003", quantity: 48 },
+      { itemId: "TKS-L-004", quantity: 16 },
+    ],
+    publicItems: [],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-08-05",
+    updatedAt: "2026-08-05",
+    history: [{ at: "2026-08-05 11:28", by: "Colaborador de Ejemplo 2", action: "Creó y envió a revisión" }],
+  },
+  {
+    id: "TKS-Q-2026-2038",
+    reference: "TKS-Q-2026-2038",
+    clientId: "TKS-C-1103",
+    title: "Soporte estructural y piezas maquinadas",
+    departments: ["soldadura", "maquinados"],
+    status: "draft",
+    lines: [
+      { itemId: "TKS-M-001", quantity: 18 },
+      { itemId: "TKS-N-020", quantity: 3 },
+      { itemId: "TKS-L-005", quantity: 24 },
+      { itemId: "TKS-L-002", quantity: 16 },
+    ],
+    publicItems: [],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-08-07",
+    updatedAt: "2026-08-07",
+    history: [{ at: "2026-08-07 08:55", by: "Colaborador de Ejemplo 1", action: "Creó borrador" }],
+  },
+  {
+    id: "TKS-Q-2026-2035",
+    reference: "TKS-Q-2026-2035",
+    clientId: "TKS-C-1189",
+    title: "Fabricación de base y ejes",
+    departments: ["maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-003", quantity: 24, unitPrice: 71.0 },
+      { itemId: "TKS-K-012", quantity: 12, unitPrice: 198.0 },
+      { itemId: "TKS-N-022", quantity: 6, unitPrice: 52.0 },
+      { itemId: "TKS-L-002", quantity: 56, unitPrice: 95 },
+      { itemId: "TKS-L-004", quantity: 32, unitPrice: 110 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2035-1",
+        quantity: 1,
+        title: "FABRICACIÓN DE BASE Y EJES",
+        description:
+          "ALCANCE:\n- Base maquinada según plano\n- Ejes y ajustes de tolerancia\n\nCONSIDERACIONES:\n- Entrega con reporte de dimensionales.",
+        unitPrice: 98400,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-07-28",
+    updatedAt: "2026-08-09",
+    clientSentAt: "2026-08-02",
+    clientResponse: "aprobada",
+    comments: "Cliente aprobó; proyecto en procesamiento de solicitud.",
+    history: [
+      { at: "2026-07-28 14:05", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-08-01 10:22", by: "Isaac Ochoa", action: "Aprobó y bloqueó precios" },
+      { at: "2026-08-02 15:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-08-09 10:45", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2030",
+    reference: "TKS-Q-2026-2030",
+    clientId: "TKS-C-1156",
+    title: "Reparación de estructura soldada",
+    departments: ["soldadura"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-001", quantity: 32, unitPrice: 132.0 },
+      { itemId: "TKS-K-010", quantity: 4, unitPrice: 485.0 },
+      { itemId: "TKS-K-013", quantity: 1, unitPrice: 760.0 },
+      { itemId: "TKS-L-001", quantity: 60, unitPrice: 110 },
+      { itemId: "TKS-L-003", quantity: 96, unitPrice: 125 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2030-1",
+        quantity: 1,
+        title: "REPARACIÓN DE ESTRUCTURA SOLDADA",
+        description:
+          "ALCANCE:\n- Enderezado y soldadura estructural\n- Acabado y limpieza\n\nCONSIDERACIONES:\n- Inspección visual al 100% antes de entrega.",
+        unitPrice: 142500,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-07-15",
+    updatedAt: "2026-07-22",
+    clientSentAt: "2026-07-22",
+    clientResponse: "aprobada",
+    supplierSentAt: "2026-07-23",
+    supplierId: "TKS-V-001",
+    comments: "Cliente aprobó; materiales pedidos al proveedor.",
+    history: [
+      { at: "2026-07-15 13:18", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+      { at: "2026-07-20 09:47", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-07-22 15:03", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-07-23 11:30", by: "Isaac Ochoa", action: "Lista de materiales enviada a Proveedor de Ejemplo 1" },
+      { at: "2026-07-24 09:10", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2028",
+    reference: "TKS-Q-2026-2028",
+    clientId: "TKS-C-1042",
+    title: "Machining de bridas y soldadura de tubo",
+    departments: ["soldadura", "maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-002", quantity: 20, unitPrice: 48 },
+      { itemId: "TKS-L-001", quantity: 24, unitPrice: 110 },
+      { itemId: "TKS-L-003", quantity: 16, unitPrice: 125 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2028-1",
+        quantity: 4,
+        title: "BRIDAS MAQUINADAS Y SOLDADURA DE TUBO",
+        description: "ALCANCE:\n- Mecanizado de bridas\n- Soldadura de tubo según especificación",
+        unitPrice: 12500,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-07-10",
+    updatedAt: "2026-07-18",
+    clientSentAt: "2026-07-18",
+    clientResponse: "en_espera",
+    comments: "Seguimiento pendiente con compras del cliente.",
+    history: [
+      { at: "2026-07-10 10:00", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-07-16 12:20", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-07-18 16:45", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2025",
+    reference: "TKS-Q-2026-2025",
+    clientId: "TKS-C-1078",
+    title: "Reparación de chasis",
+    departments: ["soldadura"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-001", quantity: 10, unitPrice: 132 },
+      { itemId: "TKS-L-003", quantity: 40, unitPrice: 125 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2025-1",
+        quantity: 1,
+        title: "REPARACIÓN DE CHASIS",
+        description: "ALCANCE:\n- Reparación estructural de chasis\n- Acabado superficial",
+        unitPrice: 62000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-07-01",
+    updatedAt: "2026-07-12",
+    clientSentAt: "2026-07-08",
+    clientResponse: "rechazada",
+    comments: "Cliente eligió otro proveedor por plazo.",
+    history: [
+      { at: "2026-07-01 09:00", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+      { at: "2026-07-05 11:00", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-07-08 14:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-07-12 10:30", by: "Isaac Ochoa", action: "Cliente: Rechazada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2043",
+    reference: "TKS-Q-2026-2043",
+    clientId: "TKS-C-1103",
+    title: "Placas de desgaste y soldadura de refuerzo",
+    departments: ["soldadura"],
+    status: "pending_review",
+    lines: [
+      { itemId: "TKS-M-001", quantity: 14 },
+      { itemId: "TKS-N-020", quantity: 5 },
+      { itemId: "TKS-L-003", quantity: 36 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2043-1",
+        quantity: 1,
+        title: "PLACAS DE DESGASTE Y REFUERZO",
+        description: "ALCANCE:\n- Corte y soldadura de placas\n- Acabado y limpieza",
+        unitPrice: 48500,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-08-08",
+    updatedAt: "2026-08-09",
+    history: [
+      { at: "2026-08-08 10:15", by: "Colaborador de Ejemplo 1", action: "Creó borrador" },
+      { at: "2026-08-09 14:40", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2044",
+    reference: "TKS-Q-2026-2044",
+    clientId: "TKS-C-1189",
+    title: "Torneado de buje y tapa",
+    departments: ["maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-K-012", quantity: 8, unitPrice: 198 },
+      { itemId: "TKS-L-002", quantity: 28, unitPrice: 95 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2044-1",
+        quantity: 2,
+        title: "TORNEADO DE BUJE Y TAPA",
+        description: "ALCANCE:\n- Torneado CNC según plano\n- Tolerancia h7",
+        unitPrice: 18500,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-08-02",
+    updatedAt: "2026-08-07",
+    clientSentAt: "2026-08-07",
+    clientResponse: "en_espera",
+    comments: "Cliente revisando con ingeniería.",
+    history: [
+      { at: "2026-08-02 09:00", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-08-05 11:20", by: "Isaac Ochoa", action: "Aprobó y bloqueó precios" },
+      { at: "2026-08-07 16:10", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2029",
+    reference: "TKS-Q-2026-2029",
+    clientId: "TKS-C-1042",
+    title: "Fabricación de poleas y ejes",
+    departments: ["maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-K-010", quantity: 4, unitPrice: 485 },
+      { itemId: "TKS-L-001", quantity: 48, unitPrice: 110 },
+      { itemId: "TKS-L-004", quantity: 20, unitPrice: 110 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2029-1",
+        quantity: 1,
+        title: "FABRICACIÓN DE POLEAS Y EJES",
+        description: "ALCANCE:\n- Poleas maquinadas\n- Ejes y chaveteros",
+        unitPrice: 78000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-06-20",
+    updatedAt: "2026-07-05",
+    clientSentAt: "2026-06-28",
+    clientResponse: "aprobada",
+    comments: "Proyecto liquidado — pago único.",
+    history: [
+      { at: "2026-06-20 10:00", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-06-25 09:30", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-06-28 15:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-07-02 11:00", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2031",
+    reference: "TKS-Q-2026-2031",
+    clientId: "TKS-C-1103",
+    title: "Bastidor soldado para conveyor",
+    departments: ["soldadura", "maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-001", quantity: 40, unitPrice: 132 },
+      { itemId: "TKS-K-013", quantity: 2, unitPrice: 760 },
+      { itemId: "TKS-L-003", quantity: 80, unitPrice: 125 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2031-1",
+        quantity: 1,
+        title: "BASTIDOR SOLDADO PARA CONVEYOR",
+        description: "ALCANCE:\n- Bastidor estructural\n- Maquinado de caras de apoyo",
+        unitPrice: 165000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-07-05",
+    updatedAt: "2026-07-20",
+    clientSentAt: "2026-07-18",
+    clientResponse: "aprobada",
+    supplierSentAt: "2026-07-21",
+    supplierId: "TKS-V-002",
+    comments: "En abonos; segundo pago reciente.",
+    history: [
+      { at: "2026-07-05 09:00", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+      { at: "2026-07-12 10:00", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-07-18 14:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-07-20 09:00", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2032",
+    reference: "TKS-Q-2026-2032",
+    clientId: "TKS-C-1156",
+    title: "Guías lineales y soportes",
+    departments: ["maquinados"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-K-011", quantity: 6, unitPrice: 980 },
+      { itemId: "TKS-L-002", quantity: 40, unitPrice: 95 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2032-1",
+        quantity: 1,
+        title: "GUÍAS LINEALES Y SOPORTES",
+        description: "ALCANCE:\n- Maquinado de soportes\n- Montaje de guías",
+        unitPrice: 92000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-07-22",
+    updatedAt: "2026-08-03",
+    clientSentAt: "2026-07-30",
+    clientResponse: "aprobada",
+    comments: "Listo para iniciar; anticipo pendiente de cobro.",
+    history: [
+      { at: "2026-07-22 11:00", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-07-28 09:00", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-07-30 16:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-08-03 10:00", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2033",
+    reference: "TKS-Q-2026-2033",
+    clientId: "TKS-C-1078",
+    title: "Reparación de tolva y refuerzos",
+    departments: ["soldadura"],
+    status: "approved",
+    lines: [
+      { itemId: "TKS-M-003", quantity: 22, unitPrice: 71 },
+      { itemId: "TKS-L-003", quantity: 64, unitPrice: 125 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2033-1",
+        quantity: 1,
+        title: "REPARACIÓN DE TOLVA Y REFUERZOS",
+        description: "ALCANCE:\n- Parcheo estructural\n- Refuerzos y pintura",
+        unitPrice: 54000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 1",
+    createdById: "empleado1",
+    createdAt: "2026-06-10",
+    updatedAt: "2026-08-08",
+    clientSentAt: "2026-06-18",
+    clientResponse: "aprobada",
+    comments: "Abono vencido — dar seguimiento de cobro.",
+    history: [
+      { at: "2026-06-10 09:00", by: "Colaborador de Ejemplo 1", action: "Envió a revisión" },
+      { at: "2026-06-15 10:00", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-06-18 12:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-06-22 09:00", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2034",
+    reference: "TKS-Q-2026-2034",
+    clientId: "TKS-C-1189",
+    title: "Kit de repuestos maquinados",
+    departments: ["maquinados"],
+    status: "closed",
+    lines: [
+      { itemId: "TKS-K-012", quantity: 20, unitPrice: 198 },
+      { itemId: "TKS-L-005", quantity: 30, unitPrice: 90 },
+    ],
+    publicItems: [
+      {
+        id: "pub-2034-1",
+        quantity: 1,
+        title: "KIT DE REPUESTOS MAQUINADOS",
+        description: "ALCANCE:\n- Lote de piezas de desgaste\n- Empaque industrial",
+        unitPrice: 45000,
+      },
+    ],
+    terms: DEFAULT_QUOTE_TERMS,
+    taxRate: DEFAULT_TAX_RATE,
+    isrRetentionRate: DEFAULT_ISR_RETENTION_RATE,
+    createdBy: "Colaborador de Ejemplo 2",
+    createdById: "empleado2",
+    createdAt: "2026-05-12",
+    updatedAt: "2026-08-06",
+    clientSentAt: "2026-05-20",
+    clientResponse: "aprobada",
+    comments: "Entregado y liquidado.",
+    history: [
+      { at: "2026-05-12 10:00", by: "Colaborador de Ejemplo 2", action: "Envió a revisión" },
+      { at: "2026-05-16 11:00", by: "Isaac Ochoa", action: "Aprobó precios" },
+      { at: "2026-05-20 15:00", by: "Isaac Ochoa", action: "PDF enviado al cliente" },
+      { at: "2026-05-25 09:00", by: "Isaac Ochoa", action: "Cliente: Aprobada" },
+    ],
+  },
+]
+
+/**
+ * Proyectos semilla — fechas alineadas a ago 2026 para el Home (flujo / agenda).
+ * Totales PDF ≈ publicItems × (1 + IVA 8% − ISR 1.25%).
+ */
+export const SEED_PROJECTS: Project[] = [
+  {
+    id: "TKS-Q-2026-2030",
+    quotationId: "TKS-Q-2026-2030",
+    stage: "en_proceso",
+    dueDate: "2026-08-20",
+    notes: "Materiales pedidos; fabricando estructura.",
+    paymentMode: "abonos",
+    installments: [
+      {
+        id: "inst-2030-1",
+        amount: 50000,
+        dueDate: "2026-07-30",
+        note: "Anticipo",
+        invoiceUuid: "E2310581-D021-467F-9E53-028EC8D5397F",
+        invoiceDate: "2026-07-28",
+        paymentComplement: "sent",
+        paidAt: "2026-07-30",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2030-2",
+        amount: 50000,
+        dueDate: "2026-08-05",
+        note: "Segundo abono",
+        invoiceUuid: "A8B12C34-E056-4890-B123-456789ABCDEF",
+        invoiceDate: "2026-08-01",
+        paymentComplement: "sent",
+        paidAt: "2026-08-05",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2030-3",
+        amount: 52118.75,
+        dueDate: "2026-08-22",
+        note: "Liquidación",
+        invoiceUuid: "B7C23D45-F167-4901-C234-567890BCDEF0",
+        invoiceDate: "2026-08-08",
+        paymentComplement: "pending",
+      },
+    ],
+    createdAt: "2026-07-24",
+    updatedAt: "2026-08-05",
+    history: [
+      { at: "2026-07-24 09:15", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-07-28 11:00", by: "Isaac Ochoa", action: "Plan de cobro: parcialidades" },
+      { at: "2026-07-30 16:20", by: "Isaac Ochoa", action: "Abono cobrado: $50,000.00" },
+      { at: "2026-08-01 08:30", by: "Isaac Ochoa", action: "Etapa → En proceso" },
+      { at: "2026-08-05 12:00", by: "Isaac Ochoa", action: "Abono cobrado: $50,000.00" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2029",
+    quotationId: "TKS-Q-2026-2029",
+    stage: "completado",
+    dueDate: "2026-07-25",
+    deliveredAt: "2026-07-22",
+    notes: "Entregado. Pago único liquidado.",
+    paymentMode: "unico",
+    installments: [
+      {
+        id: "inst-2029-1",
+        amount: 83265,
+        dueDate: "2026-07-10",
+        note: "Pago único",
+        invoiceUuid: "C9D34E56-A278-4012-D345-678901CDEF12",
+        invoiceDate: "2026-07-05",
+        paymentComplement: "na",
+        paidAt: "2026-07-09",
+        method: "transferencia",
+      },
+    ],
+    createdAt: "2026-07-02",
+    updatedAt: "2026-07-22",
+    history: [
+      { at: "2026-07-02 10:00", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-07-02 10:05", by: "Isaac Ochoa", action: "Plan de cobro: una sola exhibición" },
+      { at: "2026-07-09 15:00", by: "Isaac Ochoa", action: "Abono cobrado: $83,265.00" },
+      { at: "2026-07-22 11:00", by: "Isaac Ochoa", action: "Etapa → Completado" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2031",
+    quotationId: "TKS-Q-2026-2031",
+    stage: "en_proceso",
+    dueDate: "2026-08-28",
+    notes: "Soldadura en curso; tercer abono programado.",
+    paymentMode: "abonos",
+    installments: [
+      {
+        id: "inst-2031-1",
+        amount: 60000,
+        dueDate: "2026-07-25",
+        note: "Anticipo 35%",
+        invoiceUuid: "D0E45F67-B389-4123-E456-789012DEF234",
+        invoiceDate: "2026-07-22",
+        paymentComplement: "sent",
+        paidAt: "2026-07-25",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2031-2",
+        amount: 60000,
+        dueDate: "2026-08-06",
+        note: "2ª parcialidad",
+        invoiceUuid: "E1F56A78-C49A-5234-F567-890123EF3456",
+        invoiceDate: "2026-08-02",
+        paymentComplement: "sent",
+        paidAt: "2026-08-06",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2031-3",
+        amount: 56137.5,
+        dueDate: "2026-08-18",
+        note: "Liquidación",
+        invoiceUuid: "F2A67B89-D5AB-6345-A678-901234F45678",
+        invoiceDate: "2026-08-10",
+        paymentComplement: "pending",
+      },
+    ],
+    createdAt: "2026-07-20",
+    updatedAt: "2026-08-06",
+    history: [
+      { at: "2026-07-20 09:30", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-07-20 09:35", by: "Isaac Ochoa", action: "Plan de cobro: parcialidades" },
+      { at: "2026-07-25 14:00", by: "Isaac Ochoa", action: "Abono cobrado: $60,000.00" },
+      { at: "2026-08-02 08:00", by: "Isaac Ochoa", action: "Etapa → En proceso" },
+      { at: "2026-08-06 11:45", by: "Isaac Ochoa", action: "Abono cobrado: $60,000.00" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2032",
+    quotationId: "TKS-Q-2026-2032",
+    stage: "listo_para_iniciar",
+    dueDate: "2026-09-05",
+    notes: "Materiales confirmados; arranca al cobrar anticipo.",
+    paymentMode: "abonos",
+    installments: [
+      {
+        id: "inst-2032-1",
+        amount: 40000,
+        dueDate: "2026-08-10",
+        note: "Anticipo",
+        invoiceUuid: "A3B78C90-E6BC-7456-B789-012345A56789",
+        invoiceDate: "2026-08-04",
+        paymentComplement: "pending",
+      },
+      {
+        id: "inst-2032-2",
+        amount: 58210,
+        dueDate: "2026-08-28",
+        note: "Liquidación",
+        paymentComplement: "pending",
+      },
+    ],
+    createdAt: "2026-08-03",
+    updatedAt: "2026-08-04",
+    history: [
+      { at: "2026-08-03 10:20", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-08-03 10:25", by: "Isaac Ochoa", action: "Plan de cobro: parcialidades" },
+      { at: "2026-08-04 09:00", by: "Isaac Ochoa", action: "Etapa → Listo para iniciar" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2033",
+    quotationId: "TKS-Q-2026-2033",
+    /** Taller a tiempo; el atraso es solo de cobro (2ª parcialidad). */
+    stage: "en_proceso",
+    dueDate: "2026-08-25",
+    notes: "Taller avanzando. 2ª parcialidad del cliente vencida — seguimiento de cobro aparte.",
+    paymentMode: "abonos",
+    installments: [
+      {
+        id: "inst-2033-1",
+        amount: 25000,
+        dueDate: "2026-06-28",
+        note: "Anticipo",
+        invoiceUuid: "B4C89D01-F7CD-8567-C890-123456B67890",
+        invoiceDate: "2026-06-25",
+        paymentComplement: "sent",
+        paidAt: "2026-06-28",
+        method: "efectivo",
+      },
+      {
+        id: "inst-2033-2",
+        amount: 20000,
+        dueDate: "2026-08-02",
+        note: "2ª parcialidad",
+        invoiceUuid: "C5D90E12-A8DE-9678-D901-234567C78901",
+        invoiceDate: "2026-07-28",
+        paymentComplement: "pending",
+      },
+      {
+        id: "inst-2033-3",
+        amount: 12645,
+        dueDate: "2026-08-20",
+        note: "Liquidación",
+        paymentComplement: "pending",
+      },
+    ],
+    createdAt: "2026-06-22",
+    updatedAt: "2026-08-08",
+    history: [
+      { at: "2026-06-22 09:00", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-06-28 12:00", by: "Isaac Ochoa", action: "Abono cobrado: $25,000.00" },
+      { at: "2026-07-10 08:00", by: "Isaac Ochoa", action: "Etapa → En proceso" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2034",
+    quotationId: "TKS-Q-2026-2034",
+    stage: "completado",
+    dueDate: "2026-07-15",
+    deliveredAt: "2026-07-12",
+    notes: "Kit entregado; liquidado en abonos.",
+    paymentMode: "abonos",
+    installments: [
+      {
+        id: "inst-2034-1",
+        amount: 20000,
+        dueDate: "2026-06-01",
+        note: "Anticipo",
+        invoiceUuid: "D6E01F23-B9EF-A789-E012-345678D89012",
+        invoiceDate: "2026-05-28",
+        paymentComplement: "sent",
+        paidAt: "2026-06-01",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2034-2",
+        amount: 15000,
+        dueDate: "2026-07-01",
+        note: "2ª parcialidad",
+        invoiceUuid: "E7F12A34-C0F0-B890-F123-456789E90123",
+        invoiceDate: "2026-06-28",
+        paymentComplement: "sent",
+        paidAt: "2026-07-01",
+        method: "transferencia",
+      },
+      {
+        id: "inst-2034-3",
+        amount: 13037.5,
+        dueDate: "2026-08-04",
+        note: "Liquidación",
+        invoiceUuid: "F8A23B45-D101-C901-A234-567890F01234",
+        invoiceDate: "2026-08-01",
+        paymentComplement: "sent",
+        paidAt: "2026-08-04",
+        method: "transferencia",
+      },
+    ],
+    createdAt: "2026-05-25",
+    updatedAt: "2026-08-06",
+    history: [
+      { at: "2026-05-25 10:00", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-06-01 11:00", by: "Isaac Ochoa", action: "Abono cobrado: $20,000.00" },
+      { at: "2026-07-01 10:00", by: "Isaac Ochoa", action: "Abono cobrado: $15,000.00" },
+      { at: "2026-07-12 16:00", by: "Isaac Ochoa", action: "Etapa → Completado" },
+      { at: "2026-08-04 13:20", by: "Isaac Ochoa", action: "Abono cobrado: $13,037.50" },
+    ],
+  },
+  {
+    id: "TKS-Q-2026-2035",
+    quotationId: "TKS-Q-2026-2035",
+    stage: "procesando_solicitud",
+    dueDate: "2026-09-10",
+    notes: "Cliente aprobó verbalmente; formalizar plan de cobro.",
+    paymentMode: "unico",
+    installments: [
+      {
+        id: "inst-2035-1",
+        amount: 105042,
+        dueDate: "2026-08-12",
+        note: "Pago único",
+        paymentComplement: "na",
+      },
+    ],
+    createdAt: "2026-08-09",
+    updatedAt: "2026-08-09",
+    history: [
+      { at: "2026-08-09 11:00", by: "Isaac Ochoa", action: "Proyecto creado desde cotización aprobada" },
+      { at: "2026-08-09 11:05", by: "Isaac Ochoa", action: "Plan de cobro: una sola exhibición" },
+    ],
+  },
+  /** Ejemplo Excel: cobro sin # de cotización (N/A). */
+  {
+    id: "TKS-P-2026-0008",
+    title: "HIDRANT HOSEHOUSING · OC 4500612252",
+    clientId: "TKS-C-1042",
+    departments: ["maquinados"],
+    totalDue: 36994.85,
+    stage: "en_proceso",
+    dueDate: "2026-08-30",
+    notes: "Proyecto / cobro sin cotización formal (N/A).",
+    paymentMode: "abonos",
+    createdById: "iochoa",
+    installments: [
+      {
+        id: "inst-manual-1",
+        amount: 36994.85,
+        dueDate: "2026-08-05",
+        note: "Folio 40",
+        invoiceUuid: "11223344-5566-7788-99AA-BBCCDDEEFF00",
+        invoiceDate: "2026-08-01",
+        paymentComplement: "pending",
+      },
+    ],
+    createdAt: "2026-08-01",
+    updatedAt: "2026-08-01",
+    history: [
+      { at: "2026-08-01 10:00", by: "Isaac Ochoa", action: "Proyecto creado sin cotización" },
+      { at: "2026-08-01 10:05", by: "Isaac Ochoa", action: "Plan de cobro: parcialidades" },
+    ],
+  },
+]
+
+/** Egresos de ejemplo (mes agosto 2026) para el libro de tesorería. */
+export const SEED_EXPENSES: ExpenseEntry[] = [
+  {
+    id: "exp-seed-1",
+    amount: 12_500,
+    date: "2026-08-02",
+    description: "Renta taller",
+    channel: "banco",
+    createdAt: "2026-08-02T12:00:00.000Z",
+  },
+  {
+    id: "exp-seed-2",
+    amount: 3_200,
+    date: "2026-08-04",
+    description: "Materiales varios ferretería",
+    channel: "efectivo",
+    createdAt: "2026-08-04T15:30:00.000Z",
+  },
+  {
+    id: "exp-seed-3",
+    amount: 8_450,
+    date: "2026-08-07",
+    description: "IMSS / impuestos (parcial)",
+    channel: "banco",
+    createdAt: "2026-08-07T10:00:00.000Z",
+  },
+]
+
+/** Aperturas del mes para que “Disponible” no arranque en cero. */
+export const SEED_TREASURY_MONTHS: TreasuryMonth[] = [
+  {
+    yearMonth: "2026-08",
+    openingBank: 95_000,
+    openingCash: 8_200,
+  },
+]
+
+/** Separados de ejemplo (reservas que el admin puede editar o borrar). */
+export const SEED_TREASURY_SEPARADOS: TreasurySeparado[] = [
+  {
+    id: "sep-seed-1",
+    name: "Bono anual",
+    category: "custom",
+    kind: "percent",
+    value: 10,
+    status: "open",
+    createdAt: "2026-08-01T12:00:00.000Z",
+  },
+  {
+    id: "sep-seed-2",
+    name: "Reserva operativa",
+    category: "custom",
+    kind: "percent",
+    value: 20,
+    status: "open",
+    createdAt: "2026-08-01T12:00:00.000Z",
+  },
+]
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+/** @deprecated Prefer MATERIAL_PUBLIC_MARKUP / suggestedPublicUnitPrice */
+export const DEFAULT_LABOR_MARGIN = 0
+/** @deprecated Prefer MATERIAL_PUBLIC_MARKUP / suggestedPublicUnitPrice */
+export const DEFAULT_MARGIN = MATERIAL_PUBLIC_MARKUP
+
+export type StatusIconId =
+  | "draft"
+  | "review"
+  | "approved"
+  | "closed"
+  | "sent"
+  | "in_progress"
+  | "dispatched"
+  | "supplier"
+  | "waiting"
+  | "rejected"
+  | "stage_process"
+  | "stage_ready"
+  | "stage_active"
+  | "stage_late"
+  | "stage_done"
+
+export const PROJECT_STAGE_META: Record<
+  ProjectStage,
+  { label: string; tone: string; icon: StatusIconId }
+> = {
+  procesando_solicitud: {
+    label: "Procesando solicitud",
+    tone: "amber",
+    icon: "stage_process",
+  },
+  listo_para_iniciar: {
+    label: "Listo para iniciar",
+    tone: "azure",
+    icon: "stage_ready",
+  },
+  en_proceso: {
+    label: "En proceso",
+    tone: "teal",
+    icon: "stage_active",
+  },
+  atrasado: {
+    /** Retraso operativo / entrega en taller — no es estado de cobro. */
+    label: "Retraso en taller",
+    tone: "loss",
+    icon: "stage_late",
+  },
+  completado: {
+    label: "Completado",
+    tone: "gain",
+    icon: "stage_done",
+  },
+}
+
+export const PROJECT_STAGES: ProjectStage[] = [
+  "procesando_solicitud",
+  "listo_para_iniciar",
+  "en_proceso",
+  "atrasado",
+  "completado",
+]
+
+/** Fecha compromiso vencida y aún no completado. */
+export function projectIsOverdue(p: Project, todayIso = new Date().toISOString().slice(0, 10)): boolean {
+  if (p.stage === "completado" || !p.dueDate) return false
+  return p.dueDate < todayIso
+}
+
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  transferencia: "Transferencia",
+  efectivo: "Efectivo",
+  cheque: "Cheque",
+  tarjeta: "Tarjeta",
+  otro: "Otro",
+}
+
+export const PAYMENT_METHODS: PaymentMethod[] = [
+  "transferencia",
+  "efectivo",
+  "cheque",
+  "tarjeta",
+  "otro",
+]
+
+export const PAYMENT_MODE_LABEL: Record<PaymentMode, string> = {
+  unico: "Pago en una sola exhibición",
+  abonos: "Pago en parcialidades o diferido",
+}
+
+export const PAYMENT_COMPLEMENT_LABEL: Record<PaymentComplementStatus, string> = {
+  na: "N/A",
+  pending: "Pendiente",
+  sent: "Hecho y enviado",
+}
+
+export const PAYMENT_COMPLEMENTS: PaymentComplementStatus[] = ["na", "pending", "sent"]
+
+export const BILLING_STATUS_META: Record<
+  BillingStatus,
+  { label: string; tone: string }
+> = {
+  sin_pagos: { label: "Sin pagos", tone: "neutral" },
+  parcial: { label: "Pago parcial", tone: "amber" },
+  pagado: { label: "Pagado", tone: "gain" },
+  /** Solo facturación — independiente de la etapa del taller. */
+  vencido: { label: "Cobro vencido", tone: "loss" },
+}
+
+export function defaultPaymentComplement(mode?: PaymentMode): PaymentComplementStatus {
+  return mode === "abonos" ? "pending" : "na"
+}
+
+/** Título visible del proyecto (cotización o snapshot manual). */
+export function projectTitle(p: Project, quoteTitle?: string): string {
+  return quoteTitle || p.title || p.id
+}
+
+/** Normaliza proyectos viejos (folio interno → descartado; CFDI vive en la cuota). */
+export function normalizeProject(
+  raw: Project & { invoiceFolio?: string; invoiceDate?: string },
+): Project {
+  const legacyFolio = raw.invoiceFolio
+  const legacyDate = raw.invoiceDate
+  const looksLikeUuid =
+    !!legacyFolio &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      legacyFolio.trim(),
+    )
+
+  const {
+    invoiceFolio: _dropFolio,
+    invoiceDate: _dropDate,
+    ...rest
+  } = raw
+
+  const installments = (rest.installments ?? []).map((inst, index) => {
+    const complement =
+      inst.paymentComplement ?? defaultPaymentComplement(rest.paymentMode)
+    const migrateUuid =
+      index === 0 && looksLikeUuid && !inst.invoiceUuid ? legacyFolio!.trim() : undefined
+    return {
+      ...inst,
+      invoiceUuid: inst.invoiceUuid ?? migrateUuid,
+      invoiceDate: inst.invoiceDate ?? (index === 0 ? legacyDate : undefined),
+      paymentComplement: complement,
+    }
+  })
+
+  // Folio único: proyectos viejos TKS-P-* ligados a cotización adoptan el folio Q
+  const quotationId = rest.quotationId || undefined
+  const id =
+    quotationId && rest.id !== quotationId && rest.id.startsWith("TKS-P-")
+      ? quotationId
+      : rest.id
+
+  return {
+    ...rest,
+    id,
+    quotationId,
+    installments,
+  }
+}
+
+export function installmentIsPaid(inst: ProjectInstallment): boolean {
+  return !!inst.paidAt
+}
+
+export function projectPaidTotal(p: Project): number {
+  return roundMxn(
+    (p.installments ?? [])
+      .filter(installmentIsPaid)
+      .reduce((sum, inst) => sum + (inst.amount || 0), 0),
+  )
+}
+
+export function projectScheduledTotal(p: Project): number {
+  return roundMxn((p.installments ?? []).reduce((sum, inst) => sum + (inst.amount || 0), 0))
+}
+
+/** Próxima cuota pendiente (para cobro / recordatorio). */
+export function projectNextInstallment(p: Project): ProjectInstallment | undefined {
+  return [...(p.installments ?? [])]
+    .filter((i) => !installmentIsPaid(i))
+    .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))[0]
+}
+
+export function projectHasOverdueInstallment(
+  p: Project,
+  todayIso = new Date().toISOString().slice(0, 10),
+): boolean {
+  return (p.installments ?? []).some(
+    (i) => !installmentIsPaid(i) && i.dueDate < todayIso,
+  )
+}
+
+export function projectBillingSummary(
+  p: Project,
+  totalDue: number,
+  todayIso = new Date().toISOString().slice(0, 10),
+): {
+  totalDue: number
+  paid: number
+  balance: number
+  scheduled: number
+  status: BillingStatus
+  nextDue?: string
+} {
+  const due = roundMxn(Math.max(0, totalDue))
+  const paid = projectPaidTotal(p)
+  const scheduled = projectScheduledTotal(p)
+  const balance = roundMxn(Math.max(0, due - paid))
+  const fullyPaid = due > 0 ? paid >= due - 0.009 : paid > 0 && balance <= 0.009
+  const overdue = projectHasOverdueInstallment(p, todayIso)
+  const next = projectNextInstallment(p)
+
+  let status: BillingStatus
+  if (fullyPaid && (due > 0 || paid > 0)) status = "pagado"
+  else if (overdue) status = "vencido"
+  else if (paid <= 0) status = "sin_pagos"
+  else status = "parcial"
+
+  return {
+    totalDue: due,
+    paid,
+    balance,
+    scheduled,
+    status,
+    nextDue: next?.dueDate,
+  }
+}
+
+export const STATUS_META: Record<QuoteStatus, { label: string; tone: string; icon: StatusIconId }> = {
+  draft: { label: "Borrador", tone: "neutral", icon: "draft" },
+  pending_review: { label: "En revisión", tone: "amber", icon: "review" },
+  approved: { label: "Aprobada", tone: "azure", icon: "approved" },
+  closed: { label: "Cerrada", tone: "teal", icon: "closed" },
+}
+
+export const DRAFT_TRASH_DAYS = 7
+
+export function quotationIsTrashed(q: Pick<Quotation, "deletedAt">): boolean {
+  return Boolean(q.deletedAt)
+}
+
+export function quotationTrashPurgeAt(deletedAt: string): number {
+  const t = Date.parse(deletedAt)
+  if (Number.isNaN(t)) return 0
+  return t + DRAFT_TRASH_DAYS * 24 * 60 * 60 * 1000
+}
+
+export function quotationTrashDaysLeft(deletedAt: string, now = Date.now()): number {
+  return Math.max(0, Math.ceil((quotationTrashPurgeAt(deletedAt) - now) / (24 * 60 * 60 * 1000)))
+}
+
+export function quotationTrashExpired(q: Pick<Quotation, "deletedAt">, now = Date.now()): boolean {
+  if (!q.deletedAt) return false
+  return quotationTrashPurgeAt(q.deletedAt) <= now
+}
+
+/** Status de envío al cliente (columna Status del Excel). */
+export const SEND_STATUS_META = {
+  en_proceso: { label: "En proceso", tone: "amber", icon: "in_progress" as StatusIconId },
+  enviada: { label: "Enviada al cliente", tone: "gain", icon: "sent" as StatusIconId },
+} as const
+
+/**
+ * Paleta de departamentos — NO usa amarillo / naranja / verde / rojo
+ * (reservados para STATUS). Sin grises (casi no se notan).
+ */
+export type DepartmentColorId =
+  | "azul"
+  | "indigo"
+  | "violeta"
+  | "fucsia"
+  | "cian"
+
+export type DepartmentColorOption = {
+  id: DepartmentColorId
+  label: string
+  /** Clases del badge (fondo / texto / borde) */
+  badgeClass: string
+  /** Color sólido para el swatch del selector */
+  swatch: string
+}
+
+export const DEPARTMENT_COLOR_OPTIONS: DepartmentColorOption[] = [
+  {
+    id: "azul",
+    label: "Azul",
+    badgeClass: "bg-blue-500/12 text-blue-700 dark:text-blue-300 border-blue-500/30",
+    swatch: "#60a5fa",
+  },
+  {
+    id: "indigo",
+    label: "Índigo",
+    badgeClass: "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 border-indigo-500/30",
+    swatch: "#818cf8",
+  },
+  {
+    id: "violeta",
+    label: "Violeta",
+    badgeClass: "bg-violet-500/12 text-violet-700 dark:text-violet-300 border-violet-500/30",
+    swatch: "#a78bfa",
+  },
+  {
+    id: "fucsia",
+    label: "Fucsia",
+    badgeClass: "bg-fuchsia-500/12 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-500/30",
+    swatch: "#e879f9",
+  },
+  {
+    id: "cian",
+    label: "Cian",
+    badgeClass: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-300 border-cyan-500/30",
+    swatch: "#22d3ee",
+  },
+]
+
+/** Mapea colores retirados / de status a la paleta actual. */
+const LEGACY_DEPARTMENT_COLOR: Record<string, DepartmentColorId> = {
+  gris: "azul",
+  acero: "azul",
+  grafito: "indigo",
+  ambar: "indigo",
+  naranja: "fucsia",
+  verde: "cian",
+  rojo: "violeta",
+}
+
+export type DepartmentConfig = {
+  id: WorkDepartment
+  label: string
+  short: string
+  colorId: DepartmentColorId
+}
+
+/** Maquinados / Soldadura con colores no-status, fáciles de distinguir. */
+export const SEED_DEPARTMENTS: DepartmentConfig[] = [
+  { id: "maquinados", label: "Maquinados", short: "Maquinados", colorId: "indigo" },
+  { id: "soldadura", label: "Soldadura", short: "Soldadura", colorId: "fucsia" },
+]
+
+export function normalizeDepartmentColorId(colorId: string | undefined): DepartmentColorId {
+  if (!colorId) return "azul"
+  if (LEGACY_DEPARTMENT_COLOR[colorId]) return LEGACY_DEPARTMENT_COLOR[colorId]!
+  if (DEPARTMENT_COLOR_OPTIONS.some((c) => c.id === colorId)) {
+    return colorId as DepartmentColorId
+  }
+  return "azul"
+}
+
+export function departmentColor(colorId: DepartmentColorId | string): DepartmentColorOption {
+  const id = normalizeDepartmentColorId(colorId)
+  return DEPARTMENT_COLOR_OPTIONS.find((c) => c.id === id) ?? DEPARTMENT_COLOR_OPTIONS[0]!
+}
+
+export function shortDepartmentLabel(label: string): string {
+  const t = label.trim()
+  if (t.length <= 18) return t
+  return `${t.slice(0, 16)}…`
+}
+
+
+/** Expande el dept compuesto legado a Maquinados + Soldadura. */
+function expandDepartmentId(id: WorkDepartment): WorkDepartment[] {
+  if (id === "soldadura_maquinados") return ["soldadura", "maquinados"]
+  return [id]
+}
+
+/** Departamentos de una cotización (soporta legado `department` string). */
+export function quotationDepartments(
+  q: Pick<Quotation, "departments"> | { departments?: WorkDepartment[]; department?: WorkDepartment },
+): WorkDepartment[] {
+  const multi = (q as { departments?: WorkDepartment[] }).departments
+  const raw =
+    Array.isArray(multi) && multi.length > 0
+      ? multi
+      : (() => {
+          const legacy = (q as { department?: WorkDepartment }).department
+          return legacy ? [legacy] : []
+        })()
+  const expanded = raw.flatMap(expandDepartmentId)
+  return [...new Set(expanded)]
+}
+
+export function quotationHasDepartment(
+  q: Pick<Quotation, "departments"> | { departments?: WorkDepartment[]; department?: WorkDepartment },
+  dept: WorkDepartment,
+): boolean {
+  return quotationDepartments(q).includes(dept)
+}
+
+export const CLIENT_RESPONSE_META: Record<
+  ClientResponse,
+  { label: string; tone: string; icon: StatusIconId }
+> = {
+  en_espera: { label: "En espera", tone: "amber", icon: "waiting" },
+  aprobada: { label: "Aprobada", tone: "gain", icon: "approved" },
+  rechazada: { label: "Rechazada", tone: "loss", icon: "rejected" },
+}
+
+export const CHANNEL_LABEL: Record<SupplierChannel, string> = {
+  email: "Correo",
+  whatsapp: "WhatsApp",
+  both: "Correo + WhatsApp",
+}
+
+export function currency(n: number): string {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 0,
+  }).format(n)
+}
+
+export function currencyPrecise(n: number): string {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(n) ? n : 0)
+}
+
+/** Horas con decimales solo si hacen falta (ej. 20 o 20.5). */
+function formatHours(n: number): string {
+  if (!Number.isFinite(n)) return "0"
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)))
+}
+
+/** Redondeo monetario MXN a 2 decimales (centavos). */
+export function roundMxn(n: number): number {
+  if (!Number.isFinite(n)) return 0
+  return Math.round((n + Number.EPSILON) * 100) / 100
+}
+
+/** Importe de línea: cantidad × precio unitario, redondeado. */
+export function lineTotalMxn(quantity: number, unitPrice: number): number {
+  return roundMxn((Number(quantity) || 0) * (Number(unitPrice) || 0))
+}
+
+/** Montos del PDF al cliente (pesos mexicanos). */
+export function currencyMxn(n: number): string {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(roundMxn(n))
+}
+
+export function initials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("")
+}
+
+/**
+ * Precio unitario público sugerido (editable hasta envío al cliente).
+ * Material / Extra: costo × (1 + markup). Mano de obra: tarifa $/h del catálogo.
+ */
+export function suggestedPublicUnitPrice(item: CatalogItem): number {
+  if (item.kind === "labor") {
+    return Number(item.unitCost.toFixed(2))
+  }
+  return Number((item.unitCost * (1 + MATERIAL_PUBLIC_MARKUP)).toFixed(2))
+}
+
+/** Alias de suggestedPublicUnitPrice (compat). */
+export function suggestedPrice(item: CatalogItem): number {
+  return suggestedPublicUnitPrice(item)
+}
+
+export type InternalEconomyRow = {
+  id: string
+  label: string
+  /** Horas, % o monto base según la fila */
+  basisLabel: string
+  amount: number
+  muted?: boolean
+}
+
+/**
+ * Fórmula de economía interna (no va al PDF):
+ * MO base = Σ (precio público $/h × horas); si no hay precio en línea → tarifa catálogo
+ * MO cargada = MO base + IMSS 20%
+ * Materiales / Extras = Σ (precio público × cant.); si no hay precio → costo × 1.10
+ * Ganancia = (MO base + materiales + extras) × 60%
+ * Bono anual = (ganancia + materiales + extras) × 10%
+ *
+ * El precio público de línea permite sobrecobrar a un cliente sin cambiar el catálogo.
+ */
+export function internalEconomy(
+  q: Quotation,
+  catalog: CatalogItem[],
+): {
+  laborHours: number
+  laborBase: number
+  laborBurden: number
+  laborLoaded: number
+  materialCost: number
+  materialPublicSuggested: number
+  extrasCost: number
+  extrasPublicSuggested: number
+  profit: number
+  annualBonus: number
+  loadedCostTotal: number
+  rows: InternalEconomyRow[]
+} {
+  let laborHours = 0
+  let laborBase = 0
+  let materialCost = 0
+  let materialPublic = 0
+  let extrasCost = 0
+  let extrasPublic = 0
+  let materialsCustom = false
+  let extrasCustom = false
+  let laborCustom = false
+
+  for (const line of q.lines) {
+    const item = catalog.find((c) => c.id === line.itemId)
+    if (!item) continue
+    const qty = Number(line.quantity) || 0
+    const suggested = suggestedPublicUnitPrice(item)
+    const hasCustom =
+      line.unitPrice != null &&
+      Number.isFinite(line.unitPrice) &&
+      Number(line.unitPrice) !== suggested
+    const publicUnit =
+      line.unitPrice != null && Number.isFinite(line.unitPrice)
+        ? Number(line.unitPrice)
+        : suggested
+
+    if (item.kind === "labor") {
+      laborHours += qty
+      laborBase += publicUnit * qty
+      if (hasCustom) laborCustom = true
+    } else if (item.kind === "extra") {
+      extrasCost += item.unitCost * qty
+      extrasPublic += publicUnit * qty
+      if (hasCustom) extrasCustom = true
+    } else {
+      materialCost += item.unitCost * qty
+      materialPublic += publicUnit * qty
+      if (hasCustom) materialsCustom = true
+    }
+  }
+
+  laborBase = Number(laborBase.toFixed(2))
+  materialCost = Number(materialCost.toFixed(2))
+  extrasCost = Number(extrasCost.toFixed(2))
+  const materialPublicSuggested = Number(materialPublic.toFixed(2))
+  const extrasPublicSuggested = Number(extrasPublic.toFixed(2))
+  const chargeBase = materialPublicSuggested + extrasPublicSuggested
+  const laborBurden = Number((laborBase * LABOR_BURDEN_RATE).toFixed(2))
+  const laborLoaded = Number((laborBase + laborBurden).toFixed(2))
+  const profit = Number(((laborBase + chargeBase) * INTERNAL_PROFIT_RATE).toFixed(2))
+  const annualBonus = Number(((profit + chargeBase) * ANNUAL_BONUS_RATE).toFixed(2))
+  const loadedCostTotal = Number(
+    (laborLoaded + materialPublicSuggested + extrasPublicSuggested + profit + annualBonus).toFixed(
+      2,
+    ),
+  )
+
+  const burdenPct = Math.round(LABOR_BURDEN_RATE * 100)
+  const markupPct = Math.round(MATERIAL_PUBLIC_MARKUP * 100)
+  const profitPct = Math.round(INTERNAL_PROFIT_RATE * 100)
+  const bonusPct = Math.round(ANNUAL_BONUS_RATE * 100)
+
+  const rows: InternalEconomyRow[] = [
+    {
+      id: "labor",
+      label: "Mano de obra",
+      basisLabel: laborCustom
+        ? `${formatHours(laborHours)} h · tarifa pública (ajustada) ${currencyPrecise(laborBase)} + IMSS ${burdenPct}%`
+        : `${formatHours(laborHours)} h · base ${currencyPrecise(laborBase)} + IMSS ${burdenPct}%`,
+      amount: laborLoaded,
+    },
+    {
+      id: "materials",
+      label: "Materiales",
+      basisLabel: materialsCustom
+        ? `precio público (ajustado) · costo base ${currencyPrecise(materialCost)}`
+        : `base ${currencyPrecise(materialCost)} + ${markupPct}%`,
+      amount: materialPublicSuggested,
+    },
+    {
+      id: "extras",
+      label: "Extras",
+      basisLabel: extrasCustom
+        ? `precio público (ajustado) · costo base ${currencyPrecise(extrasCost)}`
+        : `base ${currencyPrecise(extrasCost)} + ${markupPct}%`,
+      amount: extrasPublicSuggested,
+    },
+    {
+      id: "profit",
+      label: "Ganancia",
+      basisLabel: `${profitPct}% × (MO base ${currencyPrecise(laborBase)} + mat. ${currencyPrecise(materialPublicSuggested)} + ext. ${currencyPrecise(extrasPublicSuggested)})`,
+      amount: profit,
+    },
+    {
+      id: "annual_bonus",
+      label: "Bono anual",
+      basisLabel: `${bonusPct}% × (ganancia ${currencyPrecise(profit)} + mat. ${currencyPrecise(materialPublicSuggested)} + ext. ${currencyPrecise(extrasPublicSuggested)})`,
+      amount: annualBonus,
+    },
+  ]
+
+  return {
+    laborHours,
+    laborBase,
+    laborBurden,
+    laborLoaded,
+    materialCost,
+    materialPublicSuggested,
+    extrasCost,
+    extrasPublicSuggested,
+    profit,
+    annualBonus,
+    loadedCostTotal,
+    rows,
+  }
+}
+
+/** Status operativo interno (revisión / precios / envíos). */
+export function displayStatus(q: Quotation): { label: string; tone: string; icon: StatusIconId } {
+  if (q.clientSentAt && q.supplierSentAt) {
+    return {
+      label: "Enviada a cliente y proveedor",
+      tone: "teal",
+      icon: "dispatched",
+    }
+  }
+  if (q.clientSentAt) {
+    return { label: "Enviada al cliente", tone: "gain", icon: "sent" }
+  }
+  if (q.supplierSentAt) {
+    return { label: "Enviada al proveedor", tone: "teal", icon: "supplier" }
+  }
+  return STATUS_META[q.status]
+}
+
+/**
+ * Estado de envío saliente (cliente / proveedor).
+ * Un solo tag cuando ambos envíos están hechos.
+ */
+export function outboundSendStatus(
+  q: Quotation,
+): { label: string; tone: string; icon: StatusIconId } {
+  if (q.clientSentAt && q.supplierSentAt) {
+    return {
+      label: "Enviada a cliente y proveedor",
+      tone: "teal",
+      icon: "dispatched",
+    }
+  }
+  if (q.clientSentAt) {
+    return { label: "Enviada al cliente", tone: "gain", icon: "sent" }
+  }
+  if (q.supplierSentAt) {
+    return { label: "Enviada al proveedor", tone: "teal", icon: "supplier" }
+  }
+  return { ...SEND_STATUS_META.en_proceso }
+}
+
+/** Status de envío al cliente (como en el Excel). */
+export function sendStatus(q: Quotation): { label: string; tone: string; icon: StatusIconId } {
+  return q.clientSentAt ? SEND_STATUS_META.enviada : SEND_STATUS_META.en_proceso
+}
+
+/** Respuesta del cliente; vacío si aún no se envió. */
+export function clientResponseOf(
+  q: Quotation,
+): { label: string; tone: string; icon: StatusIconId } | null {
+  if (!q.clientSentAt) return null
+  const key = q.clientResponse ?? "en_espera"
+  return CLIENT_RESPONSE_META[key]
+}

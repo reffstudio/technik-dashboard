@@ -1,0 +1,21 @@
+{
+  "name": "Technik Solutions",
+  "short_name": "Technik",
+  "description": "Dashboard de Cotizaciones y Operaciones",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141C28",
+  "theme_color": "#00D9EA",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

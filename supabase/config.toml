@@ -1,0 +1,10 @@
+# Stub mínimo para CLI local. Completar con `supabase init` / link al proyecto real.
+# La app Next.js aún no consume este proyecto.
+
+project_id = "technik-dashboard-pending"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
