@@ -134,6 +134,7 @@ export function CatalogView() {
         subtitle="Materiales, mano de obra y extras. Solo administración puede ver y editar costos."
       >
         <button
+          type="button"
           onClick={() => setAdding(true)}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
@@ -174,8 +175,12 @@ export function CatalogView() {
         <AddRow
           suppliers={suppliers}
           onCancel={() => setAdding(false)}
-          onAdd={(item) => {
-            addCatalogItem(item)
+          onAdd={async (item) => {
+            const res = await addCatalogItem(item)
+            if (!res.ok) {
+              setError(res.error)
+              return
+            }
             setAdding(false)
           }}
         />
@@ -430,7 +435,7 @@ function AddRow({
   suppliers,
 }: {
   onCancel: () => void
-  onAdd: (item: Omit<CatalogItem, "id">) => void
+  onAdd: (item: Omit<CatalogItem, "id">) => void | Promise<void>
   suppliers: ReturnType<typeof useTechnik>["suppliers"]
 }) {
   const [kind, setKind] = useState<CatalogKind>("material")
@@ -451,7 +456,7 @@ function AddRow({
     }
   }
 
-  const valid = name.trim() && sku.trim() && unitCost > 0
+  const valid = Boolean(name.trim() && sku.trim() && Number.isFinite(unitCost) && unitCost >= 0)
 
   return (
     <div className="rounded-2xl surface-elevated p-5 mb-4">
@@ -511,9 +516,10 @@ function AddRow({
       </div>
       <div className="flex items-center gap-2 mt-4">
         <button
+          type="button"
           disabled={!valid}
           onClick={() =>
-            onAdd({
+            void onAdd({
               kind,
               name,
               sku,
@@ -528,7 +534,7 @@ function AddRow({
           <Check className="size-4" />
           Agregar al catálogo
         </button>
-        <button onClick={onCancel} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold">
+        <button type="button" onClick={onCancel} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold">
           Cancelar
         </button>
       </div>

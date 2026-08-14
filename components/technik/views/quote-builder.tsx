@@ -75,6 +75,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   const [newExtra, setNewExtra] = useState({ name: "", unit: "ud", unitCost: 0 })
   const [saveHint, setSaveHint] = useState<"idle" | "saving" | "saved">("idle")
   const [draftId, setDraftId] = useState<string | undefined>(existing?.id)
+  const [formError, setFormError] = useState("")
 
   const creatingRef = useRef(false)
   const lastSavedSig = useRef(
@@ -255,21 +256,33 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     })
   }
 
-  function createAndSelectClient() {
-    if (!newClient.company || !newClient.email) return
-    const cid = addClient({
+  async function createAndSelectClient() {
+    if (!newClient.company || !newClient.email) {
+      setFormError("Empresa y correo son obligatorios.")
+      return
+    }
+    setFormError("")
+    const res = await addClient({
       ...newClient,
       rfc: newClient.rfc.trim().toUpperCase(),
     })
-    setClientId(cid)
+    if (!res.ok) {
+      setFormError(res.error)
+      return
+    }
+    setClientId(res.id)
     setClientModal(false)
     setNewClient(EMPTY_CLIENT)
   }
 
-  function submitNewExtra() {
+  async function submitNewExtra() {
     const name = newExtra.name.trim()
-    if (!name) return
-    const newId = addCatalogItem({
+    if (!name) {
+      setFormError("El nombre del extra es obligatorio.")
+      return
+    }
+    setFormError("")
+    const res = await addCatalogItem({
       kind: "extra",
       name,
       sku: `FIELD-${Date.now().toString(36).toUpperCase()}`,
@@ -277,9 +290,13 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
       unit: newExtra.unit.trim() || "ud",
       unitCost: Math.max(0, Number(newExtra.unitCost) || 0),
     })
+    if (!res.ok) {
+      setFormError(res.error)
+      return
+    }
     setLines((prev) => {
-      const rest = prev.filter((l) => l.itemId !== newId)
-      return [...rest, { itemId: newId, quantity: 1 }]
+      const rest = prev.filter((l) => l.itemId !== res.id)
+      return [...rest, { itemId: res.id, quantity: 1 }]
     })
     setExtraModal(false)
     setNewExtra({ name: "", unit: "ud", unitCost: 0 })
@@ -448,7 +465,10 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
             <p className="text-sm font-semibold text-foreground">Cliente</p>
             <button
               type="button"
-              onClick={() => setClientModal(true)}
+              onClick={() => {
+                setFormError("")
+                setClientModal(true)
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
             >
               <Plus className="size-3.5" />
@@ -519,7 +539,10 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
             <p className="text-sm font-semibold text-foreground">Extras en sitio</p>
             <button
               type="button"
-              onClick={() => setExtraModal(true)}
+              onClick={() => {
+                setFormError("")
+                setExtraModal(true)
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
             >
               <Plus className="size-3.5" />
@@ -744,10 +767,11 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
               </Field>
             </div>
           </div>
+          {formError ? <p className="mt-3 text-xs text-destructive">{formError}</p> : null}
           <div className="mt-4 flex gap-2">
             <button
               type="button"
-              onClick={createAndSelectClient}
+              onClick={() => void createAndSelectClient()}
               disabled={!newClient.company || !newClient.email}
               className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
@@ -800,10 +824,11 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
               </Field>
             )}
           </div>
+          {formError ? <p className="mt-3 text-xs text-destructive">{formError}</p> : null}
           <div className="mt-4 flex gap-2">
             <button
               type="button"
-              onClick={submitNewExtra}
+              onClick={() => void submitNewExtra()}
               disabled={!newExtra.name.trim()}
               className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >

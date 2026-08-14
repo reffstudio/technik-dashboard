@@ -30,6 +30,34 @@ export async function loadProfiles(): Promise<User[]> {
   return (data as ProfileRow[]).map(userFromProfile)
 }
 
+async function updateProfileAndRead(authId: string, body: Record<string, unknown>) {
+  const supabase = getSupabaseBrowser()
+  let { data, error } = await supabase
+    .from("profiles")
+    .update(body)
+    .eq("id", authId)
+    .select(PROFILE_COLUMNS)
+    .maybeSingle()
+  if (error && /invite_pending/i.test(error.message)) {
+    const retry = await supabase
+      .from("profiles")
+      .update(body)
+      .eq("id", authId)
+      .select(PROFILE_COLUMNS_LEGACY)
+      .maybeSingle()
+    data = retry.data
+    error = retry.error
+  }
+  if (error) return { ok: false as const, error: profileError(error) }
+  if (!data) {
+    return {
+      ok: false as const,
+      error: "No se pudo guardar el perfil. Recarga e inténtalo de nuevo.",
+    }
+  }
+  return { ok: true as const, user: userFromProfile(data as ProfileRow) }
+}
+
 export async function persistProfile(authId: string, patch: ProfilePatch): Promise<
   { ok: true; user: User } | { ok: false; error: string }
 > {
@@ -49,15 +77,7 @@ export async function persistProfile(authId: string, patch: ProfilePatch): Promi
     return { ok: false, error: "No hay cambios para guardar." }
   }
 
-  const supabase = getSupabaseBrowser()
-  const { data, error } = await supabase
-    .from("profiles")
-    .update(body)
-    .eq("id", authId)
-    .select(PROFILE_COLUMNS)
-    .maybeSingle()
-  if (error || !data) return { ok: false, error: profileError(error) }
-  return { ok: true, user: userFromProfile(data as ProfileRow) }
+  return updateProfileAndRead(authId, body)
 }
 
 export async function persistAvatar(authId: string, file: File): Promise<
@@ -75,14 +95,9 @@ export async function persistAvatar(authId: string, file: File): Promise<
     })
     if (uploadError) return { ok: false, error: "No se pudo subir la foto." }
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .update({ avatar_path: path })
-      .eq("id", authId)
-      .select(PROFILE_COLUMNS)
-      .maybeSingle()
-    if (error || !data) return { ok: false, error: "La foto se subió, pero no se guardó en el perfil." }
-    return { ok: true, user: userFromProfile(data as ProfileRow) }
+    const saved = await updateProfileAndRead(authId, { avatar_path: path })
+    if (!saved.ok) return { ok: false, error: "La foto se subió, pero no se guardó en el perfil." }
+    return saved
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "No se pudo procesar la foto." }
   }
@@ -93,12 +108,7 @@ export async function clearAvatar(authId: string): Promise<
 > {
   const supabase = getSupabaseBrowser()
   await supabase.storage.from("avatars").remove([`${authId}/avatar.webp`, `${authId}/avatar.jpg`])
-  const { data, error } = await supabase
-    .from("profiles")
-    .update({ avatar_path: null })
-    .eq("id", authId)
-    .select(PROFILE_COLUMNS)
-    .maybeSingle()
-  if (error || !data) return { ok: false, error: "No se pudo quitar la foto." }
-  return { ok: true, user: userFromProfile(data as ProfileRow) }
+  const saved = await updateProfileAndRead(authId, { avatar_path: null })
+  if (!saved.ok) return { ok: false, error: saved.error || "No se pudo quitar la foto." }
+  return saved
 }

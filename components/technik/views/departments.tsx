@@ -62,28 +62,39 @@ export function DepartmentsView() {
     setEditDraft(emptyDraft())
   }
 
-  function saveNew() {
+  async function saveNew() {
     if (!draft.label.trim()) {
       setError("Escribe el nombre del departamento.")
       return
     }
-    addDepartment({
+    const res = await addDepartment({
       label: draft.label,
       short: draft.short || undefined,
       colorId: draft.colorId,
     })
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     setDraft(emptyDraft())
     setAdding(false)
     setError(null)
   }
 
-  function saveEdit() {
-    if (!editingId || !editDraft.label.trim()) return
-    updateDepartment(editingId, {
+  async function saveEdit() {
+    if (!editingId || !editDraft.label.trim()) {
+      setError("Escribe el nombre del departamento.")
+      return
+    }
+    const res = await updateDepartment(editingId, {
       label: editDraft.label.trim(),
       short: editDraft.short.trim() || editDraft.label.trim(),
       colorId: editDraft.colorId,
     })
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     cancelEdit()
   }
 

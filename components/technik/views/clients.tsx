@@ -61,17 +61,26 @@ export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
     })
   }
 
-  function submitNew() {
-    if (!form.company || !form.email) return
-    const id = addClient({
+  async function submitNew() {
+    if (!form.company || !form.email) {
+      setError("Empresa y correo son obligatorios.")
+      return
+    }
+    setSaving(true)
+    setError("")
+    const res = await addClient({
       ...form,
       rfc: form.rfc.trim().toUpperCase(),
     })
+    setSaving(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     setAdding(false)
     setForm(emptyForm)
     if (user?.role === "empleado" && navigate) {
       navigate({ name: "builder" })
-      void id
     }
   }
 
@@ -117,6 +126,7 @@ export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
         }
       >
         <button
+          type="button"
           onClick={openCreate}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
         >

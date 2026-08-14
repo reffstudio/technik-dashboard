@@ -60,9 +60,19 @@ export function SuppliersView() {
     })
   }
 
-  function submitNew() {
-    if (!form.name || !form.email) return
-    addSupplier(form)
+  async function submitNew() {
+    if (!form.name || !form.email) {
+      setError("Empresa y correo son obligatorios.")
+      return
+    }
+    setSaving(true)
+    setError("")
+    const res = await addSupplier(form)
+    setSaving(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     setAdding(false)
     setForm(emptyForm)
   }
@@ -101,6 +111,7 @@ export function SuppliersView() {
         subtitle="Contactos y canal preferido para enviar la lista de materiales."
       >
         <button
+          type="button"
           onClick={openCreate}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
         >

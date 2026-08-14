@@ -190,11 +190,15 @@ interface TechnikState {
     authId?: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   // clients
-  addClient: (client: Omit<Client, "id" | "since">) => string
+  addClient: (
+    client: Omit<Client, "id" | "since">,
+  ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>
   updateClient: (id: string, patch: Partial<Client>) => Promise<{ ok: true } | { ok: false; error: string }>
   removeClient: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // suppliers
-  addSupplier: (supplier: Omit<Supplier, "id">) => string
+  addSupplier: (
+    supplier: Omit<Supplier, "id">,
+  ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>
   updateSupplier: (id: string, patch: Partial<Supplier>) => Promise<{ ok: true } | { ok: false; error: string }>
   removeSupplier: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // departments
@@ -202,8 +206,11 @@ interface TechnikState {
     label: string
     short?: string
     colorId?: DepartmentColorId
-  }) => string
-  updateDepartment: (id: WorkDepartment, patch: Partial<Omit<DepartmentConfig, "id">>) => void
+  }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>
+  updateDepartment: (
+    id: WorkDepartment,
+    patch: Partial<Omit<DepartmentConfig, "id">>,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
   removeDepartment: (id: WorkDepartment) => { ok: true } | { ok: false; error: string }
   // treasury
   addExpense: (input: Omit<ExpenseEntry, "id" | "createdAt">) => string
@@ -318,7 +325,9 @@ interface TechnikState {
   ) => void
   projectByQuotationId: (quotationId: string) => Project | undefined
   // catalog
-  addCatalogItem: (item: Omit<CatalogItem, "id"> & { id?: string }) => string
+  addCatalogItem: (
+    item: Omit<CatalogItem, "id"> & { id?: string },
+  ) => Promise<{ ok: true; id: string } | { ok: false; error: string }>
   updateCatalogItem: (id: string, patch: Partial<CatalogItem>) => Promise<{ ok: true } | { ok: false; error: string }>
   removeCatalogItem: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }
@@ -949,14 +958,25 @@ export function TechnikProvider({
     }
     const email = authEmail?.trim()
     if (email && email !== row.email) {
-      const { data: synced } = await supabase
+      const { data: synced, error: syncError } = await supabase
         .from("profiles")
         .update({ email })
         .eq("id", authUserId)
         .select(PROFILE_COLUMNS)
         .maybeSingle()
-      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-      row = (synced as ProfileRow | null) ?? { ...row, email }
+      if (syncError && /invite_pending/i.test(syncError.message)) {
+        const retry = await supabase
+          .from("profiles")
+          .update({ email })
+          .eq("id", authUserId)
+          .select(PROFILE_COLUMNS_LEGACY)
+          .maybeSingle()
+        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+        row = (retry.data as ProfileRow | null) ?? { ...row, email }
+      } else {
+        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+        row = (synced as ProfileRow | null) ?? { ...row, email }
+      }
     }
     const next = userFromProfile(row)
     if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
@@ -1312,13 +1332,19 @@ export function TechnikProvider({
     [user?.authId, applyPersistedUser],
   )
 
-  const addClient = useCallback((input: Omit<Client, "id" | "since">) => {
-    const id = nextClientCode(clients.map((c) => c.id))
-    const client: Client = { ...input, id, since: new Date().getFullYear().toString() }
-    setClients((prev) => [client, ...prev])
-    if (isSupabaseConfigured()) void persistClient(client)
-    return id
-  }, [clients])
+  const addClient = useCallback(
+    async (input: Omit<Client, "id" | "since">) => {
+      const id = nextClientCode(clients.map((c) => c.id))
+      const client: Client = { ...input, id, since: new Date().getFullYear().toString() }
+      if (isSupabaseConfigured()) {
+        const res = await persistClient(client)
+        if (!res.ok) return res
+      }
+      setClients((prev) => [client, ...prev])
+      return { ok: true as const, id }
+    },
+    [clients],
+  )
 
   const updateClient = useCallback(
     async (id: string, patch: Partial<Client>) => {
@@ -1353,13 +1379,19 @@ export function TechnikProvider({
     [quotations, projects],
   )
 
-  const addSupplier = useCallback((input: Omit<Supplier, "id">) => {
-    const id = nextVendorCode(suppliers.map((s) => s.id))
-    const supplier: Supplier = { ...input, id }
-    setSuppliers((prev) => [supplier, ...prev])
-    if (isSupabaseConfigured()) void persistSupplier(supplier)
-    return id
-  }, [suppliers])
+  const addSupplier = useCallback(
+    async (input: Omit<Supplier, "id">) => {
+      const id = nextVendorCode(suppliers.map((s) => s.id))
+      const supplier: Supplier = { ...input, id }
+      if (isSupabaseConfigured()) {
+        const res = await persistSupplier(supplier)
+        if (!res.ok) return res
+      }
+      setSuppliers((prev) => [supplier, ...prev])
+      return { ok: true as const, id }
+    },
+    [suppliers],
+  )
 
   const updateSupplier = useCallback(
     async (id: string, patch: Partial<Supplier>) => {
@@ -2261,7 +2293,7 @@ export function TechnikProvider({
   )
 
   const addCatalogItem = useCallback(
-    (item: Omit<CatalogItem, "id"> & { id?: string }) => {
+    async (item: Omit<CatalogItem, "id"> & { id?: string }) => {
       const id =
         item.id ??
         nextCatalogCode(
@@ -2270,12 +2302,15 @@ export function TechnikProvider({
           item.category,
         )
       const next = { ...item, id }
-      setCatalog((prev) => {
-        if (prev.some((c) => c.id === id)) return prev
-        return [next, ...prev]
-      })
-      if (isSupabaseConfigured()) void persistCatalogItem(next)
-      return id
+      if (catalog.some((c) => c.id === id)) {
+        return { ok: false as const, error: "Ese código de catálogo ya existe." }
+      }
+      if (isSupabaseConfigured()) {
+        const res = await persistCatalogItem(next)
+        if (!res.ok) return res
+      }
+      setCatalog((prev) => [next, ...prev])
+      return { ok: true as const, id }
     },
     [catalog],
   )
@@ -2305,8 +2340,9 @@ export function TechnikProvider({
   }, [])
 
   const addDepartment = useCallback(
-    (input: { label: string; short?: string; colorId?: DepartmentColorId }) => {
+    async (input: { label: string; short?: string; colorId?: DepartmentColorId }) => {
       const label = input.label.trim()
+      if (!label) return { ok: false as const, error: "Escribe el nombre del departamento." }
       const id = departmentIdFromLabel(
         label,
         departments.map((d) => d.id),
@@ -2317,33 +2353,35 @@ export function TechnikProvider({
         short: (input.short?.trim() || shortDepartmentLabel(label)),
         colorId: normalizeDepartmentColorId(input.colorId ?? "azul"),
       }
+      if (isSupabaseConfigured()) {
+        const res = await persistDepartment(dept)
+        if (!res.ok) return res
+      }
       setDepartments((prev) => [...prev, dept])
-      if (isSupabaseConfigured()) void persistDepartment(dept)
-      return id
+      return { ok: true as const, id }
     },
     [departments],
   )
 
   const updateDepartment = useCallback(
-    (id: WorkDepartment, patch: Partial<Omit<DepartmentConfig, "id">>) => {
-      setDepartments((prev) => {
-        const nextList = prev.map((d) => {
-          if (d.id !== id) return d
-          const next = { ...d, ...patch }
-          if (patch.label && !patch.short) {
-            next.short = shortDepartmentLabel(patch.label)
-          }
-          if (patch.colorId) {
-            next.colorId = normalizeDepartmentColorId(patch.colorId)
-          }
-          return next
-        })
-        const saved = nextList.find((d) => d.id === id)
-        if (saved && isSupabaseConfigured()) void persistDepartment(saved)
-        return nextList
-      })
+    async (id: WorkDepartment, patch: Partial<Omit<DepartmentConfig, "id">>) => {
+      const current = departments.find((d) => d.id === id)
+      if (!current) return { ok: false as const, error: "Departamento no encontrado." }
+      const next: DepartmentConfig = { ...current, ...patch }
+      if (patch.label && !patch.short) {
+        next.short = shortDepartmentLabel(patch.label)
+      }
+      if (patch.colorId) {
+        next.colorId = normalizeDepartmentColorId(patch.colorId)
+      }
+      if (isSupabaseConfigured()) {
+        const res = await persistDepartment(next)
+        if (!res.ok) return res
+      }
+      setDepartments((prev) => prev.map((d) => (d.id === id ? next : d)))
+      return { ok: true as const }
     },
-    [],
+    [departments],
   )
 
   const removeDepartment = useCallback(

@@ -1,15 +1,18 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Plus, Check, ShieldCheck, HardHat, Pencil, X, Trash2, Hourglass } from "lucide-react"
-import { formatUsername, sanitizeUsername, uniqueUsername, usernameFromName } from "@/lib/technik/codes"
+import { formatUsername, isValidUsername, sanitizeUsername, uniqueUsername, usernameFromName } from "@/lib/technik/codes"
 import { type Role, type User } from "@/lib/technik/data"
 import { roleLabel, useTechnik } from "@/lib/technik/store"
 import { DepartmentBadge, Field, inputCls, PageHeader, SearchField, UserAvatar } from "../ui"
 
+function rowKey(u: User) {
+  return u.authId || u.id
+}
+
 export function UsersView() {
   const { users, departments, user: current, inviteUser, updateUser, upsertUser, deleteUser } = useTechnik()
-  const defaultDept = departments[0]?.id ?? ""
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -24,10 +27,19 @@ export function UsersView() {
     username: "",
     email: "",
     role: "empleado" as Role,
-    department: defaultDept,
+    department: "",
     location: "",
     active: true,
   })
+
+  useEffect(() => {
+    const first = departments[0]?.id ?? ""
+    if (!first) return
+    setForm((f) => {
+      if (f.department && departments.some((d) => d.id === f.department)) return f
+      return { ...f, department: first }
+    })
+  }, [departments])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -57,6 +69,7 @@ export function UsersView() {
 
   function openCreate() {
     setEditingId(null)
+    setConfirmDeleteId(null)
     setError("")
     setInviteLink("")
     setEmailed(false)
@@ -70,27 +83,43 @@ export function UsersView() {
       location: "",
       active: true,
     })
-    setAdding((v) => !v)
+    setAdding(true)
   }
 
   function openEdit(u: User) {
     setAdding(false)
+    setConfirmDeleteId(null)
     setError("")
-    setEditingId(u.authId ?? u.id)
+    setInviteLink("")
+    setEditingId(rowKey(u))
     setForm({
       name: u.name,
       username: u.username,
       email: u.email,
       role: u.role,
-      department: u.department,
+      department: u.department || departments[0]?.id || "",
       location: u.location,
       active: u.active,
     })
   }
 
   async function submitInvite() {
-    if (!form.name || !form.email || !form.department) return
-    const username = uniqueUsername(form.username || usernameFromName(form.name), users.map((u) => u.username))
+    const name = form.name.trim()
+    const email = form.email.trim()
+    const department = form.department.trim() || departments[0]?.id || ""
+    const username = uniqueUsername(form.username || usernameFromName(name), users.map((u) => u.username))
+    if (!name || !email) {
+      setError("Nombre y correo son obligatorios.")
+      return
+    }
+    if (!department) {
+      setError("Crea un departamento antes de invitar.")
+      return
+    }
+    if (!isValidUsername(username)) {
+      setError("El username debe tener 2–32 caracteres (a-z, 0-9 o _).")
+      return
+    }
     setBusy(true)
     setError("")
     setInviteLink("")
@@ -98,11 +127,11 @@ export function UsersView() {
     setMailError("")
     try {
       const res = await inviteUser({
-        name: form.name.trim(),
-        email: form.email.trim(),
+        name,
+        email,
         username,
         role: form.role,
-        department: form.department,
+        department,
         location: form.location.trim(),
       })
       if (!res.ok) {
@@ -122,49 +151,68 @@ export function UsersView() {
   }
 
   async function submitEdit() {
-    const target = users.find((u) => (u.authId ?? u.id) === editingId)
-    if (!target) return
+    const target = users.find((u) => rowKey(u) === editingId)
+    if (!target) {
+      setError("No se encontró el usuario.")
+      return
+    }
+    const name = form.name.trim() || target.name
+    const username = sanitizeUsername(form.username) || target.username
+    const department = form.department.trim() || target.department
+    if (!name) {
+      setError("El nombre es obligatorio.")
+      return
+    }
+    if (!isValidUsername(username)) {
+      setError("El username debe tener 2–32 caracteres (a-z, 0-9 o _).")
+      return
+    }
     setBusy(true)
     setError("")
-    if (target.authId) {
-      const res = await updateUser(target.authId, {
-        name: form.name.trim() || target.name,
-        username: sanitizeUsername(form.username),
-        department: form.department,
-        location: form.location.trim(),
-        active: form.active,
-      })
-      setBusy(false)
-      if (!res.ok) {
-        setError(res.error)
-        return
+    try {
+      if (target.authId) {
+        const res = await updateUser(target.authId, {
+          name,
+          username,
+          department,
+          location: form.location.trim(),
+          active: form.active,
+        })
+        if (!res.ok) {
+          setError(res.error)
+          return
+        }
+      } else {
+        upsertUser({
+          ...target,
+          name,
+          username,
+          id: username || target.id,
+          department,
+          location: form.location.trim(),
+          active: form.active,
+        })
       }
-    } else {
-      upsertUser({
-        ...target,
-        name: form.name.trim() || target.name,
-        username: sanitizeUsername(form.username) || target.username,
-        id: sanitizeUsername(form.username) || target.id,
-        department: form.department,
-        location: form.location.trim(),
-        active: form.active,
-      })
+      setEditingId(null)
+    } finally {
       setBusy(false)
     }
-    setEditingId(null)
   }
 
   async function submitDelete(authId: string) {
     setBusy(true)
     setError("")
-    const res = await deleteUser(authId)
-    setBusy(false)
-    if (!res.ok) {
-      setError(res.error)
-      return
+    try {
+      const res = await deleteUser(authId)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      setConfirmDeleteId(null)
+      setEditingId(null)
+    } finally {
+      setBusy(false)
     }
-    setConfirmDeleteId(null)
-    setEditingId(null)
   }
 
   function deptLabel(id: string) {
@@ -178,6 +226,7 @@ export function UsersView() {
         subtitle="Administradores ven costos y despachan. Colaboradores arman cotizaciones en campo."
       >
         <button
+          type="button"
           onClick={openCreate}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
         >
@@ -271,14 +320,19 @@ export function UsersView() {
           </p>
           <div className="sm:col-span-2 flex gap-2">
             <button
+              type="button"
               onClick={() => void submitInvite()}
-              disabled={!form.department || busy}
+              disabled={busy}
               className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
               <Check className="size-4" />
               {busy ? "Enviando…" : "Enviar invitación"}
             </button>
-            <button onClick={() => setAdding(false)} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold">
+            <button
+              type="button"
+              onClick={() => setAdding(false)}
+              className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
+            >
               Cancelar
             </button>
           </div>
@@ -299,7 +353,7 @@ export function UsersView() {
           </p>
         ) : (
           filtered.map((u) => {
-            const key = u.authId || u.email || u.id
+            const key = rowKey(u)
             const editing = editingId === key
             return (
               <div key={key} className="rounded-2xl surface-card p-4">
