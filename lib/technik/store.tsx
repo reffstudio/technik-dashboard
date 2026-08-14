@@ -394,6 +394,7 @@ export function TechnikProvider({
   userRoleRef.current = user?.role
   const authHydrateGen = useRef(0)
   const rosterReadyForAuthId = useRef<string | null>(null)
+  const logoutIntentRef = useRef(false)
 
   const workspaceRef = useRef({
     users,
@@ -918,6 +919,7 @@ export function TechnikProvider({
   }, [])
 
   const applyAuthUser = useCallback(async (authUserId: string, authEmail?: string | null) => {
+    if (logoutIntentRef.current) return { ok: false as const, error: "Sesión cerrada." }
     const gen = ++authHydrateGen.current
     const supabase = getSupabaseBrowser()
     let { data, error } = await supabase
@@ -934,7 +936,7 @@ export function TechnikProvider({
       data = retry.data
       error = retry.error
     }
-    if (gen !== authHydrateGen.current) return { ok: true as const }
+    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
     if (error || !data) {
       return {
         ok: false as const,
@@ -953,16 +955,17 @@ export function TechnikProvider({
         .eq("id", authUserId)
         .select(PROFILE_COLUMNS)
         .maybeSingle()
-      if (gen !== authHydrateGen.current) return { ok: true as const }
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
       row = (synced as ProfileRow | null) ?? { ...row, email }
     }
     const next = userFromProfile(row)
+    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
     setUser(next)
     if (rosterReadyForAuthId.current === authUserId) {
       return { ok: true as const }
     }
     const [roster, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
-    if (gen !== authHydrateGen.current) return { ok: true as const }
+    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
     rosterReadyForAuthId.current = authUserId
     setUsers(dedupeUsers(roster.length > 0 ? roster : [next]))
     setDepartments(core.departments)
@@ -990,6 +993,10 @@ export function TechnikProvider({
     }
 
     void supabase.auth.getSession().then(async ({ data }) => {
+      if (cancelled || logoutIntentRef.current) {
+        if (!cancelled) setAuthReady(true)
+        return
+      }
       const authUser = data.session?.user
       if (authUser && gatePassword(undefined, authUser)) {
         if (!cancelled) {
@@ -1003,18 +1010,21 @@ export function TechnikProvider({
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session?.user) {
+      if (event === "SIGNED_OUT" || !session?.user) {
         setUser(null)
         if (!capturePasswordSetupHintFromLocation()) setMustSetPassword(false)
         rosterReadyForAuthId.current = null
         return
       }
+      if (logoutIntentRef.current) return
       if (event === "TOKEN_REFRESHED") return
       if (gatePassword(event, session.user)) {
         setMustSetPassword(true)
         return
       }
-      void applyAuthUser(session.user.id, session.user.email)
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "USER_UPDATED") {
+        void applyAuthUser(session.user.id, session.user.email)
+      }
     })
 
     return () => {
@@ -1032,6 +1042,7 @@ export function TechnikProvider({
         }
       }
       const supabase = getSupabaseBrowser()
+      logoutIntentRef.current = false
       clearPasswordSetupHint()
       setMustSetPassword(false)
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -1052,14 +1063,16 @@ export function TechnikProvider({
   )
 
   const logout = useCallback(async () => {
+    logoutIntentRef.current = true
     setUser(null)
     setMustSetPassword(false)
     rosterReadyForAuthId.current = null
     authHydrateGen.current += 1
     clearPasswordSetupHint()
-    if (isSupabaseConfigured()) {
-      await getSupabaseBrowser().auth.signOut()
-    }
+    if (!isSupabaseConfigured()) return
+    const supabase = getSupabaseBrowser()
+    await supabase.auth.signOut({ scope: "local" })
+    void supabase.auth.signOut({ scope: "global" }).catch(() => undefined)
   }, [])
 
   const requestPasswordReset = useCallback(async (email: string) => {
