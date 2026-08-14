@@ -1,6 +1,19 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+html {
+  touch-action: manipulation;
+}
+
+/* iOS hace zoom al enfocar inputs < 16px. Forzar 16px en móvil. */
+@media screen and (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
