@@ -8,7 +8,7 @@ import { roleLabel, useTechnik } from "@/lib/technik/store"
 import { DepartmentBadge, Field, inputCls, PageHeader, SearchField, UserAvatar } from "../ui"
 
 export function UsersView() {
-  const { users, departments, user: current, upsertUser, updateUser } = useTechnik()
+  const { users, departments, user: current, inviteUser, updateUser } = useTechnik()
   const defaultDept = departments[0]?.id ?? ""
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -20,7 +20,6 @@ export function UsersView() {
     username: "",
     email: "",
     role: "empleado" as Role,
-    password: "",
     department: defaultDept,
     location: "",
     active: true,
@@ -60,7 +59,6 @@ export function UsersView() {
       username: "",
       email: "",
       role: "empleado",
-      password: "",
       department: departments[0]?.id ?? "",
       location: "",
       active: true,
@@ -77,29 +75,30 @@ export function UsersView() {
       username: u.username,
       email: u.email,
       role: u.role,
-      password: "",
       department: u.department,
       location: u.location,
       active: u.active,
     })
   }
 
-  function submitCreate() {
+  async function submitInvite() {
     if (!form.name || !form.email || !form.department) return
     const username = uniqueUsername(form.username || usernameFromName(form.name), users.map((u) => u.username))
-    const created: User = {
-      id: username,
+    setBusy(true)
+    setError("")
+    const res = await inviteUser({
+      name: form.name.trim(),
+      email: form.email.trim(),
       username,
-      name: form.name,
-      email: form.email,
       role: form.role,
-      password: form.password,
       department: form.department,
-      location: form.location || "—",
-      since: new Date().getFullYear().toString(),
-      active: true,
+      location: form.location.trim(),
+    })
+    setBusy(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
     }
-    upsertUser(created)
     setAdding(false)
   }
 
@@ -151,7 +150,7 @@ export function UsersView() {
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
         >
           <Plus className="size-4" />
-          Nuevo usuario
+          Invitar colaborador
         </button>
       </PageHeader>
 
@@ -204,18 +203,22 @@ export function UsersView() {
           <Field label="Ubicación / equipo">
             <input className={inputCls} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
           </Field>
+          {error && adding && (
+            <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
           <p className="sm:col-span-2 text-xs text-muted-foreground">
-            El alta con correo y contraseña en Auth se conecta en el siguiente paso. Este formulario solo deja el
-            usuario en la lista local.
+            Les llega un correo de Supabase para crear su contraseña y entrar a dashboard.solutionstechnik.com
           </p>
           <div className="sm:col-span-2 flex gap-2">
             <button
-              onClick={submitCreate}
-              disabled={!form.department}
+              onClick={() => void submitInvite()}
+              disabled={!form.department || busy}
               className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
               <Check className="size-4" />
-              Crear usuario
+              {busy ? "Enviando…" : "Enviar invitación"}
             </button>
             <button onClick={() => setAdding(false)} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold">
               Cancelar

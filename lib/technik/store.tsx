@@ -109,6 +109,14 @@ import {
   persistProfile,
   type ProfilePatch,
 } from "./profile-persist"
+import {
+  deleteDepartment,
+  loadCoreWorkspace,
+  persistCatalogItem,
+  persistClient,
+  persistDepartment,
+  persistSupplier,
+} from "./core-persist"
 
 interface TechnikState {
   authed: boolean
@@ -143,6 +151,14 @@ interface TechnikState {
   logout: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // users
+  inviteUser: (input: {
+    name: string
+    email: string
+    username: string
+    role: Role
+    department: string
+    location: string
+  }) => Promise<{ ok: true } | { ok: false; error: string }>
   upsertUser: (user: User) => void
   updateProfile: (
     patch: ProfilePatch,
@@ -459,15 +475,25 @@ export function TechnikProvider({
     skipBroadcastRef.current = true
     // Solo el rev canónico del servidor cuenta para el poll (nunca adelantar en buildSnapshot).
     revRef.current = snapshot.rev
-    setUsers(snapshot.users)
-    setClients(
-      snapshot.clients.map((c) => ({
-        ...c,
-        rfc: (c as Client).rfc ?? "",
-      })),
-    )
-    setSuppliers(snapshot.suppliers)
-    setCatalog(snapshot.catalog)
+    if (!isSupabaseConfigured()) {
+      setUsers(snapshot.users)
+      setClients(
+        snapshot.clients.map((c) => ({
+          ...c,
+          rfc: (c as Client).rfc ?? "",
+        })),
+      )
+      setSuppliers(snapshot.suppliers)
+      setCatalog(snapshot.catalog)
+      setDepartments(
+        snapshot.departments
+          .filter((d) => d.id !== "soldadura_maquinados")
+          .map((d) => ({
+            ...d,
+            colorId: normalizeDepartmentColorId(d.colorId),
+          })),
+      )
+    }
     setQuotations(
       promoteInboxQueuedDrafts(
         snapshot.quotations
@@ -480,14 +506,6 @@ export function TechnikProvider({
       ),
     )
     setProjects(snapshot.projects.map((p) => normalizeProject(p)))
-    setDepartments(
-      snapshot.departments
-        .filter((d) => d.id !== "soldadura_maquinados")
-        .map((d) => ({
-          ...d,
-          colorId: normalizeDepartmentColorId(d.colorId),
-        })),
-    )
     setPaymentEvents(snapshot.paymentEvents ?? [])
     setInboxEvents(snapshot.inboxEvents ?? [])
     setExpenses(snapshot.expenses ?? [])
@@ -903,8 +921,12 @@ export function TechnikProvider({
     }
     const next = userFromProfile(row)
     setUser(next)
-    const roster = await loadProfiles()
+    const [roster, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
     setUsers(roster.length > 0 ? roster : [next])
+    setDepartments(core.departments)
+    setClients(core.clients)
+    setSuppliers(core.suppliers)
+    setCatalog(core.catalog)
     return { ok: true as const }
   }, [])
 
@@ -980,6 +1002,41 @@ export function TechnikProvider({
     if (error) return { ok: false as const, error: "No se pudo enviar el correo de recuperación." }
     return { ok: true as const }
   }, [])
+
+  const inviteUser = useCallback(
+    async (input: {
+      name: string
+      email: string
+      username: string
+      role: Role
+      department: string
+      location: string
+    }) => {
+      const supabase = getSupabaseBrowser()
+      const { data } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) return { ok: false as const, error: "Sesión inválida." }
+      const res = await fetch("/api/users/invite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(input),
+      })
+      const json = (await res.json().catch(() => null)) as
+        | { ok: true; id: string }
+        | { ok: false; error: string }
+        | null
+      if (!json || !json.ok) {
+        return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo invitar." }
+      }
+      const roster = await loadProfiles()
+      if (roster.length > 0) setUsers(roster)
+      return { ok: true as const }
+    },
+    [],
+  )
 
   const upsertUser = useCallback((u: User) => {
     setUsers((prev) => {
@@ -1070,22 +1127,34 @@ export function TechnikProvider({
     const id = nextClientCode(clients.map((c) => c.id))
     const client: Client = { ...input, id, since: new Date().getFullYear().toString() }
     setClients((prev) => [client, ...prev])
+    if (isSupabaseConfigured()) void persistClient(client)
     return id
   }, [clients])
 
   const updateClient = useCallback((id: string, patch: Partial<Client>) => {
-    setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+    setClients((prev) => {
+      const next = prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
+      const saved = next.find((c) => c.id === id)
+      if (saved && isSupabaseConfigured()) void persistClient(saved)
+      return next
+    })
   }, [])
 
   const addSupplier = useCallback((input: Omit<Supplier, "id">) => {
     const id = nextVendorCode(suppliers.map((s) => s.id))
     const supplier: Supplier = { ...input, id }
     setSuppliers((prev) => [supplier, ...prev])
+    if (isSupabaseConfigured()) void persistSupplier(supplier)
     return id
   }, [suppliers])
 
   const updateSupplier = useCallback((id: string, patch: Partial<Supplier>) => {
-    setSuppliers((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+    setSuppliers((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      const saved = next.find((s) => s.id === id)
+      if (saved && isSupabaseConfigured()) void persistSupplier(saved)
+      return next
+    })
   }, [])
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
@@ -1969,19 +2038,24 @@ export function TechnikProvider({
           item.kind,
           item.category,
         )
+      const next = { ...item, id }
       setCatalog((prev) => {
         if (prev.some((c) => c.id === id)) return prev
-        return [{ ...item, id }, ...prev]
+        return [next, ...prev]
       })
+      if (isSupabaseConfigured()) void persistCatalogItem(next)
       return id
     },
     [catalog],
   )
 
   const updateCatalogItem = useCallback((id: string, patch: Partial<CatalogItem>) => {
-    setCatalog((prev) =>
-      prev.map((c) => (c.id !== id ? c : { ...c, ...patch, id: c.id })),
-    )
+    setCatalog((prev) => {
+      const next = prev.map((c) => (c.id !== id ? c : { ...c, ...patch, id: c.id }))
+      const saved = next.find((c) => c.id === id)
+      if (saved && isSupabaseConfigured()) void persistCatalogItem(saved)
+      return next
+    })
   }, [])
 
   const addDepartment = useCallback(
@@ -1998,6 +2072,7 @@ export function TechnikProvider({
         colorId: normalizeDepartmentColorId(input.colorId ?? "azul"),
       }
       setDepartments((prev) => [...prev, dept])
+      if (isSupabaseConfigured()) void persistDepartment(dept)
       return id
     },
     [departments],
@@ -2005,8 +2080,8 @@ export function TechnikProvider({
 
   const updateDepartment = useCallback(
     (id: WorkDepartment, patch: Partial<Omit<DepartmentConfig, "id">>) => {
-      setDepartments((prev) =>
-        prev.map((d) => {
+      setDepartments((prev) => {
+        const nextList = prev.map((d) => {
           if (d.id !== id) return d
           const next = { ...d, ...patch }
           if (patch.label && !patch.short) {
@@ -2016,8 +2091,11 @@ export function TechnikProvider({
             next.colorId = normalizeDepartmentColorId(patch.colorId)
           }
           return next
-        }),
-      )
+        })
+        const saved = nextList.find((d) => d.id === id)
+        if (saved && isSupabaseConfigured()) void persistDepartment(saved)
+        return nextList
+      })
     },
     [],
   )
@@ -2040,6 +2118,7 @@ export function TechnikProvider({
         return { ok: false as const, error: "Debe existir al menos un departamento." }
       }
       setDepartments((prev) => prev.filter((d) => d.id !== id))
+      if (isSupabaseConfigured()) void deleteDepartment(id)
       return { ok: true as const }
     },
     [quotations, users, departments.length],
@@ -2071,6 +2150,7 @@ export function TechnikProvider({
       login,
       logout,
       requestPasswordReset,
+      inviteUser,
       upsertUser,
       updateProfile,
       updateUser,
@@ -2143,6 +2223,7 @@ export function TechnikProvider({
       login,
       logout,
       requestPasswordReset,
+      inviteUser,
       upsertUser,
       updateProfile,
       updateUser,

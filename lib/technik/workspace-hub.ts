@@ -1,17 +1,5 @@
 import {
-  SEED_CATALOG,
-  SEED_CLIENTS,
-  SEED_DEPARTMENTS,
-  SEED_EXPENSES,
-  SEED_PROJECTS,
-  SEED_QUOTATIONS,
-  SEED_SUPPLIERS,
-  SEED_TREASURY_MONTHS,
-  SEED_TREASURY_SEPARADOS,
-  SEED_USERS,
   normalizeDepartmentColorId,
-  normalizeProject,
-  normalizeTreasurySeparado,
   quotationDepartments,
 } from "./data"
 import {
@@ -24,27 +12,21 @@ import { attachVisitPhotosToQuotations } from "./visit-photos-hub"
 
 const DEFAULT_SETTINGS = { showNotificationBadge: true }
 
-function seedSnapshot(): WorkspaceSnapshot {
+function emptySnapshot(): WorkspaceSnapshot {
   return {
     rev: Date.now(),
-    users: SEED_USERS.map((u) => ({ ...u })),
-    clients: SEED_CLIENTS.map((c) => ({ ...c, rfc: c.rfc ?? "" })),
-    suppliers: SEED_SUPPLIERS.map((s) => ({ ...s })),
-    catalog: SEED_CATALOG.map((i) => ({ ...i })),
-    quotations: SEED_QUOTATIONS.map((q) => ({
-      ...q,
-      departments: quotationDepartments(q),
-    })),
-    projects: SEED_PROJECTS.map((p) => normalizeProject(p)),
-    departments: SEED_DEPARTMENTS.filter((d) => d.id !== "soldadura_maquinados").map((d) => ({
-      ...d,
-      colorId: normalizeDepartmentColorId(d.colorId),
-    })),
+    users: [],
+    clients: [],
+    suppliers: [],
+    catalog: [],
+    quotations: [],
+    projects: [],
+    departments: [],
     paymentEvents: [],
     inboxEvents: [],
-    expenses: SEED_EXPENSES.map((e) => ({ ...e })),
-    treasuryMonths: SEED_TREASURY_MONTHS.map((m) => ({ ...m })),
-    treasurySeparados: SEED_TREASURY_SEPARADOS.map((s) => normalizeTreasurySeparado(s)),
+    expenses: [],
+    treasuryMonths: [],
+    treasurySeparados: [],
     apartadoMovements: [],
     settings: { ...DEFAULT_SETTINGS },
   }
@@ -54,12 +36,12 @@ type HubState = {
   snapshot: WorkspaceSnapshot
 }
 
-const globalKey = "__technik_workspace_hub_v1__"
+const globalKey = "__technik_workspace_hub_v2_empty__"
 
 function getHub(): HubState {
   const g = globalThis as typeof globalThis & { [globalKey]?: HubState }
   if (!g[globalKey]) {
-    g[globalKey] = { snapshot: seedSnapshot() }
+    g[globalKey] = { snapshot: emptySnapshot() }
   }
   return g[globalKey]
 }
@@ -88,7 +70,17 @@ export function writeWorkspaceHub(input: {
   audience?: LiveEnvelope["audience"]
 }): { snapshot: WorkspaceSnapshot; envelope: LiveEnvelope } {
   const hub = getHub()
-  const incoming = input.snapshot
+  const incoming: WorkspaceSnapshot = {
+    ...input.snapshot,
+    departments: (input.snapshot.departments ?? []).map((d) => ({
+      ...d,
+      colorId: normalizeDepartmentColorId(d.colorId),
+    })),
+    quotations: (input.snapshot.quotations ?? []).map((q) => ({
+      ...q,
+      departments: quotationDepartments(q),
+    })),
+  }
   const merged = mergeWorkspaces(hub.snapshot, incoming)
   const rev = Math.max(merged.rev, incoming.rev, Date.now())
 
@@ -122,9 +114,9 @@ export function writeWorkspaceHub(input: {
   }
 }
 
-/** Solo pruebas: reinicia el hub a seeds. */
+/** Reinicia el hub vacío. */
 export function resetWorkspaceHub(): WorkspaceSnapshot {
   const hub = getHub()
-  hub.snapshot = seedSnapshot()
+  hub.snapshot = emptySnapshot()
   return hub.snapshot
 }

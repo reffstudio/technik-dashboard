@@ -113,6 +113,14 @@ export function nextVendorCode(existing: string[]): string {
   return `${prefix}${pad(max + 1, 3)}`
 }
 
+export function catalogRpcKind(kind: CatalogKind, category: CatalogCategory): string {
+  if (kind === "labor" || category === "Mano de obra") return "catalog_l"
+  if (kind === "extra") return "catalog_e"
+  if (category === "Componente") return "catalog_k"
+  if (category === "Consumible") return "catalog_n"
+  return "catalog_m"
+}
+
 export function catalogPrefix(kind: CatalogKind, category: CatalogCategory): string {
   if (kind === "labor" || category === "Mano de obra") return `${BRAND_CODE}-L-`
   if (kind === "extra") return `${BRAND_CODE}-E-`
