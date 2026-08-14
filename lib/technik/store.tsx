@@ -874,7 +874,7 @@ export function TechnikProvider({
     })
   }, [])
 
-  const applyAuthUser = useCallback(async (authUserId: string) => {
+  const applyAuthUser = useCallback(async (authUserId: string, authEmail?: string | null) => {
     const supabase = getSupabaseBrowser()
     const { data, error } = await supabase
       .from("profiles")
@@ -887,9 +887,19 @@ export function TechnikProvider({
         error: "Tu usuario no tiene perfil en Technik. Pide a un admin que lo cree.",
       }
     }
-    const row = data as ProfileRow
+    let row = data as ProfileRow
     if (!row.active) {
       return { ok: false as const, error: "Esta cuenta está desactivada." }
+    }
+    const email = authEmail?.trim()
+    if (email && email !== row.email) {
+      const { data: synced } = await supabase
+        .from("profiles")
+        .update({ email })
+        .eq("id", authUserId)
+        .select(PROFILE_COLUMNS)
+        .maybeSingle()
+      row = (synced as ProfileRow | null) ?? { ...row, email }
     }
     const next = userFromProfile(row)
     setUser(next)
@@ -908,7 +918,7 @@ export function TechnikProvider({
 
     void supabase.auth.getSession().then(async ({ data }) => {
       const id = data.session?.user?.id
-      if (id && !cancelled) await applyAuthUser(id)
+      if (id && !cancelled) await applyAuthUser(id, data.session?.user?.email)
       if (!cancelled) setAuthReady(true)
     })
 
@@ -917,7 +927,7 @@ export function TechnikProvider({
         setUser(null)
         return
       }
-      void applyAuthUser(session.user.id)
+      void applyAuthUser(session.user.id, session.user.email)
     })
 
     return () => {
@@ -942,7 +952,7 @@ export function TechnikProvider({
       if (error || !data.user) {
         return { ok: false as const, error: "Correo o contraseña incorrectos." }
       }
-      const applied = await applyAuthUser(data.user.id)
+      const applied = await applyAuthUser(data.user.id, data.user.email)
       if (!applied.ok) {
         await supabase.auth.signOut()
         return applied

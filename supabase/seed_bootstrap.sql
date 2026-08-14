@@ -16,7 +16,7 @@ on conflict (id) do nothing;
 --   'PEGA-AQUI-EL-UUID-DE-AUTH',
 --   'iochoa',
 --   'Isaac Ochoa',
---   'tu-email@technik.solutions',
+--   'el-mismo-correo-de-auth@tudominio.com',
 --   'admin',
 --   'maquinados',
 --   'Oficina central',
