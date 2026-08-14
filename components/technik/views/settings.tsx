@@ -17,7 +17,7 @@ import {
   Wallet,
 } from "lucide-react"
 import { useTheme } from "next-themes"
-import { formatUsername } from "@/lib/technik/codes"
+import { formatUsername, sanitizeUsername } from "@/lib/technik/codes"
 import {
   DEFAULT_LABOR_HOURLY_RATE,
   LABOR_BURDEN_RATE,
@@ -31,35 +31,49 @@ import { Field, inputCls, PageHeader, UserAvatar } from "../ui"
 import type { View } from "../app-shell"
 
 export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
-  const { user, logout, updateProfile, departments, settings, updateSettings } = useTechnik()
+  const { user, logout, updateProfile, uploadProfilePhoto, removeProfilePhoto, departments, settings, updateSettings } =
+    useTechnik()
   const { theme, setTheme, resolvedTheme } = useTheme()
   const isDark = (resolvedTheme ?? theme ?? "dark") === "dark"
   const [name, setName] = useState(user?.name ?? "")
+  const [username, setUsername] = useState(user?.username ?? "")
   const [department, setDepartment] = useState(user?.department ?? "")
   const [location, setLocation] = useState(user?.location ?? "")
   const [saved, setSaved] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
   const isAdmin = user?.role === "admin"
 
   if (!user) return null
 
-  function onPickPhoto(file: File | undefined) {
+  async function onPickPhoto(file: File | undefined) {
     if (!file || !file.type.startsWith("image/")) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateProfile({ avatarUrl: reader.result })
-      }
+    setBusy(true)
+    setError("")
+    const res = await uploadProfilePhoto(file)
+    setBusy(false)
+    if (!res.ok) setError(res.error)
+    else {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     }
-    reader.readAsDataURL(file)
   }
 
-  function saveProfile() {
-    updateProfile({
+  async function saveProfile() {
+    setBusy(true)
+    setError("")
+    const res = await updateProfile({
       name: name.trim() || user!.name,
       department: department.trim() || user!.department,
       location: location.trim() || user!.location,
+      ...(isAdmin ? { username: sanitizeUsername(username) } : {}),
     })
+    setBusy(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -113,8 +127,16 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
                   {user.avatarUrl && (
                     <button
                       type="button"
-                      onClick={() => updateProfile({ avatarUrl: undefined })}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => {
+                        setBusy(true)
+                        setError("")
+                        void removeProfilePhoto().then((res) => {
+                          setBusy(false)
+                          if (!res.ok) setError(res.error)
+                        })
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
                       <Trash2 className="size-3" />
                       Quitar foto
@@ -130,7 +152,18 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
                 <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
               </Field>
               <Field label="Username">
-                <input className={inputCls} value={formatUsername(user.username)} disabled />
+                {isAdmin ? (
+                  <div className="flex items-center gap-0 rounded-xl bg-input/60 border border-border focus-within:border-primary/60">
+                    <span className="pl-3 text-sm text-muted-foreground font-mono">@</span>
+                    <input
+                      className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
+                      value={username}
+                      onChange={(e) => setUsername(sanitizeUsername(e.target.value))}
+                    />
+                  </div>
+                ) : (
+                  <input className={inputCls} value={formatUsername(user.username)} disabled />
+                )}
               </Field>
               <Field label="Departamento">
                 <select
@@ -148,16 +181,24 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
               <Field label="Ubicación">
                 <input className={inputCls} value={location} onChange={(e) => setLocation(e.target.value)} />
               </Field>
-              <div className="sm:col-span-2 flex items-center gap-3 mt-1">
-                <button
-                  type="button"
-                  onClick={saveProfile}
-                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90"
-                >
-                  <Check className="size-4" />
-                  Guardar cambios
-                </button>
-                {saved && <span className="text-xs font-semibold text-fin-gain">Perfil actualizado</span>}
+              <div className="sm:col-span-2 flex flex-col gap-2 mt-1">
+                {error && (
+                  <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                    {error}
+                  </p>
+                )}
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void saveProfile()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Check className="size-4" />
+                    {busy ? "Guardando…" : "Guardar cambios"}
+                  </button>
+                  {saved && <span className="text-xs font-semibold text-fin-gain">Perfil actualizado</span>}
+                </div>
               </div>
             </div>
           </div>

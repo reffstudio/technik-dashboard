@@ -90,6 +90,27 @@ async function encodeUnder(
   return blob
 }
 
+const AVATAR_EDGE = 640
+const AVATAR_MAX_BYTES = 400_000
+
+export async function compressAvatar(file: File): Promise<{ blob: Blob; mime: "image/jpeg" | "image/webp" }> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Solo se aceptan fotos (JPEG, PNG, WebP).")
+  }
+  if (file.type === "image/heic" || file.type === "image/heif") {
+    throw new Error("Este formato no se puede comprimir aquí. Elige un JPEG o PNG.")
+  }
+  const { bitmap, close } = await decodeImage(file)
+  try {
+    const draw = drawToCanvas(bitmap, AVATAR_EDGE)
+    const mime: "image/jpeg" | "image/webp" = preferWebp() ? "image/webp" : "image/jpeg"
+    const blob = await encodeUnder(draw.canvas, mime, AVATAR_MAX_BYTES, mime === "image/webp" ? 0.78 : 0.72)
+    return { blob, mime: blob.type === "image/webp" ? "image/webp" : "image/jpeg" }
+  } finally {
+    close()
+  }
+}
+
 /**
  * Redimensiona, corrige orientación EXIF y exporta JPEG/WebP liviano + miniatura.
  * No se guarda el original ni metadatos EXIF (el canvas los descarta).

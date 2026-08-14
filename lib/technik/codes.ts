@@ -57,6 +57,14 @@ export function formatUsername(username: string): string {
   return `@${clean}`
 }
 
+export function sanitizeUsername(raw: string): string {
+  return raw.replace(/^@/, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32)
+}
+
+export function isValidUsername(username: string): boolean {
+  return /^[a-z0-9_]{2,32}$/.test(username)
+}
+
 export function nextQuotationCode(existing: string[], year = new Date().getFullYear()): string {
   const prefix = `${BRAND_CODE}-Q-${year}-`
   let max = 2000

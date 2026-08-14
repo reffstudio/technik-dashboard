@@ -101,7 +101,14 @@ import {
   isSupabaseConfigured,
   setSupabasePublicConfig,
 } from "@/lib/supabase/browser"
-import { userFromProfile, type ProfileRow } from "./auth-profile"
+import { PROFILE_COLUMNS, userFromProfile, type ProfileRow } from "./auth-profile"
+import {
+  clearAvatar,
+  loadProfiles,
+  persistAvatar,
+  persistProfile,
+  type ProfilePatch,
+} from "./profile-persist"
 
 interface TechnikState {
   authed: boolean
@@ -137,7 +144,20 @@ interface TechnikState {
   requestPasswordReset: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // users
   upsertUser: (user: User) => void
-  updateProfile: (patch: Partial<Pick<User, "name" | "department" | "location" | "avatarUrl">>) => void
+  updateProfile: (
+    patch: ProfilePatch,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
+  updateUser: (
+    authId: string,
+    patch: ProfilePatch,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
+  uploadProfilePhoto: (
+    file: File,
+    authId?: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
+  removeProfilePhoto: (
+    authId?: string,
+  ) => Promise<{ ok: true } | { ok: false; error: string }>
   // clients
   addClient: (client: Omit<Client, "id" | "since">) => string
   updateClient: (id: string, patch: Partial<Client>) => void
@@ -858,9 +878,7 @@ export function TechnikProvider({
     const supabase = getSupabaseBrowser()
     const { data, error } = await supabase
       .from("profiles")
-      .select(
-        "id, username, name, email, role, department_id, location, since, active, avatar_path",
-      )
+      .select(PROFILE_COLUMNS)
       .eq("id", authUserId)
       .maybeSingle()
     if (error || !data) {
@@ -875,10 +893,8 @@ export function TechnikProvider({
     }
     const next = userFromProfile(row)
     setUser(next)
-    setUsers((prev) => {
-      const exists = prev.some((u) => u.id === next.id)
-      return exists ? prev.map((u) => (u.id === next.id ? next : u)) : [next, ...prev]
-    })
+    const roster = await loadProfiles()
+    setUsers(roster.length > 0 ? roster : [next])
     return { ok: true as const }
   }, [])
 
@@ -957,20 +973,88 @@ export function TechnikProvider({
 
   const upsertUser = useCallback((u: User) => {
     setUsers((prev) => {
-      const exists = prev.some((x) => x.id === u.id)
-      return exists ? prev.map((x) => (x.id === u.id ? u : x)) : [u, ...prev]
+      const exists = prev.some((x) => x.authId === u.authId || x.id === u.id)
+      return exists
+        ? prev.map((x) => (x.authId === u.authId || x.id === u.id ? u : x))
+        : [u, ...prev]
     })
-    setUser((current) => (current && current.id === u.id ? u : current))
+    setUser((current) =>
+      current && (current.authId === u.authId || current.id === u.id) ? u : current,
+    )
   }, [])
 
-  const updateProfile = useCallback((patch: Partial<Pick<User, "name" | "department" | "location" | "avatarUrl">>) => {
-    setUser((current) => {
-      if (!current) return current
-      const next = { ...current, ...patch }
-      setUsers((prev) => prev.map((u) => (u.id === next.id ? next : u)))
-      return next
+  const applyPersistedUser = useCallback((next: User) => {
+    setUsers((prev) => {
+      const exists = prev.some((u) => u.authId === next.authId)
+      return exists
+        ? prev.map((u) => (u.authId === next.authId ? next : u))
+        : [next, ...prev]
     })
+    setUser((current) => (current?.authId === next.authId ? next : current))
   }, [])
+
+  const updateUser = useCallback(
+    async (authId: string, patch: ProfilePatch) => {
+      if (!isSupabaseConfigured()) {
+        return { ok: false as const, error: "Supabase no está configurado." }
+      }
+      const result = await persistProfile(authId, patch)
+      if (!result.ok) return result
+      applyPersistedUser(result.user)
+      return { ok: true as const }
+    },
+    [applyPersistedUser],
+  )
+
+  const updateProfile = useCallback(
+    async (patch: ProfilePatch) => {
+      const current = user
+      if (!current) return { ok: false as const, error: "No hay sesión." }
+      if (!current.authId || !isSupabaseConfigured()) {
+        const next = { ...current, ...patch, id: patch.username ?? current.id }
+        upsertUser(next)
+        return { ok: true as const }
+      }
+      const allowed: ProfilePatch = {
+        name: patch.name,
+        department: patch.department,
+        location: patch.location,
+      }
+      if (current.role === "admin" && patch.username !== undefined) {
+        allowed.username = patch.username
+      }
+      return updateUser(current.authId, allowed)
+    },
+    [user, updateUser, upsertUser],
+  )
+
+  const uploadProfilePhoto = useCallback(
+    async (file: File, authId?: string) => {
+      const id = authId ?? user?.authId
+      if (!id || !isSupabaseConfigured()) {
+        return { ok: false as const, error: "No se puede guardar la foto sin sesión en Supabase." }
+      }
+      const result = await persistAvatar(id, file)
+      if (!result.ok) return result
+      applyPersistedUser(result.user)
+      return { ok: true as const }
+    },
+    [user?.authId, applyPersistedUser],
+  )
+
+  const removeProfilePhoto = useCallback(
+    async (authId?: string) => {
+      const id = authId ?? user?.authId
+      if (!id || !isSupabaseConfigured()) {
+        return { ok: false as const, error: "No se puede quitar la foto sin sesión en Supabase." }
+      }
+      const result = await clearAvatar(id)
+      if (!result.ok) return result
+      applyPersistedUser(result.user)
+      return { ok: true as const }
+    },
+    [user?.authId, applyPersistedUser],
+  )
 
   const addClient = useCallback((input: Omit<Client, "id" | "since">) => {
     const id = nextClientCode(clients.map((c) => c.id))
@@ -1979,6 +2063,9 @@ export function TechnikProvider({
       requestPasswordReset,
       upsertUser,
       updateProfile,
+      updateUser,
+      uploadProfilePhoto,
+      removeProfilePhoto,
       addClient,
       updateClient,
       addSupplier,
@@ -2048,6 +2135,9 @@ export function TechnikProvider({
       requestPasswordReset,
       upsertUser,
       updateProfile,
+      updateUser,
+      uploadProfilePhoto,
+      removeProfilePhoto,
       addClient,
       updateClient,
       addSupplier,

@@ -1,25 +1,29 @@
 "use client"
 
 import React, { useMemo, useState } from "react"
-import { UserCog, Plus, Check, ShieldCheck, HardHat } from "lucide-react"
-import { formatUsername, uniqueUsername, usernameFromName } from "@/lib/technik/codes"
+import { Plus, Check, ShieldCheck, HardHat, Pencil, X } from "lucide-react"
+import { formatUsername, sanitizeUsername, uniqueUsername, usernameFromName } from "@/lib/technik/codes"
 import { type Role, type User } from "@/lib/technik/data"
 import { roleLabel, useTechnik } from "@/lib/technik/store"
 import { DepartmentBadge, Field, inputCls, PageHeader, SearchField, UserAvatar } from "../ui"
 
 export function UsersView() {
-  const { users, departments, upsertUser } = useTechnik()
+  const { users, departments, user: current, upsertUser, updateUser } = useTechnik()
   const defaultDept = departments[0]?.id ?? ""
   const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
   const [form, setForm] = useState({
     name: "",
     username: "",
     email: "",
     role: "empleado" as Role,
-    password: "empleado123",
+    password: "",
     department: defaultDept,
     location: "",
+    active: true,
   })
 
   const filtered = useMemo(() => {
@@ -48,23 +52,42 @@ export function UsersView() {
     }))
   }
 
-  function openForm() {
+  function openCreate() {
+    setEditingId(null)
+    setError("")
     setForm({
       name: "",
       username: "",
       email: "",
       role: "empleado",
-      password: "empleado123",
+      password: "",
       department: departments[0]?.id ?? "",
       location: "",
+      active: true,
     })
     setAdding((v) => !v)
   }
 
-  function submit() {
+  function openEdit(u: User) {
+    setAdding(false)
+    setError("")
+    setEditingId(u.authId ?? u.id)
+    setForm({
+      name: u.name,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      password: "",
+      department: u.department,
+      location: u.location,
+      active: u.active,
+    })
+  }
+
+  function submitCreate() {
     if (!form.name || !form.email || !form.department) return
     const username = uniqueUsername(form.username || usernameFromName(form.name), users.map((u) => u.username))
-    const user: User = {
+    const created: User = {
       id: username,
       username,
       name: form.name,
@@ -76,8 +99,41 @@ export function UsersView() {
       since: new Date().getFullYear().toString(),
       active: true,
     }
-    upsertUser(user)
+    upsertUser(created)
     setAdding(false)
+  }
+
+  async function submitEdit() {
+    const target = users.find((u) => (u.authId ?? u.id) === editingId)
+    if (!target) return
+    setBusy(true)
+    setError("")
+    if (target.authId) {
+      const res = await updateUser(target.authId, {
+        name: form.name.trim() || target.name,
+        username: sanitizeUsername(form.username),
+        department: form.department,
+        location: form.location.trim(),
+        active: form.active,
+      })
+      setBusy(false)
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+    } else {
+      upsertUser({
+        ...target,
+        name: form.name.trim() || target.name,
+        username: sanitizeUsername(form.username) || target.username,
+        id: sanitizeUsername(form.username) || target.id,
+        department: form.department,
+        location: form.location.trim(),
+        active: form.active,
+      })
+      setBusy(false)
+    }
+    setEditingId(null)
   }
 
   function deptLabel(id: string) {
@@ -91,7 +147,7 @@ export function UsersView() {
         subtitle="Administradores ven costos y despachan. Colaboradores arman cotizaciones en campo."
       >
         <button
-          onClick={openForm}
+          onClick={openCreate}
           className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
         >
           <Plus className="size-4" />
@@ -110,9 +166,7 @@ export function UsersView() {
               <input
                 className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
                 value={form.username}
-                onChange={(e) =>
-                  setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })
-                }
+                onChange={(e) => setForm({ ...form, username: sanitizeUsername(e.target.value) })}
                 placeholder="iochoa"
               />
             </div>
@@ -129,9 +183,6 @@ export function UsersView() {
               <option value="empleado">Colaborador</option>
               <option value="admin">Administrador</option>
             </select>
-          </Field>
-          <Field label="Contraseña temporal">
-            <input className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </Field>
           <Field label="Departamento">
             <select
@@ -153,9 +204,13 @@ export function UsersView() {
           <Field label="Ubicación / equipo">
             <input className={inputCls} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
           </Field>
+          <p className="sm:col-span-2 text-xs text-muted-foreground">
+            El alta con correo y contraseña en Auth se conecta en el siguiente paso. Este formulario solo deja el
+            usuario en la lista local.
+          </p>
           <div className="sm:col-span-2 flex gap-2">
             <button
-              onClick={submit}
+              onClick={submitCreate}
               disabled={!form.department}
               className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
@@ -182,33 +237,118 @@ export function UsersView() {
             Ningún usuario coincide con la búsqueda.
           </p>
         ) : (
-          filtered.map((u) => (
-          <div key={u.id} className="flex items-center gap-4 rounded-2xl surface-card p-4">
-            <UserAvatar user={u} size="md" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-bold">{u.name}</p>
-                <span className="font-mono text-[11px] text-primary">{formatUsername(u.username)}</span>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    u.role === "admin" ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {u.role === "admin" ? <ShieldCheck className="size-3" /> : <HardHat className="size-3" />}
-                  {roleLabel(u.role)}
-                </span>
-                <DepartmentBadge department={u.department} />
+          filtered.map((u) => {
+            const key = u.authId ?? u.id
+            const editing = editingId === key
+            return (
+              <div key={key} className="rounded-2xl surface-card p-4">
+                <div className="flex items-center gap-4">
+                  <UserAvatar user={u} size="md" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold">{u.name}</p>
+                      <span className="font-mono text-[11px] text-primary">{formatUsername(u.username)}</span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          u.role === "admin" ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {u.role === "admin" ? <ShieldCheck className="size-3" /> : <HardHat className="size-3" />}
+                        {roleLabel(u.role)}
+                      </span>
+                      <DepartmentBadge department={u.department} />
+                      {u.authId === current?.authId && (
+                        <span className="text-[10px] font-semibold text-muted-foreground">Tú</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {u.email} · {deptLabel(u.department)} · {u.location}
+                    </p>
+                  </div>
+                  <span className={`text-[11px] font-semibold ${u.active ? "text-fin-gain" : "text-muted-foreground"}`}>
+                    {u.active ? "Activo" : "Inactivo"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => (editing ? setEditingId(null) : openEdit(u))}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold hover:border-primary/40"
+                  >
+                    {editing ? <X className="size-3.5" /> : <Pencil className="size-3.5" />}
+                    {editing ? "Cerrar" : "Editar"}
+                  </button>
+                </div>
+
+                {editing && (
+                  <div className="grid sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
+                    <Field label="Nombre">
+                      <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    </Field>
+                    <Field label="Username">
+                      <div className="flex items-center gap-0 rounded-xl bg-input/60 border border-border focus-within:border-primary/60">
+                        <span className="pl-3 text-sm text-muted-foreground font-mono">@</span>
+                        <input
+                          className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
+                          value={form.username}
+                          onChange={(e) => setForm({ ...form, username: sanitizeUsername(e.target.value) })}
+                        />
+                      </div>
+                    </Field>
+                    <Field label="Departamento">
+                      <select
+                        className={inputCls}
+                        value={form.department}
+                        onChange={(e) => setForm({ ...form, department: e.target.value })}
+                      >
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Ubicación">
+                      <input
+                        className={inputCls}
+                        value={form.location}
+                        onChange={(e) => setForm({ ...form, location: e.target.value })}
+                      />
+                    </Field>
+                    <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={form.active}
+                        onChange={(e) => setForm({ ...form, active: e.target.checked })}
+                      />
+                      Cuenta activa
+                    </label>
+                    {error && (
+                      <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                        {error}
+                      </p>
+                    )}
+                    <div className="sm:col-span-2 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void submitEdit()}
+                        className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50"
+                      >
+                        <Check className="size-4" />
+                        {busy ? "Guardando…" : "Guardar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(null)}
+                        className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground truncate">
-                {u.email} · {deptLabel(u.department)} · {u.location}
-              </p>
-            </div>
-            <span className={`text-[11px] font-semibold ${u.active ? "text-fin-gain" : "text-muted-foreground"}`}>
-              {u.active ? "Activo" : "Inactivo"}
-            </span>
-            <UserCog className="size-4 text-muted-foreground hidden sm:block" />
-          </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>

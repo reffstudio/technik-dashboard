@@ -39,6 +39,8 @@ export type ClientResponse = "en_espera" | "aprobada" | "rechazada"
 export interface User {
   /** Username único — también es el ID del usuario (ej. iochoa) */
   id: string
+  /** UUID de Auth / profiles.id. Ausente en usuarios solo locales. */
+  authId?: string
   username: string
   name: string
   email: string
@@ -49,7 +51,7 @@ export interface User {
   location: string
   since: string
   active: boolean
-  /** Data URL o ruta de foto de perfil */
+  /** URL pública, data URL o ruta de foto de perfil */
   avatarUrl?: string
 }
 
