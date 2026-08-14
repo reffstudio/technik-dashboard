@@ -47,6 +47,8 @@ export interface User {
   location: string
   since: string
   active: boolean
+  /** true mientras no ha creado su contraseña (invitación pendiente) */
+  invitePending?: boolean
   /** URL pública, data URL o ruta de foto de perfil */
   avatarUrl?: string
 }

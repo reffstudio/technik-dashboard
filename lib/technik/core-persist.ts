@@ -178,6 +178,18 @@ export async function persistClient(client: Client) {
   return { ok: true as const }
 }
 
+export async function deleteClient(id: string) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("clients").delete().eq("id", id)
+  if (error) {
+    if (error.code === "23503" || /foreign key|violat/i.test(error.message)) {
+      return { ok: false as const, error: "No se puede eliminar: hay cotizaciones o proyectos ligados a este cliente." }
+    }
+    return { ok: false as const, error: "No se pudo eliminar el cliente." }
+  }
+  return { ok: true as const }
+}
+
 export async function persistSupplier(supplier: Supplier) {
   const supabase = getSupabaseBrowser()
   const { error } = await supabase.from("suppliers").upsert({
@@ -195,6 +207,13 @@ export async function persistSupplier(supplier: Supplier) {
   return { ok: true as const }
 }
 
+export async function deleteSupplier(id: string) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("suppliers").delete().eq("id", id)
+  if (error) return { ok: false as const, error: "No se pudo eliminar el proveedor." }
+  return { ok: true as const }
+}
+
 export async function persistCatalogItem(item: CatalogItem) {
   const supabase = getSupabaseBrowser()
   const { error } = await supabase.from("catalog_items").upsert({
@@ -209,6 +228,17 @@ export async function persistCatalogItem(item: CatalogItem) {
     active: true,
   })
   if (error) return { ok: false as const, error: "No se pudo guardar el ítem de catálogo." }
+  return { ok: true as const }
+}
+
+export async function deleteCatalogItem(id: string) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("catalog_items").delete().eq("id", id)
+  if (!error) return { ok: true as const }
+  const soft = await supabase.from("catalog_items").update({ active: false }).eq("id", id)
+  if (soft.error) {
+    return { ok: false as const, error: "No se pudo eliminar el ítem. Está usado en cotizaciones." }
+  }
   return { ok: true as const }
 }
 

@@ -6,8 +6,26 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Safari cachea agresivo en dev — forzar revalidación de assets
+  experimental: {
+    webpackMemoryOptimizations: true,
+  },
+  onDemandEntries: {
+    maxInactiveAge: 15_000,
+    pagesBufferLength: 2,
+  },
+  webpack: (config, { dev }) => {
+    if (dev) {
+      config.watchOptions = {
+        ignored: ["**/node_modules/**", "**/.git/**", "**/.next/**"],
+        aggregateTimeout: 400,
+      }
+      config.cache = { type: "filesystem" }
+    }
+    return config
+  },
+  // En dev estos headers obligan a recargar todo en cada request y inflan Next.
   async headers() {
+    if (process.env.NODE_ENV !== "production") return []
     return [
       {
         source: "/:path*",

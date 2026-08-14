@@ -46,6 +46,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" className="dark bg-background" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var p=location.pathname,u=(location.hash||"")+(location.search||"");if(p.indexOf("/auth/callback")===0||/access_token=|refresh_token=|[?&]code=|type=invite|type=recovery|type=signup|type=magiclink|setup=password/.test(u))sessionStorage.setItem("technik_must_set_password","1")}catch(e){}`,
+          }}
+        />
+      </head>
       <body className="font-sans antialiased grain">
         <ThemeProvider>{children}</ThemeProvider>
         <Analytics />

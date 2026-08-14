@@ -101,7 +101,13 @@ import {
   isSupabaseConfigured,
   setSupabasePublicConfig,
 } from "@/lib/supabase/browser"
-import { PROFILE_COLUMNS, userFromProfile, type ProfileRow } from "./auth-profile"
+import { PROFILE_COLUMNS, PROFILE_COLUMNS_LEGACY, dedupeUsers, userFromProfile, type ProfileRow } from "./auth-profile"
+import {
+  capturePasswordSetupHintFromLocation,
+  clearPasswordSetupHint,
+  passwordSetupRedirect,
+  userMustSetPassword,
+} from "./password-setup"
 import {
   clearAvatar,
   loadProfiles,
@@ -111,6 +117,9 @@ import {
 } from "./profile-persist"
 import {
   deleteDepartment,
+  deleteClient,
+  deleteSupplier,
+  deleteCatalogItem,
   loadCoreWorkspace,
   persistCatalogItem,
   persistClient,
@@ -143,6 +152,8 @@ interface TechnikState {
   updateSettings: (patch: Partial<WorkspaceSettings>) => void
   /** false mientras se restaura la sesión de Supabase */
   authReady: boolean
+  /** true si el enlace de invitación/recuperación exige crear contraseña */
+  mustSetPassword: boolean
   // auth
   login: (
     email: string,
@@ -150,6 +161,7 @@ interface TechnikState {
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   logout: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  completePasswordSetup: (password: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // users
   inviteUser: (input: {
     name: string
@@ -158,7 +170,10 @@ interface TechnikState {
     role: Role
     department: string
     location: string
-  }) => Promise<{ ok: true; emailed?: boolean; inviteLink?: string } | { ok: false; error: string }>
+  }) => Promise<
+    { ok: true; emailed?: boolean; inviteLink?: string; mailError?: string } | { ok: false; error: string }
+  >
+  deleteUser: (authId: string) => Promise<{ ok: true } | { ok: false; error: string }>
   upsertUser: (user: User) => void
   updateProfile: (
     patch: ProfilePatch,
@@ -176,10 +191,12 @@ interface TechnikState {
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   // clients
   addClient: (client: Omit<Client, "id" | "since">) => string
-  updateClient: (id: string, patch: Partial<Client>) => void
+  updateClient: (id: string, patch: Partial<Client>) => Promise<{ ok: true } | { ok: false; error: string }>
+  removeClient: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // suppliers
   addSupplier: (supplier: Omit<Supplier, "id">) => string
-  updateSupplier: (id: string, patch: Partial<Supplier>) => void
+  updateSupplier: (id: string, patch: Partial<Supplier>) => Promise<{ ok: true } | { ok: false; error: string }>
+  removeSupplier: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
   // departments
   addDepartment: (input: {
     label: string
@@ -302,7 +319,8 @@ interface TechnikState {
   projectByQuotationId: (quotationId: string) => Project | undefined
   // catalog
   addCatalogItem: (item: Omit<CatalogItem, "id"> & { id?: string }) => string
-  updateCatalogItem: (id: string, patch: Partial<CatalogItem>) => void
+  updateCatalogItem: (id: string, patch: Partial<CatalogItem>) => Promise<{ ok: true } | { ok: false; error: string }>
+  removeCatalogItem: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = { showNotificationBadge: true }
@@ -328,9 +346,11 @@ export function TechnikProvider({
   children: React.ReactNode
   supabase?: { url: string; key: string }
 }) {
+  if (typeof window !== "undefined") capturePasswordSetupHintFromLocation()
   if (supabase) setSupabasePublicConfig(supabase)
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [mustSetPassword, setMustSetPassword] = useState(false)
   const [users, setUsers] = useState<User[]>(SEED_USERS)
   const [clients, setClients] = useState<Client[]>(SEED_CLIENTS)
   const [suppliers, setSuppliers] = useState<Supplier[]>(SEED_SUPPLIERS)
@@ -372,6 +392,8 @@ export function TechnikProvider({
   const flushPublishRef = useRef<(overrides?: Partial<WorkspaceSnapshot>) => void>(() => {})
   const userRoleRef = useRef<Role | undefined>(undefined)
   userRoleRef.current = user?.role
+  const authHydrateGen = useRef(0)
+  const rosterReadyForAuthId = useRef<string | null>(null)
 
   const workspaceRef = useRef({
     users,
@@ -691,7 +713,7 @@ export function TechnikProvider({
     void pull(true)
     const timer = window.setInterval(() => {
       if (!pushingRef.current) void pull(false)
-    }, 900)
+    }, 4000)
     const onFocus = () => {
       if (!pushingRef.current) void pull(false)
     }
@@ -706,6 +728,9 @@ export function TechnikProvider({
   }, [applySnapshot, maybeShowRemoteNotice])
 
   // Empujar cambios locales al hub cuando muta el workspace.
+  // Con Supabase, usuarios/clientes/catálogo/depts no viven en el hub:
+  // republicarlos en cada recarga de perfiles hace parpadear la lista.
+  const persistCoreInSupabase = isSupabaseConfigured()
   useEffect(() => {
     if (suppressPublishRef.current) return
     if (skipBroadcastRef.current) {
@@ -714,13 +739,13 @@ export function TechnikProvider({
     }
     flushPublish()
   }, [
-    users,
-    clients,
-    suppliers,
-    catalog,
+    persistCoreInSupabase ? null : users,
+    persistCoreInSupabase ? null : clients,
+    persistCoreInSupabase ? null : suppliers,
+    persistCoreInSupabase ? null : catalog,
+    persistCoreInSupabase ? null : departments,
     quotations,
     projects,
-    departments,
     paymentEvents,
     inboxEvents,
     expenses,
@@ -893,12 +918,23 @@ export function TechnikProvider({
   }, [])
 
   const applyAuthUser = useCallback(async (authUserId: string, authEmail?: string | null) => {
+    const gen = ++authHydrateGen.current
     const supabase = getSupabaseBrowser()
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("profiles")
       .select(PROFILE_COLUMNS)
       .eq("id", authUserId)
       .maybeSingle()
+    if (error && /invite_pending/i.test(error.message)) {
+      const retry = await supabase
+        .from("profiles")
+        .select(PROFILE_COLUMNS_LEGACY)
+        .eq("id", authUserId)
+        .maybeSingle()
+      data = retry.data
+      error = retry.error
+    }
+    if (gen !== authHydrateGen.current) return { ok: true as const }
     if (error || !data) {
       return {
         ok: false as const,
@@ -917,12 +953,18 @@ export function TechnikProvider({
         .eq("id", authUserId)
         .select(PROFILE_COLUMNS)
         .maybeSingle()
+      if (gen !== authHydrateGen.current) return { ok: true as const }
       row = (synced as ProfileRow | null) ?? { ...row, email }
     }
     const next = userFromProfile(row)
     setUser(next)
+    if (rosterReadyForAuthId.current === authUserId) {
+      return { ok: true as const }
+    }
     const [roster, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
-    setUsers(roster.length > 0 ? roster : [next])
+    if (gen !== authHydrateGen.current) return { ok: true as const }
+    rosterReadyForAuthId.current = authUserId
+    setUsers(dedupeUsers(roster.length > 0 ? roster : [next]))
     setDepartments(core.departments)
     setClients(core.clients)
     setSuppliers(core.suppliers)
@@ -937,16 +979,39 @@ export function TechnikProvider({
     }
     const supabase = getSupabaseBrowser()
     let cancelled = false
+    if (capturePasswordSetupHintFromLocation()) setMustSetPassword(true)
+
+    function gatePassword(event: string | undefined, authUser: { user_metadata?: Record<string, unknown> } | null | undefined) {
+      return (
+        event === "PASSWORD_RECOVERY" ||
+        userMustSetPassword(authUser) ||
+        capturePasswordSetupHintFromLocation()
+      )
+    }
 
     void supabase.auth.getSession().then(async ({ data }) => {
-      const id = data.session?.user?.id
-      if (id && !cancelled) await applyAuthUser(id, data.session?.user?.email)
+      const authUser = data.session?.user
+      if (authUser && gatePassword(undefined, authUser)) {
+        if (!cancelled) {
+          setMustSetPassword(true)
+          setAuthReady(true)
+        }
+        return
+      }
+      if (authUser && !cancelled) await applyAuthUser(authUser.id, authUser.email)
       if (!cancelled) setAuthReady(true)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (!session?.user) {
         setUser(null)
+        if (!capturePasswordSetupHintFromLocation()) setMustSetPassword(false)
+        rosterReadyForAuthId.current = null
+        return
+      }
+      if (event === "TOKEN_REFRESHED") return
+      if (gatePassword(event, session.user)) {
+        setMustSetPassword(true)
         return
       }
       void applyAuthUser(session.user.id, session.user.email)
@@ -967,6 +1032,8 @@ export function TechnikProvider({
         }
       }
       const supabase = getSupabaseBrowser()
+      clearPasswordSetupHint()
+      setMustSetPassword(false)
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -986,6 +1053,10 @@ export function TechnikProvider({
 
   const logout = useCallback(async () => {
     setUser(null)
+    setMustSetPassword(false)
+    rosterReadyForAuthId.current = null
+    authHydrateGen.current += 1
+    clearPasswordSetupHint()
     if (isSupabaseConfigured()) {
       await getSupabaseBrowser().auth.signOut()
     }
@@ -997,11 +1068,46 @@ export function TechnikProvider({
     }
     const origin = typeof window !== "undefined" ? window.location.origin : ""
     const { error } = await getSupabaseBrowser().auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: origin,
+      redirectTo: passwordSetupRedirect(origin),
     })
     if (error) return { ok: false as const, error: "No se pudo enviar el correo de recuperación." }
     return { ok: true as const }
   }, [])
+
+  const completePasswordSetup = useCallback(
+    async (password: string) => {
+      if (password.length < 8) {
+        return { ok: false as const, error: "La contraseña debe tener al menos 8 caracteres." }
+      }
+      if (!isSupabaseConfigured()) {
+        return { ok: false as const, error: "Supabase no está configurado." }
+      }
+      const supabase = getSupabaseBrowser()
+      let session = (await supabase.auth.getSession()).data.session
+      for (let i = 0; i < 20 && !session?.user; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        session = (await supabase.auth.getSession()).data.session
+      }
+      if (!session?.user) {
+        return { ok: false as const, error: "El enlace expiró. Pide una nueva invitación." }
+      }
+      const { error } = await supabase.auth.updateUser({
+        password,
+        data: { must_set_password: false },
+      })
+      if (error) {
+        return { ok: false as const, error: error.message || "No se pudo guardar la contraseña." }
+      }
+      await supabase.from("profiles").update({ invite_pending: false }).eq("id", session.user.id)
+      clearPasswordSetupHint()
+      setMustSetPassword(false)
+      const applied = await applyAuthUser(session.user.id, session.user.email)
+      if (!applied.ok) return applied
+      if (typeof window !== "undefined") window.location.replace("/")
+      return { ok: true as const }
+    },
+    [applyAuthUser],
+  )
 
   const inviteUser = useCallback(
     async (input: {
@@ -1013,41 +1119,107 @@ export function TechnikProvider({
       location: string
     }) => {
       const supabase = getSupabaseBrowser()
-      const { data } = await supabase.auth.getSession()
-      const token = data.session?.access_token
-      if (!token) return { ok: false as const, error: "Sesión inválida." }
-      const res = await fetch("/api/users/invite", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(input),
-      })
-      const json = (await res.json().catch(() => null)) as
-        | { ok: true; id: string; emailed?: boolean; inviteLink?: string }
-        | { ok: false; error: string }
-        | null
-      if (!json || !json.ok) {
-        return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo invitar." }
+      let { data } = await supabase.auth.getSession()
+      let token = data.session?.access_token
+      if (!token) {
+        const refreshed = await supabase.auth.refreshSession()
+        token = refreshed.data.session?.access_token
       }
-      const roster = await loadProfiles()
-      if (roster.length > 0) setUsers(roster)
-      return {
-        ok: true as const,
-        emailed: json.emailed,
-        inviteLink: json.inviteLink,
+      if (!token) return { ok: false as const, error: "Sesión inválida. Cierra sesión y vuelve a entrar." }
+      try {
+        const res = await fetch("/api/users/invite", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(input),
+          signal: AbortSignal.timeout(40_000),
+        })
+        const json = (await res.json().catch(() => null)) as
+          | { ok: true; id: string; emailed?: boolean; inviteLink?: string; mailError?: string }
+          | { ok: false; error: string }
+          | null
+        if (!json || !json.ok) {
+          return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo invitar." }
+        }
+        authHydrateGen.current += 1
+        const invited: User = {
+          id: input.username,
+          authId: json.id,
+          username: input.username,
+          name: input.name,
+          email: input.email,
+          role: input.role,
+          password: "",
+          department: input.department,
+          location: input.location,
+          since: new Date().getFullYear().toString(),
+          active: true,
+          invitePending: true,
+        }
+        setUsers((prev) => dedupeUsers([...prev, invited]))
+        const roster = await loadProfiles()
+        if (roster.length > 0) setUsers(dedupeUsers(roster))
+        return {
+          ok: true as const,
+          emailed: json.emailed,
+          inviteLink: json.inviteLink,
+          mailError: json.mailError,
+        }
+      } catch (err) {
+        const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
+        return {
+          ok: false as const,
+          error: timedOut
+            ? "La invitación tardó demasiado. Revisa la service role key y Auth en Supabase."
+            : "No se pudo contactar al servidor de invitaciones.",
+        }
       }
     },
     [],
   )
 
+  const deleteUser = useCallback(async (authId: string) => {
+    const supabase = getSupabaseBrowser()
+    let { data } = await supabase.auth.getSession()
+    let token = data.session?.access_token
+    if (!token) {
+      const refreshed = await supabase.auth.refreshSession()
+      token = refreshed.data.session?.access_token
+    }
+    if (!token) return { ok: false as const, error: "Sesión inválida. Cierra sesión y vuelve a entrar." }
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(authId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(20_000),
+      })
+      const json = (await res.json().catch(() => null)) as
+        | { ok: true }
+        | { ok: false; error: string }
+        | null
+      if (!json || !json.ok) {
+        return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo eliminar." }
+      }
+      setUsers((prev) => prev.filter((u) => u.authId !== authId))
+      return { ok: true as const }
+    } catch (err) {
+      const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
+      return {
+        ok: false as const,
+        error: timedOut ? "La eliminación tardó demasiado." : "No se pudo contactar al servidor.",
+      }
+    }
+  }, [])
+
   const upsertUser = useCallback((u: User) => {
     setUsers((prev) => {
       const exists = prev.some((x) => x.authId === u.authId || x.id === u.id)
-      return exists
+      const next = exists
         ? prev.map((x) => (x.authId === u.authId || x.id === u.id ? u : x))
         : [u, ...prev]
+      return dedupeUsers(next)
     })
     setUser((current) =>
       current && (current.authId === u.authId || current.id === u.id) ? u : current,
@@ -1135,14 +1307,38 @@ export function TechnikProvider({
     return id
   }, [clients])
 
-  const updateClient = useCallback((id: string, patch: Partial<Client>) => {
-    setClients((prev) => {
-      const next = prev.map((c) => (c.id === id ? { ...c, ...patch } : c))
-      const saved = next.find((c) => c.id === id)
-      if (saved && isSupabaseConfigured()) void persistClient(saved)
-      return next
-    })
-  }, [])
+  const updateClient = useCallback(
+    async (id: string, patch: Partial<Client>) => {
+      const current = clients.find((c) => c.id === id)
+      if (!current) return { ok: false as const, error: "Cliente no encontrado." }
+      const next = { ...current, ...patch }
+      if (isSupabaseConfigured()) {
+        const res = await persistClient(next)
+        if (!res.ok) return res
+      }
+      setClients((prev) => prev.map((c) => (c.id === id ? next : c)))
+      return { ok: true as const }
+    },
+    [clients],
+  )
+
+  const removeClient = useCallback(
+    async (id: string) => {
+      if (quotations.some((q) => q.clientId === id) || projects.some((p) => p.clientId === id)) {
+        return {
+          ok: false as const,
+          error: "No se puede eliminar: hay cotizaciones o proyectos de este cliente.",
+        }
+      }
+      if (isSupabaseConfigured()) {
+        const res = await deleteClient(id)
+        if (!res.ok) return res
+      }
+      setClients((prev) => prev.filter((c) => c.id !== id))
+      return { ok: true as const }
+    },
+    [quotations, projects],
+  )
 
   const addSupplier = useCallback((input: Omit<Supplier, "id">) => {
     const id = nextVendorCode(suppliers.map((s) => s.id))
@@ -1152,13 +1348,31 @@ export function TechnikProvider({
     return id
   }, [suppliers])
 
-  const updateSupplier = useCallback((id: string, patch: Partial<Supplier>) => {
-    setSuppliers((prev) => {
-      const next = prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
-      const saved = next.find((s) => s.id === id)
-      if (saved && isSupabaseConfigured()) void persistSupplier(saved)
-      return next
-    })
+  const updateSupplier = useCallback(
+    async (id: string, patch: Partial<Supplier>) => {
+      const current = suppliers.find((s) => s.id === id)
+      if (!current) return { ok: false as const, error: "Proveedor no encontrado." }
+      const next = { ...current, ...patch }
+      if (isSupabaseConfigured()) {
+        const res = await persistSupplier(next)
+        if (!res.ok) return res
+      }
+      setSuppliers((prev) => prev.map((s) => (s.id === id ? next : s)))
+      return { ok: true as const }
+    },
+    [suppliers],
+  )
+
+  const removeSupplier = useCallback(async (id: string) => {
+    if (isSupabaseConfigured()) {
+      const res = await deleteSupplier(id)
+      if (!res.ok) return res
+    }
+    setCatalog((prev) =>
+      prev.map((item) => (item.supplierId === id ? { ...item, supplierId: undefined } : item)),
+    )
+    setSuppliers((prev) => prev.filter((s) => s.id !== id))
+    return { ok: true as const }
   }, [])
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
@@ -2053,13 +2267,28 @@ export function TechnikProvider({
     [catalog],
   )
 
-  const updateCatalogItem = useCallback((id: string, patch: Partial<CatalogItem>) => {
-    setCatalog((prev) => {
-      const next = prev.map((c) => (c.id !== id ? c : { ...c, ...patch, id: c.id }))
-      const saved = next.find((c) => c.id === id)
-      if (saved && isSupabaseConfigured()) void persistCatalogItem(saved)
-      return next
-    })
+  const updateCatalogItem = useCallback(
+    async (id: string, patch: Partial<CatalogItem>) => {
+      const current = catalog.find((c) => c.id === id)
+      if (!current) return { ok: false as const, error: "Ítem no encontrado." }
+      const next = { ...current, ...patch, id: current.id }
+      if (isSupabaseConfigured()) {
+        const res = await persistCatalogItem(next)
+        if (!res.ok) return res
+      }
+      setCatalog((prev) => prev.map((c) => (c.id !== id ? c : next)))
+      return { ok: true as const }
+    },
+    [catalog],
+  )
+
+  const removeCatalogItem = useCallback(async (id: string) => {
+    if (isSupabaseConfigured()) {
+      const res = await deleteCatalogItem(id)
+      if (!res.ok) return res
+    }
+    setCatalog((prev) => prev.filter((c) => c.id !== id))
+    return { ok: true as const }
   }, [])
 
   const addDepartment = useCallback(
@@ -2132,6 +2361,7 @@ export function TechnikProvider({
     () => ({
       authed: !!user,
       authReady,
+      mustSetPassword,
       user,
       users,
       clients,
@@ -2154,7 +2384,9 @@ export function TechnikProvider({
       login,
       logout,
       requestPasswordReset,
+      completePasswordSetup,
       inviteUser,
+      deleteUser,
       upsertUser,
       updateProfile,
       updateUser,
@@ -2162,8 +2394,10 @@ export function TechnikProvider({
       removeProfilePhoto,
       addClient,
       updateClient,
+      removeClient,
       addSupplier,
       updateSupplier,
+      removeSupplier,
       addDepartment,
       updateDepartment,
       removeDepartment,
@@ -2202,10 +2436,12 @@ export function TechnikProvider({
       projectByQuotationId,
       addCatalogItem,
       updateCatalogItem,
+      removeCatalogItem,
     }),
     [
       user,
       authReady,
+      mustSetPassword,
       users,
       clients,
       suppliers,
@@ -2227,7 +2463,9 @@ export function TechnikProvider({
       login,
       logout,
       requestPasswordReset,
+      completePasswordSetup,
       inviteUser,
+      deleteUser,
       upsertUser,
       updateProfile,
       updateUser,
@@ -2235,8 +2473,10 @@ export function TechnikProvider({
       removeProfilePhoto,
       addClient,
       updateClient,
+      removeClient,
       addSupplier,
       updateSupplier,
+      removeSupplier,
       addDepartment,
       updateDepartment,
       removeDepartment,
@@ -2275,6 +2515,7 @@ export function TechnikProvider({
       projectByQuotationId,
       addCatalogItem,
       updateCatalogItem,
+      removeCatalogItem,
     ],
   )
 

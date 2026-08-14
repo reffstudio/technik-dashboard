@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
-import { Search, Plus, Boxes, Pencil, Check, X, Wrench, Sparkles } from "lucide-react"
+import { Search, Plus, Boxes, Pencil, Check, X, Wrench, Sparkles, Trash2 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import {
   currencyPrecise,
@@ -44,12 +44,15 @@ function kindLabel(kind: CatalogKind) {
 }
 
 export function CatalogView() {
-  const { catalog, suppliers, updateCatalogItem, addCatalogItem } = useTechnik()
+  const { catalog, suppliers, updateCatalogItem, addCatalogItem, removeCatalogItem } = useTechnik()
   const [search, setSearch] = useState("")
   const [kindFilter, setKindFilter] = useState<"all" | CatalogKind>("all")
   const [editing, setEditing] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<CatalogEditDraft | null>(null)
   const [adding, setAdding] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [error, setError] = useState("")
+  const [saving, setSaving] = useState(false)
 
   const supplierName = (id?: string) => suppliers.find((s) => s.id === id)?.name ?? "—"
 
@@ -69,6 +72,8 @@ export function CatalogView() {
   )
 
   function startEdit(item: CatalogItem) {
+    setConfirmDeleteId(null)
+    setError("")
     setEditing(item.id)
     setEditDraft({
       name: item.name,
@@ -79,13 +84,15 @@ export function CatalogView() {
       supplierId: item.supplierId ?? suppliers[0]?.id ?? "",
     })
   }
-  function saveEdit(id: string) {
-    if (!editDraft) return
+  async function saveEdit(id: string) {
+    if (!editDraft || saving) return
     const name = editDraft.name.trim()
     const sku = editDraft.sku.trim()
     const unit = editDraft.unit.trim()
     if (!name || !sku || !unit || !Number.isFinite(editDraft.unitCost) || editDraft.unitCost < 0) return
-    updateCatalogItem(id, {
+    setSaving(true)
+    setError("")
+    const res = await updateCatalogItem(id, {
       name,
       sku,
       unit,
@@ -94,12 +101,30 @@ export function CatalogView() {
       category: defaultCategory(editDraft.kind),
       supplierId: editDraft.kind === "material" ? editDraft.supplierId || undefined : undefined,
     })
+    setSaving(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
     setEditing(null)
     setEditDraft(null)
+  }
+  async function submitDelete(id: string) {
+    if (saving) return
+    setSaving(true)
+    setError("")
+    const res = await removeCatalogItem(id)
+    setSaving(false)
+    if (!res.ok) {
+      setError(res.error)
+      return
+    }
+    setConfirmDeleteId(null)
   }
   function cancelEdit() {
     setEditing(null)
     setEditDraft(null)
+    setError("")
   }
 
   return (
@@ -155,6 +180,8 @@ export function CatalogView() {
           }}
         />
       )}
+
+      {error ? <p className="mb-3 text-xs text-destructive">{error}</p> : null}
 
       <div className="overflow-hidden rounded-2xl surface-card">
         <div className="overflow-x-auto">
@@ -347,15 +374,42 @@ export function CatalogView() {
                               <X className="size-3.5" />
                             </button>
                           </>
+                        ) : confirmDeleteId === item.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => submitDelete(item.id)}
+                              className="rounded-lg bg-destructive px-2 py-1 text-[10px] font-bold text-destructive-foreground"
+                            >
+                              {saving ? "…" : "Sí"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="rounded-lg border border-border px-2 py-1 text-[10px] font-semibold"
+                            >
+                              No
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => startEdit(item)}
-                            className="flex size-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
-                            aria-label="Editar artículo"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEdit(item)}
+                              className="flex size-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                              aria-label="Editar artículo"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(item.id)}
+                              className="flex size-7 items-center justify-center rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10"
+                              aria-label="Eliminar artículo"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

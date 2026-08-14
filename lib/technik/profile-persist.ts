@@ -1,5 +1,5 @@
 import { getSupabaseBrowser } from "@/lib/supabase/browser"
-import { PROFILE_COLUMNS, userFromProfile, type ProfileRow } from "./auth-profile"
+import { PROFILE_COLUMNS, PROFILE_COLUMNS_LEGACY, userFromProfile, type ProfileRow } from "./auth-profile"
 import { isValidUsername, sanitizeUsername } from "./codes"
 import { compressAvatar } from "./compress-image"
 import type { User } from "./data"
@@ -20,10 +20,12 @@ function profileError(error: { code?: string; message?: string } | null): string
 
 export async function loadProfiles(): Promise<User[]> {
   const supabase = getSupabaseBrowser()
-  const { data, error } = await supabase
-    .from("profiles")
-    .select(PROFILE_COLUMNS)
-    .order("name")
+  let { data, error } = await supabase.from("profiles").select(PROFILE_COLUMNS).order("name")
+  if (error && /invite_pending/i.test(error.message)) {
+    const retry = await supabase.from("profiles").select(PROFILE_COLUMNS_LEGACY).order("name")
+    data = retry.data
+    error = retry.error
+  }
   if (error || !data) return []
   return (data as ProfileRow[]).map(userFromProfile)
 }

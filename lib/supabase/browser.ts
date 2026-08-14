@@ -1,5 +1,6 @@
 "use client"
 
+import { capturePasswordSetupHintFromLocation } from "@/lib/technik/password-setup"
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
 import {
   isSupabaseConfigured,
@@ -18,6 +19,7 @@ export function setSupabasePublicConfig(config: SupabasePublicConfig) {
 }
 
 export function getSupabaseBrowser(): SupabaseClient {
+  if (typeof window !== "undefined") capturePasswordSetupHintFromLocation()
   if (client) return client
   const { url, key } = supabasePublicEnv()
   if (!url || !key) {

@@ -11,7 +11,10 @@ export function supabaseAdminEnv() {
 
 export function isSupabaseAdminConfigured() {
   const { url, key } = supabaseAdminEnv()
-  return Boolean(url && key)
+  if (!url || !key) return false
+  if (key.startsWith("http") || key.includes("/rest/")) return false
+  if (key.startsWith("sb_publishable_")) return false
+  return key.startsWith("sb_secret_") || key.startsWith("eyJ")
 }
 
 export function getSupabaseAdmin(): SupabaseClient {

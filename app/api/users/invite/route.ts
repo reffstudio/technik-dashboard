@@ -1,6 +1,6 @@
-import { createClient } from "@supabase/supabase-js"
 import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
 import { isValidUsername, sanitizeUsername } from "@/lib/technik/codes"
+import { passwordSetupRedirect } from "@/lib/technik/password-setup"
 
 function explainInviteError(msg: string) {
   const m = msg.toLowerCase()
@@ -11,7 +11,7 @@ function explainInviteError(msg: string) {
     return "La SUPABASE_SERVICE_ROLE_KEY no es válida. En Vercel debe ser service_role / sb_secret_, no la publishable."
   }
   if (m.includes("redirect")) {
-    return "Agrega https://dashboard.solutionstechnik.com y https://dashboard.solutionstechnik.com/** en Authentication → URL configuration → Redirect URLs."
+    return "Agrega http://localhost:3000/** y https://dashboard.solutionstechnik.com/** en Authentication → URL configuration → Redirect URLs (incluye /auth/callback)."
   }
   if (m.includes("sign up") || m.includes("signup") || m.includes("disabled")) {
     return "Activa el proveedor Email en Authentication → Sign in / Providers (Allow new users to sign up)."
@@ -32,22 +32,27 @@ async function ensureProfile(
     role: "admin" | "empleado"
     department: string
     location: string
+    invitePending: boolean
   },
 ) {
-  const { error } = await admin.from("profiles").upsert(
-    {
-      id: input.id,
-      username: input.username,
-      name: input.name,
-      email: input.email,
-      role: input.role,
-      department_id: input.department,
-      location: input.location,
-      since: new Date().getFullYear().toString(),
-      active: true,
-    },
-    { onConflict: "id" },
-  )
+  const row = {
+    id: input.id,
+    username: input.username,
+    name: input.name,
+    email: input.email,
+    role: input.role,
+    department_id: input.department,
+    location: input.location,
+    since: new Date().getFullYear().toString(),
+    active: true,
+    invite_pending: input.invitePending,
+  }
+  let { error } = await admin.from("profiles").upsert(row, { onConflict: "id" })
+  if (error && /invite_pending/i.test(error.message)) {
+    const { invite_pending: _ignored, ...legacy } = row
+    const retry = await admin.from("profiles").upsert(legacy, { onConflict: "id" })
+    error = retry.error
+  }
   return error
 }
 
@@ -74,34 +79,28 @@ export async function POST(req: Request) {
       {
         ok: false,
         error:
-          "Falta SUPABASE_SERVICE_ROLE_KEY en Vercel (.env del servidor). Agrégala y vuelve a desplegar.",
+          "Falta SUPABASE_SERVICE_ROLE_KEY en .env.local. Debe ser sb_secret_… o el JWT service_role (eyJ…), no la URL ni la publishable. Reinicia next dev.",
       },
       { status: 503 },
     )
   }
 
-  const { url, key: publishable } = {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    key:
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  }
   const authHeader = req.headers.get("authorization")
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : ""
-  if (!url || !publishable || !token) {
+  if (!token) {
     return Response.json({ ok: false, error: "No autorizado." }, { status: 401 })
   }
 
-  const userClient = createClient(url, publishable, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-  const { data: authData, error: authError } = await userClient.auth.getUser(token)
+  const admin = getSupabaseAdmin()
+  const { data: authData, error: authError } = await admin.auth.getUser(token)
   if (authError || !authData.user) {
-    return Response.json({ ok: false, error: "Sesión inválida." }, { status: 401 })
+    return Response.json(
+      { ok: false, error: authError?.message || "Sesión inválida. Cierra sesión y vuelve a entrar." },
+      { status: 401 },
+    )
   }
 
-  const { data: actor, error: actorError } = await userClient
+  const { data: actor, error: actorError } = await admin
     .from("profiles")
     .select("role, active")
     .eq("id", authData.user.id)
@@ -112,8 +111,6 @@ export async function POST(req: Request) {
   if (actor.role !== "admin" || !actor.active) {
     return Response.json({ ok: false, error: "Solo un admin puede invitar." }, { status: 403 })
   }
-
-  const admin = getSupabaseAdmin()
 
   const body = (await req.json()) as Body
   const name = body.name?.trim() ?? ""
@@ -133,32 +130,77 @@ export async function POST(req: Request) {
     )
   }
 
-  const origin = siteUrl().startsWith("http") ? siteUrl() : `https://${siteUrl()}`
-  const meta = { name, username, role }
+  const originHeader = req.headers.get("origin")
+  const origin = (originHeader || siteUrl()).replace(/\/$/, "")
+  const originWithScheme = origin.startsWith("http") ? origin : `https://${origin}`
+  const redirectTo = passwordSetupRedirect(originWithScheme)
+  const meta = { name, username, role, must_set_password: true }
 
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: meta,
-    redirectTo: origin,
-  })
-
-  let userId = invited?.user?.id
-  let emailed = Boolean(userId) && !inviteError
+  let userId: string | undefined
   let inviteLink: string | undefined
+  let emailed = false
+  let lastError = ""
+
+  try {
+    const invited = await admin.auth.admin.inviteUserByEmail(email, { data: meta, redirectTo })
+    if (invited.error) {
+      lastError = invited.error.message
+    } else if (invited.data?.user?.id) {
+      userId = invited.data.user.id
+      emailed = true
+    }
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : "Error al enviar la invitación."
+  }
+
+  const alreadyRegistered = /already|registered|exists/i.test(lastError)
+
+  if (!emailed && alreadyRegistered) {
+    try {
+      const { error: resetError } = await admin.auth.resetPasswordForEmail(email, { redirectTo })
+      if (!resetError) emailed = true
+      else lastError = resetError.message
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : lastError
+    }
+  }
+
+  const linkType = userId || alreadyRegistered ? "recovery" : "invite"
+  try {
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: linkType,
+      email,
+      options: { data: meta, redirectTo },
+    })
+    userId = userId ?? linkData?.user?.id
+    inviteLink = linkData?.properties?.action_link
+    if (linkError?.message) lastError = linkError.message
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : lastError || "Error al generar el enlace de invitación."
+  }
 
   if (!userId) {
-    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-      type: "invite",
-      email,
-      options: { data: meta, redirectTo: origin },
-    })
-    userId = linkData?.user?.id
-    inviteLink = linkData?.properties?.action_link
-    if (!userId) {
-      const raw = inviteError?.message || linkError?.message || ""
-      return Response.json({ ok: false, error: explainInviteError(raw) }, { status: 400 })
-    }
-    emailed = false
+    return Response.json({ ok: false, error: explainInviteError(lastError) }, { status: 400 })
   }
+
+  await admin.auth.admin.updateUserById(userId, { user_metadata: meta }).catch(() => null)
+
+  if (inviteLink) {
+    try {
+      const link = new URL(inviteLink)
+      if (link.searchParams.has("redirect_to")) link.searchParams.set("redirect_to", redirectTo)
+      inviteLink = link.toString()
+    } catch {
+      /* keep original */
+    }
+  }
+
+  const { data: existingProfile } = await admin
+    .from("profiles")
+    .select("id, invite_pending")
+    .eq("id", userId)
+    .maybeSingle()
+  const invitePending = existingProfile ? existingProfile.invite_pending === true : true
 
   const profileError = await ensureProfile(admin, {
     id: userId,
@@ -168,6 +210,7 @@ export async function POST(req: Request) {
     role,
     department,
     location,
+    invitePending,
   })
   if (profileError) {
     if (profileError.code === "23505") {
@@ -179,5 +222,11 @@ export async function POST(req: Request) {
     )
   }
 
-  return Response.json({ ok: true, id: userId, emailed, inviteLink })
+  return Response.json({
+    ok: true,
+    id: userId,
+    emailed,
+    inviteLink,
+    mailError: emailed ? undefined : lastError || undefined,
+  })
 }
