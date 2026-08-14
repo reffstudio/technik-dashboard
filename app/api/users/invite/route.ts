@@ -2,7 +2,54 @@ import { createClient } from "@supabase/supabase-js"
 import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
 import { isValidUsername, sanitizeUsername } from "@/lib/technik/codes"
 
-export const dynamic = "force-dynamic"
+function explainInviteError(msg: string) {
+  const m = msg.toLowerCase()
+  if (m.includes("already") || m.includes("registered") || m.includes("exists")) {
+    return "Ese correo ya tiene una cuenta."
+  }
+  if (m.includes("api key") || m.includes("invalid jwt") || m.includes("not allowed")) {
+    return "La SUPABASE_SERVICE_ROLE_KEY no es válida. En Vercel debe ser service_role / sb_secret_, no la publishable."
+  }
+  if (m.includes("redirect")) {
+    return "Agrega https://dashboard.solutionstechnik.com y https://dashboard.solutionstechnik.com/** en Authentication → URL configuration → Redirect URLs."
+  }
+  if (m.includes("sign up") || m.includes("signup") || m.includes("disabled")) {
+    return "Activa el proveedor Email en Authentication → Sign in / Providers (Allow new users to sign up)."
+  }
+  if (m.includes("rate")) {
+    return "Supabase limitó el envío de correos. Espera un minuto e inténtalo de nuevo."
+  }
+  return msg.trim() || "No se pudo crear la invitación."
+}
+
+async function ensureProfile(
+  admin: ReturnType<typeof getSupabaseAdmin>,
+  input: {
+    id: string
+    username: string
+    name: string
+    email: string
+    role: "admin" | "empleado"
+    department: string
+    location: string
+  },
+) {
+  const { error } = await admin.from("profiles").upsert(
+    {
+      id: input.id,
+      username: input.username,
+      name: input.name,
+      email: input.email,
+      role: input.role,
+      department_id: input.department,
+      location: input.location,
+      since: new Date().getFullYear().toString(),
+      active: true,
+    },
+    { onConflict: "id" },
+  )
+  return error
+}
 
 type Body = {
   name?: string
@@ -87,39 +134,50 @@ export async function POST(req: Request) {
   }
 
   const origin = siteUrl().startsWith("http") ? siteUrl() : `https://${siteUrl()}`
+  const meta = { name, username, role }
+
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: { name, username, role },
+    data: meta,
     redirectTo: origin,
   })
-  if (inviteError || !invited.user) {
-    const msg = inviteError?.message ?? ""
-    if (msg.toLowerCase().includes("already")) {
-      return Response.json({ ok: false, error: "Ese correo ya tiene una cuenta." }, { status: 409 })
+
+  let userId = invited?.user?.id
+  let emailed = Boolean(userId) && !inviteError
+  let inviteLink: string | undefined
+
+  if (!userId) {
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: { data: meta, redirectTo: origin },
+    })
+    userId = linkData?.user?.id
+    inviteLink = linkData?.properties?.action_link
+    if (!userId) {
+      const raw = inviteError?.message || linkError?.message || ""
+      return Response.json({ ok: false, error: explainInviteError(raw) }, { status: 400 })
     }
-    return Response.json(
-      { ok: false, error: "No se pudo enviar la invitación. Revisa Auth → Email en Supabase." },
-      { status: 400 },
-    )
+    emailed = false
   }
 
-  const { error: profileError } = await admin.from("profiles").insert({
-    id: invited.user.id,
+  const profileError = await ensureProfile(admin, {
+    id: userId,
     username,
     name,
     email,
     role,
-    department_id: department,
+    department,
     location,
-    since: new Date().getFullYear().toString(),
-    active: true,
   })
   if (profileError) {
-    await admin.auth.admin.deleteUser(invited.user.id)
     if (profileError.code === "23505") {
       return Response.json({ ok: false, error: "Ese username o correo ya está en uso." }, { status: 409 })
     }
-    return Response.json({ ok: false, error: "No se pudo crear el perfil." }, { status: 400 })
+    return Response.json(
+      { ok: false, error: profileError.message || "No se pudo crear el perfil." },
+      { status: 400 },
+    )
   }
 
-  return Response.json({ ok: true, id: invited.user.id })
+  return Response.json({ ok: true, id: userId, emailed, inviteLink })
 }

@@ -158,7 +158,7 @@ interface TechnikState {
     role: Role
     department: string
     location: string
-  }) => Promise<{ ok: true } | { ok: false; error: string }>
+  }) => Promise<{ ok: true; emailed?: boolean; inviteLink?: string } | { ok: false; error: string }>
   upsertUser: (user: User) => void
   updateProfile: (
     patch: ProfilePatch,
@@ -1025,7 +1025,7 @@ export function TechnikProvider({
         body: JSON.stringify(input),
       })
       const json = (await res.json().catch(() => null)) as
-        | { ok: true; id: string }
+        | { ok: true; id: string; emailed?: boolean; inviteLink?: string }
         | { ok: false; error: string }
         | null
       if (!json || !json.ok) {
@@ -1033,7 +1033,11 @@ export function TechnikProvider({
       }
       const roster = await loadProfiles()
       if (roster.length > 0) setUsers(roster)
-      return { ok: true as const }
+      return {
+        ok: true as const,
+        emailed: json.emailed,
+        inviteLink: json.inviteLink,
+      }
     },
     [],
   )

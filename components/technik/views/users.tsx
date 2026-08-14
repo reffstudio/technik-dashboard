@@ -14,7 +14,7 @@ export function UsersView() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState("")
+  const [inviteLink, setInviteLink] = useState("")
   const [form, setForm] = useState({
     name: "",
     username: "",
@@ -54,6 +54,7 @@ export function UsersView() {
   function openCreate() {
     setEditingId(null)
     setError("")
+    setInviteLink("")
     setForm({
       name: "",
       username: "",
@@ -86,6 +87,7 @@ export function UsersView() {
     const username = uniqueUsername(form.username || usernameFromName(form.name), users.map((u) => u.username))
     setBusy(true)
     setError("")
+    setInviteLink("")
     const res = await inviteUser({
       name: form.name.trim(),
       email: form.email.trim(),
@@ -97,6 +99,10 @@ export function UsersView() {
     setBusy(false)
     if (!res.ok) {
       setError(res.error)
+      return
+    }
+    if (res.inviteLink && res.emailed === false) {
+      setInviteLink(res.inviteLink)
       return
     }
     setAdding(false)
@@ -207,6 +213,19 @@ export function UsersView() {
             <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               {error}
             </p>
+          )}
+          {inviteLink && (
+            <div className="sm:col-span-2 rounded-xl border border-primary/25 bg-primary/[0.06] p-3 text-xs">
+              <p className="font-semibold text-foreground mb-1">El correo no salió. Envía este enlace al colaborador:</p>
+              <p className="font-mono break-all text-muted-foreground">{inviteLink}</p>
+              <button
+                type="button"
+                className="mt-2 text-primary font-semibold hover:underline"
+                onClick={() => void navigator.clipboard.writeText(inviteLink)}
+              >
+                Copiar enlace
+              </button>
+            </div>
           )}
           <p className="sm:col-span-2 text-xs text-muted-foreground">
             Les llega un correo de Supabase para crear su contraseña y entrar a dashboard.solutionstechnik.com
