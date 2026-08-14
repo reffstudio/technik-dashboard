@@ -40,28 +40,33 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   }
   const authHeader = req.headers.get("authorization")
-  if (!url || !publishable || !authHeader) {
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : ""
+  if (!url || !publishable || !token) {
     return Response.json({ ok: false, error: "No autorizado." }, { status: 401 })
   }
 
   const userClient = createClient(url, publishable, {
-    global: { headers: { Authorization: authHeader } },
+    global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   })
-  const { data: authData, error: authError } = await userClient.auth.getUser()
+  const { data: authData, error: authError } = await userClient.auth.getUser(token)
   if (authError || !authData.user) {
     return Response.json({ ok: false, error: "Sesión inválida." }, { status: 401 })
   }
 
-  const admin = getSupabaseAdmin()
-  const { data: actor } = await admin
+  const { data: actor, error: actorError } = await userClient
     .from("profiles")
     .select("role, active")
     .eq("id", authData.user.id)
     .maybeSingle()
-  if (!actor || actor.role !== "admin" || !actor.active) {
+  if (actorError || !actor) {
+    return Response.json({ ok: false, error: "No se encontró tu perfil para validar el rol." }, { status: 403 })
+  }
+  if (actor.role !== "admin" || !actor.active) {
     return Response.json({ ok: false, error: "Solo un admin puede invitar." }, { status: 403 })
   }
+
+  const admin = getSupabaseAdmin()
 
   const body = (await req.json()) as Body
   const name = body.name?.trim() ?? ""
