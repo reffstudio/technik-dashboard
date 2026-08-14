@@ -2,6 +2,12 @@ import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admi
 import { isValidUsername, sanitizeUsername } from "@/lib/technik/codes"
 import { passwordSetupRedirect } from "@/lib/technik/password-setup"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+void process.env.SUPABASE_SERVICE_ROLE_KEY
+void process.env.SUPABASE_SECRET_KEY
+
 function explainInviteError(msg: string) {
   const m = msg.toLowerCase()
   if (m.includes("already") || m.includes("registered") || m.includes("exists")) {
