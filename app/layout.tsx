@@ -49,7 +49,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var p=location.pathname,u=(location.hash||"")+(location.search||"");if(p.indexOf("/auth/callback")===0||/access_token=|refresh_token=|[?&]code=|type=invite|type=recovery|type=signup|type=magiclink|setup=password/.test(u))sessionStorage.setItem("technik_must_set_password","1")}catch(e){}`,
+            __html: `try{var p=location.pathname,s=location.search||"",h=location.hash||"",u=h+s;if(p.indexOf("/auth/callback")===0||/access_token=|refresh_token=|[?&]code=|token_hash=|type=invite|type=recovery|type=signup|type=magiclink|setup=password/.test(u)){sessionStorage.setItem("technik_must_set_password","1");sessionStorage.setItem("technik_auth_callback",JSON.stringify({s:s,h:h}))}}catch(e){}`,
           }}
         />
       </head>

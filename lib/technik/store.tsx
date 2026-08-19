@@ -97,6 +97,7 @@ import {
 import type { InboxEvent } from "./notifications"
 import { fetchRemoteWorkspace, pushRemoteWorkspace } from "./remote-workspace"
 import {
+  establishAuthSessionFromUrl,
   getSupabaseBrowser,
   isSupabaseConfigured,
   setSupabasePublicConfig,
@@ -1116,6 +1117,7 @@ export function TechnikProvider({
         return { ok: false as const, error: "Supabase no está configurado." }
       }
       const supabase = getSupabaseBrowser()
+      await establishAuthSessionFromUrl()
       let session = (await supabase.auth.getSession()).data.session
       for (let i = 0; i < 20 && !session?.user; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 250))

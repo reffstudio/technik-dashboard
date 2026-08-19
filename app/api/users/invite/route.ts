@@ -163,9 +163,27 @@ export async function POST(req: Request) {
 
   if (!emailed && alreadyRegistered) {
     try {
-      const { error: resetError } = await admin.auth.resetPasswordForEmail(email, { redirectTo })
-      if (!resetError) emailed = true
-      else lastError = resetError.message
+      const { data: linkData } = await admin.auth.admin.generateLink({
+        type: "recovery",
+        email,
+        options: { data: meta, redirectTo },
+      })
+      userId = userId ?? linkData?.user?.id
+      const { data: profile } = userId
+        ? await admin.from("profiles").select("id, invite_pending, active").eq("id", userId).maybeSingle()
+        : { data: null }
+      const leftover = !profile || profile.invite_pending === true || profile.active === false
+      if (leftover && userId) {
+        await admin.auth.admin.deleteUser(userId)
+        userId = undefined
+        const invited = await admin.auth.admin.inviteUserByEmail(email, { data: meta, redirectTo })
+        if (invited.error) lastError = invited.error.message
+        else if (invited.data?.user?.id) {
+          userId = invited.data.user.id
+          emailed = true
+          lastError = ""
+        }
+      }
     } catch (err) {
       lastError = err instanceof Error ? err.message : lastError
     }

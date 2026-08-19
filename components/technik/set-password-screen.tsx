@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react"
 import { motion } from "motion/react"
 import { ArrowRight, Lock } from "lucide-react"
-import { getSupabaseBrowser } from "@/lib/supabase/browser"
+import { establishAuthSessionFromUrl } from "@/lib/supabase/browser"
 import { useTechnik } from "@/lib/technik/store"
 import { BrandLogo } from "./brand-logo"
 
@@ -16,19 +16,24 @@ export function SetPasswordScreen() {
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
+  const [sessionError, setSessionError] = useState("")
+
+  const canSubmit = password.length >= 8 && password === confirm && !busy
 
   useEffect(() => {
-    const supabase = getSupabaseBrowser()
     let cancelled = false
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled && data.session) setSessionReady(true)
-    })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) setSessionReady(true)
-    })
+    void (async () => {
+      const ok = await establishAuthSessionFromUrl()
+      if (cancelled) return
+      if (ok) {
+        setSessionReady(true)
+        setSessionError("")
+        return
+      }
+      setSessionError("No se pudo confirmar el enlace. Si Guardar falla, pide una nueva invitación.")
+    })()
     return () => {
       cancelled = true
-      sub.subscription.unsubscribe()
     }
   }, [])
 
@@ -44,6 +49,10 @@ export function SetPasswordScreen() {
     }
     setBusy(true)
     setError("")
+    if (!sessionReady) {
+      const ok = await establishAuthSessionFromUrl()
+      if (ok) setSessionReady(true)
+    }
     const res = await completePasswordSetup(password)
     setBusy(false)
     if (!res.ok) setError(res.error)
@@ -79,8 +88,8 @@ export function SetPasswordScreen() {
         <div className="rounded-2xl surface-elevated p-7 glow-teal-sm">
           <p className="text-sm text-muted-foreground mb-5">
             {sessionReady
-              ? "Antes de entrar al dashboard, elige una contraseña para tu cuenta."
-              : "Confirmando la invitación…"}
+              ? "Elige una contraseña para entrar al dashboard."
+              : "Confirmando el enlace… puedes escribir la contraseña mientras tanto."}
           </p>
           <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3.5">
             <label className="block">
@@ -119,14 +128,17 @@ export function SetPasswordScreen() {
                 />
               </div>
             </label>
-            {error && (
+            {password.length >= 8 && confirm.length >= 8 && password !== confirm && (
+              <p className="text-xs text-destructive">Las contraseñas no coinciden.</p>
+            )}
+            {(error || sessionError) && (
               <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-                {error}
+                {error || sessionError}
               </p>
             )}
             <button
               type="submit"
-              disabled={busy || !sessionReady}
+              disabled={!canSubmit}
               className="mt-1 group flex items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {busy ? "Guardando…" : "Guardar y entrar"}
