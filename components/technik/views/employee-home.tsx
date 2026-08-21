@@ -1,13 +1,13 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Plus, ChevronRight, ClipboardList, Send, Trash2, RotateCcw } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import {
   quotationIsTrashed,
   quotationTrashDaysLeft,
 } from "@/lib/technik/data"
-import { DepartmentBadges, PageHeader, SearchField, Stat, StatusBadge } from "../ui"
+import { PageHeader, SearchField, Stat } from "../ui"
 import type { View } from "../app-shell"
 
 const FILTERS = [
@@ -130,14 +130,13 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
         <div className="flex flex-col gap-2.5">
           {list.map((q) => {
             const client = clients.find((c) => c.id === q.clientId)
-            const materials = q.lines.length
             const inTrash = quotationIsTrashed(q)
             const editable = q.status === "draft" && !inTrash
             const days = inTrash && q.deletedAt ? quotationTrashDaysLeft(q.deletedAt) : null
             return (
               <div
                 key={q.id}
-                className="group flex items-center gap-2 rounded-2xl surface-card p-2 pr-3 hover:border-primary/40 transition-colors"
+                className="group flex items-center gap-2 rounded-2xl bg-muted/50 px-3 py-2.5 hover:bg-accent transition-colors"
               >
                 <button
                   type="button"
@@ -145,27 +144,28 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                     if (inTrash) return
                     navigate(editable ? { name: "builder", id: q.id } : { name: "review", id: q.id })
                   }}
-                  className="flex flex-1 items-center gap-3 p-2 text-left min-w-0"
+                  className="flex flex-1 items-center gap-3 text-left min-w-0"
                 >
                   <div
-                    className={`flex size-10 items-center justify-center rounded-xl shrink-0 ${
-                      editable ? "bg-muted text-muted-foreground" : "bg-primary/12 text-primary"
+                    className={`flex size-9 items-center justify-center rounded-xl shrink-0 ${
+                      editable ? "bg-background text-muted-foreground" : "bg-primary/12 text-primary"
                     }`}
                   >
-                    {editable ? <ClipboardList className="size-5" /> : <Send className="size-5" />}
+                    {editable ? <ClipboardList className="size-4" /> : <Send className="size-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-mono text-xs text-primary">{q.reference}</span>
-                      <DepartmentBadges quotation={q} />
-                      {!inTrash && <StatusBadge quotation={q} />}
-                    </div>
-                    <p className="text-sm font-semibold text-foreground truncate">{q.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                      {client?.company ?? "—"} · {materials} ítems
+                    <p className="text-sm font-semibold truncate leading-tight">
+                      {client?.company ?? "—"}
+                    </p>
+                    {q.title.trim() && q.title.trim() !== client?.company ? (
+                      <p className="text-[11px] truncate text-muted-foreground mt-0.5">{q.title}</p>
+                    ) : null}
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      {q.reference.replace(/^TKS-Q-/, "")}
+                      {!inTrash && ` · ${q.status === "draft" ? "Borrador" : "En revisión"}`}
                       {inTrash && days !== null
                         ? ` · ${days <= 0 ? "se borra hoy" : `se borra en ${days} día${days === 1 ? "" : "s"}`}`
-                        : ` · ${q.updatedAt}`}
+                        : ""}
                     </p>
                   </div>
                   {!inTrash && (

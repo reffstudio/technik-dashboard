@@ -1,6 +1,5 @@
 "use client"
 
-import React from "react"
 import { ImagePlus, Trash2 } from "lucide-react"
 
 export function CoverPhotoField({

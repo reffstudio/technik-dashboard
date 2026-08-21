@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { Maximize2, X } from "lucide-react"
 import { publicQuoteTotals } from "@/lib/technik/store"
@@ -323,7 +323,7 @@ export function QuotePdfPreview({
   )
 }
 
-function FullscreenLetter({ children }: { children: React.ReactNode }) {
+function FullscreenLetter({ children }: { children: ReactNode }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(0.85)
 
@@ -383,7 +383,7 @@ function LetterChrome({
   quoteDate: string
   quoteNo: string
   rightTitle?: string
-  children: React.ReactNode
+  children: ReactNode
   printKind?: PdfDocKind
   className?: string
 }) {

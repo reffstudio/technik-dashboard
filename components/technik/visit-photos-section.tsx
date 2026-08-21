@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Camera, ImagePlus, Trash2, X, Loader2, FileText } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import { visitPhotosOf, VISIT_PHOTO_MAX } from "@/lib/technik/visit-photos"

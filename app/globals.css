@@ -76,6 +76,7 @@ html {
   --fin-surface-hover: #eef2f6;
 
   --grain-opacity: 0.01;
+  --app-header-h: calc(4rem + env(safe-area-inset-top, 0px));
 }
 
 .dark {
@@ -133,9 +134,9 @@ html {
 }
 
 @theme inline {
-  --font-sans: 'DM Sans', 'DM Sans Fallback', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', monospace;
-  --font-display: 'Outfit', 'Outfit Fallback', system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), 'JetBrains Mono', monospace;
+  --font-display: var(--font-outfit), 'Outfit', system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -324,6 +325,10 @@ html {
 
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* Brand logo assets already include correct Dark/Light colorways */

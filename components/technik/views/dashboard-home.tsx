@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ElementType } from "react"
 import Image from "next/image"
 import { AnimatePresence, motion } from "motion/react"
 import {
@@ -1312,7 +1312,7 @@ function CollaboratorQuoteRow({
   )
 }
 
-function EmptyMini({ icon: Icon, text }: { icon: React.ElementType; text: string }) {
+function EmptyMini({ icon: Icon, text }: { icon: ElementType; text: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-border p-6 text-center">
       <Icon className="size-6 text-muted-foreground/40 mx-auto mb-2" />

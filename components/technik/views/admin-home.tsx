@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
-import { Inbox, ChevronRight, Plus } from "lucide-react"
+import { useState, useMemo } from "react"
+import { Inbox, Plus } from "lucide-react"
 import { useTechnik, quoteTotals } from "@/lib/technik/store"
 import {
   currency,
@@ -12,7 +12,6 @@ import {
 import {
   PageHeader,
   Stat,
-  DepartmentBadges,
   SearchField,
   QuoteAuthor,
   QuotePipelineControls,
@@ -31,13 +30,6 @@ const FILTERS: {
   { id: "closed", label: "Archivadas" },
   { id: "all", label: "Todas" },
 ]
-
-function formatSendDate(iso?: string) {
-  if (!iso) return "—"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
-}
 
 export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
   const { quotations, clients, catalog, departments } = useTechnik()
@@ -144,7 +136,7 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-colors ${
                 filter === f.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -152,11 +144,11 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar por departamento">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por departamento">
           <button
             type="button"
             onClick={() => setDept("all")}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
               dept === "all"
                 ? "bg-primary text-primary-foreground border-primary"
                 : "border-border text-muted-foreground hover:text-foreground"
@@ -171,13 +163,13 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                 key={d.id}
                 type="button"
                 onClick={() => setDept(active ? "all" : d.id)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
                   active
                     ? "bg-primary text-primary-foreground border-primary"
                     : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {d.label}
+                {d.short || d.label}
               </button>
             )
           })}
@@ -194,94 +186,36 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
           </p>
         </div>
       ) : (
-        <>
-          <div className="hidden lg:block rounded-2xl border border-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[960px]">
-                <thead>
-                  <tr className="bg-primary text-primary-foreground text-left text-[11px] uppercase tracking-wider">
-                    <th className="px-3 py-3 font-semibold"># Cotización</th>
-                    <th className="px-3 py-3 font-semibold">Empresa</th>
-                    <th className="px-3 py-3 font-semibold">Creada por</th>
-                    <th className="px-3 py-3 font-semibold">Descripción</th>
-                    <th className="px-3 py-3 font-semibold">Departamentos</th>
-                    <th className="px-3 py-3 font-semibold">Estado</th>
-                    <th className="px-3 py-3 font-semibold">Fecha envío</th>
-                    <th className="px-3 py-3 font-semibold">Comentarios</th>
-                    <th className="px-2 py-3 w-8" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((q, i) => (
-                    <tr
-                      key={q.id}
-                      onClick={() => navigate({ name: "review", id: q.id })}
-                      className={`border-t border-border cursor-pointer hover:bg-fin-surface-hover transition-colors ${
-                        i % 2 === 0 ? "bg-card" : "bg-muted/30"
-                      }`}
-                    >
-                      <td className="px-3 py-3 font-mono text-xs text-primary whitespace-nowrap">
-                        {q.reference}
-                      </td>
-                      <td className="px-3 py-3 font-semibold text-foreground whitespace-nowrap">
-                        {clientName(q.clientId)}
-                      </td>
-                      <td className="px-3 py-3">
-                        <QuoteAuthor quotation={q} layout="row" />
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground max-w-[220px]">
-                        <span className="line-clamp-2">{q.title}</span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <DepartmentBadges quotation={q} />
-                      </td>
-                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <QuotePipelineControls quotation={q} compact />
-                      </td>
-                      <td className="px-3 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
-                        {formatSendDate(q.clientSentAt)}
-                      </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground max-w-[180px]">
-                        <span className="line-clamp-2">{q.comments || "—"}</span>
-                      </td>
-                      <td className="px-2 py-3 text-muted-foreground">
-                        <ChevronRight className="size-4" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Mobile / tablet cards */}
-          <div className="flex flex-col gap-2.5 lg:hidden">
-            {list.map((q) => (
+        <div className="flex flex-col gap-2">
+          {list.map((q) => {
+            const company = clientName(q.clientId)
+            return (
               <div
                 key={q.id}
-                className="rounded-2xl surface-card p-4 text-left"
+                className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 hover:bg-accent transition-colors"
               >
                 <button
                   type="button"
                   onClick={() => navigate({ name: "review", id: q.id })}
-                  className="w-full text-left hover:opacity-90"
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <span className="font-mono text-xs text-primary">{q.reference}</span>
-                    <DepartmentBadges quotation={q} />
+                  <QuoteAuthor quotation={q} layout="avatar" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate leading-tight">{company}</p>
+                    {q.title.trim() && q.title.trim() !== company ? (
+                      <p className="text-[11px] truncate text-muted-foreground mt-0.5">{q.title}</p>
+                    ) : null}
+                    <QuoteAuthor quotation={q} layout="name" className="mt-0.5" />
                   </div>
-                  <p className="text-sm font-semibold text-foreground mb-1">{q.title}</p>
-                  <p className="text-xs text-muted-foreground mb-2">{clientName(q.clientId)}</p>
-                  <QuoteAuthor quotation={q} className="mb-3" />
+                  <span className="hidden sm:inline font-mono text-[10px] shrink-0 text-muted-foreground tabular-nums">
+                    {q.reference.replace(/^TKS-Q-/, "")}
+                  </span>
                 </button>
                 <QuotePipelineControls quotation={q} compact />
-                {q.comments && (
-                  <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{q.comments}</p>
-                )}
               </div>
-            ))}
-          </div>
-        </>
+            )
+          })}
+        </div>
       )}
     </div>
   )

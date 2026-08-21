@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import { useState, useMemo } from "react"
 import { Search, Plus, Boxes, Pencil, Check, X, Wrench, Sparkles, Trash2 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import {

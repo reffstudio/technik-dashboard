@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react"
 import {
   ArrowLeft,
   Plus,
@@ -853,7 +853,7 @@ function Modal({
 }: {
   title: string
   onClose: () => void
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -966,7 +966,7 @@ function LineSummary({
   catalog,
 }: {
   title: string
-  icon: React.ElementType
+  icon: ElementType
   lines: QuoteLine[]
   catalog: CatalogItem[]
 }) {

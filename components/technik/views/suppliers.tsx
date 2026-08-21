@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import { useState, type Dispatch, type SetStateAction } from "react"
 import { Search, Truck, Mail, Phone, MessageCircle, Plus, Check, Pencil, Trash2 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import { CHANNEL_LABEL, type Supplier, type SupplierChannel } from "@/lib/technik/data"
@@ -219,7 +219,7 @@ function SupplierForm({
   error,
 }: {
   form: typeof emptyForm
-  setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>
+  setForm: Dispatch<SetStateAction<typeof emptyForm>>
   onSave: () => void
   onCancel: () => void
   saveLabel: string

@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import type { ElementType, ReactNode } from "react"
 import {
   Archive,
   AlertTriangle,
@@ -60,7 +60,7 @@ const TONE_CLASS: Record<string, string> = {
   loss: "bg-destructive/12 text-destructive border-destructive/25",
 }
 
-const STATUS_ICONS: Record<StatusIconId, React.ElementType> = {
+const STATUS_ICONS: Record<StatusIconId, ElementType> = {
   draft: FilePenLine,
   review: ClipboardList,
   approved: CheckCircle2,
@@ -165,7 +165,7 @@ export function ClientResponseBadge({
 }
 
 const pipelineSelectCls =
-  "w-full rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
+  "w-full rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
 
 const PIPELINE_CHIP: Record<QuotePipelineStatus, string> = {
   draft: "data-[on=true]:bg-muted data-[on=true]:text-foreground data-[on=true]:border-border",
@@ -297,7 +297,7 @@ export function QuotePipelineControls({
   if (compact) {
     return (
       <div
-        className={`min-w-[11rem] ${className}`}
+        className={`min-w-[8rem] w-[8.75rem] ${className}`}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -376,7 +376,7 @@ export function PageHeader({
 }: {
   title: string
   subtitle?: string
-  children?: React.ReactNode
+  children?: ReactNode
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
@@ -389,7 +389,7 @@ export function PageHeader({
   )
 }
 
-export function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`rounded-2xl surface-card p-5 lg:p-6 ${className}`}>{children}</div>
 }
 
@@ -446,7 +446,7 @@ export function Stat({
   /** @deprecated Prefer `tone="teal"`. */
   accent?: boolean
   tone?: StatTone
-  icon?: React.ElementType
+  icon?: ElementType
 }) {
   const resolved: StatTone = tone ?? (accent ? "teal" : "neutral")
   const t = STAT_TONE[resolved]
@@ -560,7 +560,7 @@ export function SearchField({
   )
 }
 
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>

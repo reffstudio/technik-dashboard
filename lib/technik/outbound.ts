@@ -24,9 +24,36 @@ export type QuoteDispatchPayload = {
   filename: string
 }
 
-export function quotePdfFilename(reference: string, kind: QuotePdfKind): string {
-  const safe = reference.replace(/[^\w.-]+/g, "-")
-  return kind === "client" ? `${safe}-cliente.pdf` : `${safe}-proveedor.pdf`
+function filenameSlug(value: string, max = 72): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, max)
+}
+
+/** Nombre de proyecto en el PDF: título del primer ítem público. */
+export function quotePdfProjectName(quotation: {
+  title?: string
+  publicItems?: Array<{ title?: string }>
+}): string {
+  const fromPublic = (quotation.publicItems ?? [])
+    .map((item) => item.title?.trim() ?? "")
+    .find(Boolean)
+  return fromPublic || quotation.title?.trim() || ""
+}
+
+export function quotePdfFilename(
+  reference: string,
+  kind: QuotePdfKind,
+  projectName?: string,
+): string {
+  const safeRef = filenameSlug(reference) || "cotizacion"
+  const safeProject = projectName?.trim() ? filenameSlug(projectName.trim()) : ""
+  const base = safeProject ? `${safeRef}-${safeProject}` : safeRef
+  return kind === "client" ? `${base}-cliente.pdf` : `${base}-proveedor.pdf`
 }
 
 /** Dígitos para wa.me. 10 dígitos MX → prefijo 52. */

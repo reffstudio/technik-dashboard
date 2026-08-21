@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Building2, Check, Pencil, Plus, Trash2, X } from "lucide-react"
 import {
   DEPARTMENT_COLOR_OPTIONS,

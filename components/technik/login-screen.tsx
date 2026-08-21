@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import { useState, type FormEvent } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ArrowRight, Lock, Mail, KeyRound, ChevronLeft } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
@@ -17,7 +17,7 @@ export function LoginScreen() {
   const [busy, setBusy] = useState(false)
   const [recoverSent, setRecoverSent] = useState(false)
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError("")

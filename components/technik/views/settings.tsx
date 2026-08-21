@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useRef, useState } from "react"
+import { useRef, useState, type ElementType } from "react"
 import {
   ShieldCheck,
   Bell,
@@ -321,7 +321,7 @@ function Shortcut({
   label,
   onClick,
 }: {
-  icon: React.ElementType
+  icon: ElementType
   label: string
   onClick: () => void
 }) {
@@ -352,7 +352,7 @@ function Toggle({
   on,
   onToggle,
 }: {
-  icon: React.ElementType
+  icon: ElementType
   title: string
   desc: string
   on: boolean

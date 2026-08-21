@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -1170,7 +1170,7 @@ export function ProjectDetail({
           )}
         </div>
 
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-24">
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-[calc(var(--app-header-h,4rem)+1.5rem)]">
           <section className="rounded-2xl surface-card p-5">
             <h2 className="text-sm font-bold font-display mb-1">Etapa del taller</h2>
             <p className="text-[11px] text-muted-foreground mb-3">

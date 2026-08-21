@@ -1,12 +1,25 @@
+import type { ReactNode } from "react"
 import type { Metadata, Viewport } from "next"
 import { DM_Sans, JetBrains_Mono, Outfit } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
 
-const _dmSans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"] })
-const _jetbrains = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "600", "700"] })
-const _outfit = Outfit({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] })
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-dm-sans",
+})
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-jetbrains",
+})
+const outfit = Outfit({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-outfit",
+})
 
 export const metadata: Metadata = {
   title: "Technik Solutions — Dashboard de Cotizaciones y Operaciones",
@@ -42,10 +55,14 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: ReactNode
 }>) {
   return (
-    <html lang="es" className="dark bg-background" suppressHydrationWarning>
+    <html
+      lang="es"
+      className={`${dmSans.variable} ${jetbrains.variable} ${outfit.variable} dark bg-background`}
+      suppressHydrationWarning
+    >
       <head>
         <script
           dangerouslySetInnerHTML={{

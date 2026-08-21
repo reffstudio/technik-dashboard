@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import { useState, type Dispatch, type ElementType, type SetStateAction } from "react"
 import { Search, Mail, Phone, MapPin, Building2, FileText, Hash, Plus, Check, Pencil, Trash2 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import type { Client } from "@/lib/technik/data"
@@ -269,7 +269,7 @@ function ClientForm({
   error,
 }: {
   form: typeof emptyForm
-  setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>
+  setForm: Dispatch<SetStateAction<typeof emptyForm>>
   onSave: () => void
   onCancel: () => void
   saveLabel: string
@@ -333,7 +333,7 @@ function ClientForm({
   )
 }
 
-function InfoRow({ icon: Icon, value, mono }: { icon: React.ElementType; value: string; mono?: boolean }) {
+function InfoRow({ icon: Icon, value, mono }: { icon: ElementType; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center gap-2.5 text-muted-foreground">
       <Icon className="size-3.5 shrink-0" />

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import { useMemo, useState, type FormEvent } from "react"
 import { motion } from "motion/react"
 import {
   ArrowDownUp,
@@ -199,7 +199,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setApartadoDraft("new")
   }
 
-  function submitNewApartado(e: React.FormEvent) {
+  function submitNewApartado(e: FormEvent) {
     e.preventDefault()
     const name = sepName.trim()
     const value = Number(sepValue)
@@ -232,7 +232,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setMovFormOpen(false)
   }
 
-  function submitDetailEdit(e: React.FormEvent) {
+  function submitDetailEdit(e: FormEvent) {
     e.preventDefault()
     if (!detailId || !isAdmin) return
     const s = treasurySeparados.find((x) => x.id === detailId)
@@ -247,7 +247,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     flashSep("Apartado actualizado")
   }
 
-  function submitMovement(e: React.FormEvent) {
+  function submitMovement(e: FormEvent) {
     e.preventDefault()
     if (!detailId || !isAdmin) return
     const amount = Number(movAmount)
@@ -359,7 +359,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setOpenEdit(false)
   }
 
-  function submitExpense(e: React.FormEvent) {
+  function submitExpense(e: FormEvent) {
     e.preventDefault()
     const amount = Number(expAmount)
     if (!Number.isFinite(amount) || amount <= 0) {

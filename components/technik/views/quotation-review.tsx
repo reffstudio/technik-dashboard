@@ -1,6 +1,15 @@
 "use client"
 
-import React, { useState, useMemo, useEffect, useRef } from "react"
+import {
+  useState,
+  useMemo,
+  useEffect,
+  useRef,
+  type Dispatch,
+  type ElementType,
+  type ReactNode,
+  type SetStateAction,
+} from "react"
 import { motion, AnimatePresence } from "motion/react"
 import {
   ArrowLeft,
@@ -65,6 +74,7 @@ import {
   quoteDispatchRecipients,
   quotePdfFile,
   quotePdfFilename,
+  quotePdfProjectName,
   shareQuotePdf,
   supplierQuoteMail,
   supplierQuoteSharePayload,
@@ -97,7 +107,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const skipLinesAutoSave = useRef(true)
   const skipCommentsAutoSave = useRef(true)
   const [toast, setToast] = useState<{
-    icon: React.ElementType
+    icon: ElementType
     title: string
     msg: string
     action?: { label: string; onClick: () => void }
@@ -491,7 +501,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         return "blocked" as const
       }
     }
-    const filename = quotePdfFilename(q!.reference || q!.id, doc)
+    const filename = quotePdfFilename(
+      q!.reference || q!.id,
+      doc,
+      quotePdfProjectName(q!),
+    )
     setPdfBusy(true)
     if (!quiet) {
       setToast({
@@ -580,7 +594,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
 
     if (!lockPricesIfNeeded()) return
 
-    const filename = quotePdfFilename(reference, kind)
+    const filename = quotePdfFilename(reference, kind, quotePdfProjectName(q!))
     setPdfBusy(true)
     setToast({
       icon: Share2,
@@ -805,7 +819,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       clientCc: kind === "client" ? client?.ccEmails : undefined,
       extraCc: kind === "client" ? clientExtraCc : supplierExtraCc,
     })
-    const filename = quotePdfFilename(reference, kind)
+    const filename = quotePdfFilename(reference, kind, quotePdfProjectName(q!))
     setPdfBusy(true)
     setToast({
       icon: Mail,
@@ -945,10 +959,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     }
   }
 
-  /** Altura del nav superior del AppShell (h-16). */
-  const NAV_OFFSET = 64
-  const pinnedTop = NAV_OFFSET
-  const sideStickyTop = NAV_OFFSET + stickyH + 8
+  const pinnedTop = "var(--app-header-h, 4rem)"
+  const sideStickyTop = `calc(var(--app-header-h, 4rem) + ${stickyH}px + 8px)`
 
   return (
     <div>
@@ -1533,7 +1545,7 @@ function CollapsibleSection({
   open: boolean
   onToggle: () => void
   variant?: "default" | "client"
-  children: React.ReactNode
+  children: ReactNode
 }) {
   const shell =
     variant === "client"
@@ -1914,7 +1926,7 @@ function PublicItemsEditor({
   onSave,
 }: {
   items: PublicQuoteItem[]
-  setItems: React.Dispatch<React.SetStateAction<PublicQuoteItem[]>>
+  setItems: Dispatch<SetStateAction<PublicQuoteItem[]>>
   terms: string
   setTerms: (v: string) => void
   taxRate: number
@@ -2204,9 +2216,9 @@ function LinesTable({
   catalog: ReturnType<typeof useTechnik>["catalog"]
   kind: "material" | "labor" | "extra"
   prices: Record<string, number>
-  setPrices: React.Dispatch<React.SetStateAction<Record<string, number>>>
+  setPrices: Dispatch<SetStateAction<Record<string, number>>>
   quantities: Record<string, number>
-  setQuantities: React.Dispatch<React.SetStateAction<Record<string, number>>>
+  setQuantities: Dispatch<SetStateAction<Record<string, number>>>
   editable: boolean
   qtyEditable: boolean
   showCosts: boolean
@@ -2473,7 +2485,7 @@ function Detail({
   value,
   mono,
 }: {
-  icon: React.ElementType
+  icon: ElementType
   label: string
   value: string
   mono?: boolean

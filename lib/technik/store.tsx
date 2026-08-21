@@ -1,6 +1,6 @@
 "use client"
 
-import React, {
+import {
   createContext,
   useContext,
   useState,
@@ -8,6 +8,7 @@ import React, {
   useMemo,
   useEffect,
   useRef,
+  type ReactNode,
 } from "react"
 import {
   departmentIdFromLabel,
@@ -384,7 +385,7 @@ export function TechnikProvider({
   children,
   supabase,
 }: {
-  children: React.ReactNode
+  children: ReactNode
   supabase?: { url: string; key: string }
 }) {
   if (typeof window !== "undefined") capturePasswordSetupHintFromLocation()

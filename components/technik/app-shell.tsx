@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ElementType, type RefObject } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import {
   FileText,
@@ -65,7 +65,7 @@ export type View =
 type NavItem = {
   id: string
   label: string
-  icon: React.ElementType
+  icon: ElementType
   view: View
 }
 
@@ -192,9 +192,9 @@ export function AppShell() {
   const bottomCols = showMobileMore ? bottomItems.length + 1 : bottomItems.length
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* Top navigation */}
-      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/75 backdrop-blur-2xl">
+    <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-background text-foreground">
+      {/* Top navigation — anclado; el scroll vive solo en <main> */}
+      <header className="relative z-40 shrink-0 border-b border-border bg-background safe-top">
         <div className="mx-auto max-w-[1400px] px-3 sm:px-5 lg:px-8">
           <div className="flex h-16 items-center gap-3 lg:gap-6">
             <button
@@ -388,7 +388,11 @@ export function AppShell() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto pb-20 sm:pb-0">
+      <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain pb-20 sm:pb-0">
+        <div
+          aria-hidden
+          className="pointer-events-none sticky top-0 z-20 h-11 -mb-11 bg-gradient-to-b from-background to-transparent"
+        />
         <div className="mx-auto max-w-[1400px] px-4 sm:px-5 lg:px-8 py-5 lg:py-8">
           <AnimatePresence mode="wait">
             <motion.div
@@ -477,7 +481,7 @@ function MoreMenu({
   items: NavItem[]
   activeNav: string
   navigate: (v: View) => void
-  containerRef: React.RefObject<HTMLDivElement | null>
+  containerRef: RefObject<HTMLDivElement | null>
   active: boolean
   align?: "left" | "right"
   /** Hacia dónde abre el panel: abajo (desktop) o arriba (móvil). */

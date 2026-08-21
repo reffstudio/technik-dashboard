@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { motion } from "motion/react"
 import { ArrowRight, Lock } from "lucide-react"
 import { establishAuthSessionFromUrl } from "@/lib/supabase/browser"
@@ -37,7 +37,7 @@ export function SetPasswordScreen() {
     }
   }, [])
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (password.length < 8) {
       setError("La contraseña debe tener al menos 8 caracteres.")

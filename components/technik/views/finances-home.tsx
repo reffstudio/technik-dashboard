@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import { useState, type ElementType } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Landmark, Receipt } from "lucide-react"
 import { yearMonthFromIso } from "@/lib/technik/treasury"
@@ -23,7 +23,7 @@ const SECTIONS: {
   id: FinancesSection
   label: string
   description: string
-  icon: React.ElementType
+  icon: ElementType
 }[] = [
   {
     id: "facturacion",
