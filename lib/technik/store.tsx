@@ -740,6 +740,7 @@ export function TechnikProvider({
       snapshot.clients.map((c) => ({
         ...c,
         rfc: (c as Client).rfc ?? "",
+        ccEmails: (c as Client).ccEmails ?? [],
       })),
     )
     setSuppliers(snapshot.suppliers)
@@ -1327,7 +1328,7 @@ export function TechnikProvider({
           .select(PROFILE_COLUMNS_LEGACY)
           .eq("id", authUserId)
           .maybeSingle()
-        data = retry.data
+        data = retry.data as typeof data
         error = retry.error
       }
       if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
@@ -2544,10 +2545,10 @@ export function TechnikProvider({
       setProjects((prev) =>
         prev.map((p) => {
           if (p.id !== projectId) return p
-          const next = {
+          const next: Project = {
             ...p,
             paymentMode: mode,
-            installments: (p.installments ?? []).map((inst) => ({
+            installments: (p.installments ?? []).map((inst): ProjectInstallment => ({
               ...inst,
               paymentComplement:
                 mode === "unico"

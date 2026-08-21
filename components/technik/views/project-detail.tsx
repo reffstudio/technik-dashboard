@@ -29,7 +29,6 @@ import {
   projectCoverUrl,
   type PaymentMethod,
   type PaymentMode,
-  type ProjectStage,
 } from "@/lib/technik/data"
 import { clientPublicItemsForQuote, quoteClientDue, quoteTotals, useTechnik } from "@/lib/technik/store"
 import { formatActivityAt } from "@/lib/technik/activity-history"
@@ -41,6 +40,7 @@ import {
   inputCls,
 } from "../ui"
 import { CoverPhotoField } from "../cover-photo-field"
+import type { View } from "../app-shell"
 
 function formatDate(iso?: string) {
   if (!iso) return "—"

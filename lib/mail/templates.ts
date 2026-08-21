@@ -109,3 +109,58 @@ export function recoverEmail(opts: { actionUrl: string }) {
   const text = `Recibimos una solicitud para restablecer tu acceso al dashboard de Technik Solutions.\n\nCrea una nueva contraseña aquí:\n${opts.actionUrl}\n\nSi no fuiste tú, ignora este correo.`
   return { subject, html, text }
 }
+
+export function quoteDispatchEmail(opts: {
+  greeting: string
+  intro: string
+  body: string
+}): { html: string; text: string } {
+  const paragraphs = opts.body
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map(
+      (block) =>
+        `<p style="margin:0 0 12px;color:#d5dbe6;font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(block)}</p>`,
+    )
+    .join("")
+  const html = `<!doctype html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" style="background:${NAVY};">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Technik Solutions</title>
+  </head>
+  <body bgcolor="${NAVY}" style="margin:0;padding:0;background-color:${NAVY};font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:#ffffff;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${NAVY}" style="background-color:${NAVY};padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+            <tr>
+              <td style="padding:0 8px 20px;">
+                <p style="margin:0;color:${CYAN};font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">Technik Solutions</p>
+                <p style="margin:6px 0 0;color:${MUTED};font-size:12px;">${escapeHtml(TECHNIK_COMPANY.slogan)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td bgcolor="${CARD}" style="background-color:${CARD};border-radius:16px;padding:32px 28px;">
+                <h1 style="margin:0 0 16px;color:#ffffff;font-size:22px;line-height:1.3;">${escapeHtml(opts.greeting)}</h1>
+                <p style="margin:0 0 16px;color:${MUTED};font-size:13px;line-height:1.6;">${escapeHtml(opts.intro)}</p>
+                ${paragraphs}
+                <p style="margin:16px 0 0;color:${MUTED};font-size:13px;line-height:1.6;">El PDF va adjunto a este correo.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 8px 0;color:${MUTED};font-size:11px;line-height:1.6;">
+                ${escapeHtml(TECHNIK_COMPANY.name)} · ${escapeHtml(TECHNIK_COMPANY.addressLines.join(", "))}<br />
+                ${escapeHtml(TECHNIK_COMPANY.phones.join(" · "))} · ${escapeHtml(TECHNIK_COMPANY.email)}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+  return { html, text: opts.body }
+}

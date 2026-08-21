@@ -33,5 +33,5 @@ export async function runWithRetries(
 }
 
 export function persistFailedOffline(res: PersistResult) {
-  return res.error === "offline" || isOffline()
+  return (!res.ok && res.error === "offline") || isOffline()
 }

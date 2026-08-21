@@ -255,16 +255,16 @@ export function mergeWorkspaces(
 
   return {
     rev: Math.max(stored.rev ?? 0, incoming.rev ?? 0),
-    users: mergeById(stored.users, incoming.users, (a, b) => b),
+    users: mergeById(stored.users, incoming.users, (_a, b) => b),
     clients: mergeById(stored.clients, incoming.clients, preferByUpdatedAt),
-    suppliers: mergeById(stored.suppliers, incoming.suppliers, (a, b) => b),
-    catalog: mergeById(stored.catalog, incoming.catalog, (a, b) => b),
+    suppliers: mergeById(stored.suppliers, incoming.suppliers, (_a, b) => b),
+    catalog: mergeById(stored.catalog, incoming.catalog, (_a, b) => b),
     quotations: promoteInboxQueuedDrafts(
       mergeById(stored.quotations, incoming.quotations, preferQuote),
       inboxEvents,
     ),
     projects: mergeById(stored.projects, incoming.projects, preferByUpdatedAt),
-    departments: mergeById(stored.departments, incoming.departments, (a, b) => b),
+    departments: mergeById(stored.departments, incoming.departments, (_a, b) => b),
     paymentEvents,
     inboxEvents,
     expenses,
@@ -346,7 +346,6 @@ type LiveHandler = (envelope: LiveEnvelope) => void
 const handlers = new Set<LiveHandler>()
 let bootstrapped = false
 let channel: BroadcastChannel | null = null
-let pollTimer: ReturnType<typeof setInterval> | null = null
 /** Última rev aplicada/publicada en este JS realm (evita eco). */
 let lastSeenRev = 0
 
@@ -416,7 +415,7 @@ function ensureBus() {
   }
 
   window.addEventListener("storage", onStorage)
-  pollTimer = setInterval(pollWorkspace, 600)
+  setInterval(pollWorkspace, 600)
 }
 
 /** Suscribe una pestaña/react tree al bus en vivo. */

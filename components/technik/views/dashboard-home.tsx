@@ -12,7 +12,6 @@ import {
   FolderKanban,
   Hourglass,
   Inbox,
-  Landmark,
   Plus,
   Receipt,
   Send,
@@ -30,7 +29,6 @@ import {
 } from "recharts"
 import {
   currencyMxn,
-  PROJECT_STAGE_META,
   projectNextInstallment,
   quotationIsTrashed,
   type Quotation,

@@ -10,9 +10,13 @@ export function resendEnv() {
   void process.env.RESEND_API_KEY
   void process.env.RESEND_FROM
   void process.env.RESEND_REPLY_TO
+  void process.env.RESEND_QUOTES_FROM
   return {
     apiKey: cleanEnv(process.env.RESEND_API_KEY),
     from: cleanEnv(process.env.RESEND_FROM) || "Technik Solutions <noreply@solutionstechnik.com>",
+    quotesFrom:
+      cleanEnv(process.env.RESEND_QUOTES_FROM) ||
+      "Technik Solutions <cotizaciones@solutionstechnik.com>",
     replyTo: cleanEnv(process.env.RESEND_REPLY_TO),
   }
 }

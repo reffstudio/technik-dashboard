@@ -29,11 +29,18 @@ export async function generateAuthActionLink(input: {
   data?: Record<string, string | boolean>
 }): Promise<{ user?: User; actionLink?: string; error?: string }> {
   const admin = getSupabaseAdmin()
-  const { data, error } = await admin.auth.admin.generateLink({
-    type: input.type,
-    email: input.email,
-    options: { data: input.data, redirectTo: input.redirectTo },
-  })
+  const { data, error } =
+    input.type === "invite"
+      ? await admin.auth.admin.generateLink({
+          type: "invite",
+          email: input.email,
+          options: { data: input.data, redirectTo: input.redirectTo },
+        })
+      : await admin.auth.admin.generateLink({
+          type: "recovery",
+          email: input.email,
+          options: { redirectTo: input.redirectTo },
+        })
   const hashed = data.properties?.hashed_token
   const verifyType = data.properties?.verification_type || input.type
   const actionLink = hashed

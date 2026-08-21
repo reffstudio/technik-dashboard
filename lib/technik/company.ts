@@ -8,6 +8,13 @@ export const TECHNIK_COMPANY = {
   slogan: "Entregamos calidad, construimos confianza",
 } as const
 
+/** Copias fijas al enviar cotizaciones / solicitudes de materiales. */
+export const QUOTE_CC_EMAILS = [
+  "i.ochoa@solutionstechnik.com",
+  "m.archuleta@solutionstechnik.com",
+  "info@solutionstechnik.com",
+] as const
+
 /** IVA frontera (default). Interior del país: editar a 16% en la cotización. */
 export const DEFAULT_TAX_RATE = 0.08
 /** Retención ISR por default (1.25%) — se resta del total. */

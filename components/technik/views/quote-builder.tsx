@@ -34,6 +34,7 @@ const EMPTY_CLIENT = {
   phone: "",
   industry: "",
   location: "",
+  ccEmails: [] as string[],
 }
 
 export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View) => void }) {
@@ -645,7 +646,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
                 quotationId={draftId}
                 photos={liveQuote?.visitPhotos}
                 canEdit={!sentLocked}
-                onNeedDraft={ensureDraftId}
+                onNeedDraft={async () => ensureDraftId()}
               />
             </div>
           </div>

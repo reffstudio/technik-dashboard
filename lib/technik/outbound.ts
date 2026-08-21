@@ -1,12 +1,12 @@
 /**
  * Salida de PDFs (cliente / proveedor).
  *
- * Hoy: mailto / wa.me + descarga del PDF Letter (captura 1:1 del preview).
+ * Correo: POST /api/quotes/:id/dispatch envía el PDF desde cotizaciones@solutionstechnik.com (To + CC).
+ * Compartir: hoja nativa con el PDF adjunto. Fallback mailto / wa.me.
  * Backend: GET  /api/quotes/:id/pdf?kind=client|supplier  → application/pdf
- *          POST /api/quotes/:id/dispatch                  → SMTP / WhatsApp Cloud
  */
 
-import { TECHNIK_COMPANY } from "./company"
+import { QUOTE_CC_EMAILS, TECHNIK_COMPANY } from "./company"
 import type { Client, Supplier } from "./data"
 
 export type QuotePdfKind = "client" | "supplier"
@@ -17,6 +17,7 @@ export type QuoteDispatchPayload = {
   kind: QuotePdfKind
   channel: OutboundChannel
   toEmail?: string
+  cc?: string[]
   toPhone?: string
   subject: string
   body: string
@@ -39,6 +40,37 @@ export function whatsappDigits(raw: string | undefined): string {
 
 export function supplierWhatsAppNumber(supplier: Supplier): string {
   return whatsappDigits(supplier.whatsapp || supplier.phone)
+}
+
+export function isEmailAddress(value: string): boolean {
+  const v = value.trim()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+}
+
+export function normalizeEmails(values: Array<string | undefined | null>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of values) {
+    const v = (raw ?? "").trim().toLowerCase()
+    if (!isEmailAddress(v) || seen.has(v)) continue
+    seen.add(v)
+    out.push(v)
+  }
+  return out
+}
+
+export function quoteDispatchRecipients(opts: {
+  to: string
+  clientCc?: string[]
+  extraCc?: string[]
+}): { to: string; cc: string[] } {
+  const to = opts.to.trim().toLowerCase()
+  const cc = normalizeEmails([
+    ...QUOTE_CC_EMAILS,
+    ...(opts.clientCc ?? []),
+    ...(opts.extraCc ?? []),
+  ]).filter((email) => email !== to)
+  return { to, cc }
 }
 
 export function mailtoHref(to: string, subject: string, body: string): string {
@@ -98,6 +130,43 @@ export function supplierWhatsAppText(opts: {
   return `Hola ${name}, te envío la solicitud de materiales ${opts.reference} de ${TECHNIK_COMPANY.name}. Adjunto el PDF.`
 }
 
+export function clientWhatsAppNumber(client: Client): string {
+  return whatsappDigits(client.phone)
+}
+
+function destinationBlock(email?: string, phoneLabel?: string): string {
+  const lines = ["Destinatario en sistema:"]
+  const mail = email?.trim()
+  const phone = phoneLabel?.trim()
+  if (mail) lines.push(`Correo: ${mail}`)
+  if (phone) lines.push(`WhatsApp/tel: ${phone}`)
+  if (!mail && !phone) lines.push("Sin correo ni teléfono registrados.")
+  return lines.join("\n")
+}
+
+export function clientQuoteSharePayload(opts: {
+  client: Client
+  reference: string
+  title: string
+}): { title: string; text: string; contact: string } {
+  const mail = clientQuoteMail(opts)
+  const phoneLabel = opts.client.phone.trim()
+  const text = [destinationBlock(mail.to, phoneLabel), "", mail.body].join("\n")
+  const contact = mail.to || phoneLabel
+  return { title: mail.subject, text, contact }
+}
+
+export function supplierQuoteSharePayload(opts: {
+  supplier: Supplier
+  reference: string
+}): { title: string; text: string; contact: string } {
+  const mail = supplierQuoteMail(opts)
+  const phoneLabel = (opts.supplier.whatsapp || opts.supplier.phone).trim()
+  const text = [destinationBlock(mail.to, phoneLabel), "", mail.body].join("\n")
+  const contact = mail.to || phoneLabel
+  return { title: mail.subject, text, contact }
+}
+
 export function openMailto(to: string, subject: string, body: string) {
   window.location.href = mailtoHref(to, subject, body)
 }
@@ -118,6 +187,14 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500)
 }
 
+export function downloadPdfBlob(blob: Blob, filename: string) {
+  triggerBlobDownload(blob, filename)
+}
+
+export function quotePdfFile(blob: Blob, filename: string): File {
+  return new File([blob], filename, { type: "application/pdf", lastModified: Date.now() })
+}
+
 /** Si el backend ya sirve PDF, descarga el archivo. Si no, `null`. */
 export async function fetchQuotePdfBlob(
   quotationId: string,
@@ -135,23 +212,131 @@ export async function fetchQuotePdfBlob(
   }
 }
 
+export async function getQuotePdfBlob(opts: {
+  quotationId: string
+  kind: QuotePdfKind
+  capture: () => Promise<Blob>
+}): Promise<{ blob: Blob; source: "file" | "capture" }> {
+  const blob = await fetchQuotePdfBlob(opts.quotationId, opts.kind)
+  if (blob && blob.size > 0) return { blob, source: "file" }
+  const captured = await opts.capture()
+  if (!captured || captured.size === 0) {
+    throw new Error("El PDF generado está vacío.")
+  }
+  return { blob: captured, source: "capture" }
+}
+
 export async function downloadQuotePdf(opts: {
   quotationId: string
   kind: QuotePdfKind
   filename: string
   capture: () => Promise<Blob>
 }): Promise<"file" | "capture"> {
-  const blob = await fetchQuotePdfBlob(opts.quotationId, opts.kind)
-  if (blob && blob.size > 0) {
-    triggerBlobDownload(blob, opts.filename)
-    return "file"
+  const { blob, source } = await getQuotePdfBlob(opts)
+  triggerBlobDownload(blob, opts.filename)
+  return source
+}
+
+export function canSharePdfFile(file: File): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+    return false
   }
-  const captured = await opts.capture()
-  if (!captured || captured.size === 0) {
-    throw new Error("El PDF generado está vacío.")
+  if (typeof navigator.canShare !== "function") return false
+  try {
+    return navigator.canShare({ files: [file] })
+  } catch {
+    return false
   }
-  triggerBlobDownload(captured, opts.filename)
-  return "capture"
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  const value = text.trim()
+  if (!value) return false
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export type ShareQuoteResult = "shared" | "cancelled" | "unsupported"
+
+export async function shareQuotePdf(opts: {
+  file: File
+  title: string
+  text: string
+}): Promise<ShareQuoteResult> {
+  if (!canSharePdfFile(opts.file)) return "unsupported"
+  try {
+    await navigator.share({
+      files: [opts.file],
+      title: opts.title,
+      text: opts.text,
+    })
+    return "shared"
+  } catch (err) {
+    const name = err instanceof Error ? err.name : ""
+    if (name === "AbortError") return "cancelled"
+    return "unsupported"
+  }
+}
+
+/**
+ * Envía el PDF por Resend (To + CC). WhatsApp Cloud no está activo.
+ */
+export async function dispatchQuoteEmail(opts: {
+  quotationId: string
+  kind: QuotePdfKind
+  toEmail: string
+  cc: string[]
+  subject: string
+  body: string
+  filename: string
+  pdf: Blob
+  accessToken: string
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const form = new FormData()
+  form.set("kind", opts.kind)
+  form.set("channel", "email")
+  form.set("toEmail", opts.toEmail)
+  form.set("cc", JSON.stringify(opts.cc))
+  form.set("subject", opts.subject)
+  form.set("body", opts.body)
+  form.set("filename", opts.filename)
+  form.set(
+    "pdf",
+    new File([opts.pdf], opts.filename, { type: "application/pdf" }),
+  )
+  try {
+    const res = await fetch(
+      `/api/quotes/${encodeURIComponent(opts.quotationId)}/dispatch`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${opts.accessToken}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      },
+    )
+    const data = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null
+    if (!res.ok || !data?.ok) {
+      return {
+        ok: false,
+        error: data?.error || "No se pudo enviar el correo.",
+      }
+    }
+    return { ok: true }
+  } catch (err) {
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
+    return {
+      ok: false,
+      error: timedOut
+        ? "El envío tardó demasiado. Inténtalo de nuevo."
+        : "No se pudo contactar al servidor de correo.",
+    }
+  }
 }
 
 /**

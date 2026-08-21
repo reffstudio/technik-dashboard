@@ -5,6 +5,7 @@ import { Search, Mail, Phone, MapPin, Building2, FileText, Hash, Plus, Check, Pe
 import { useTechnik } from "@/lib/technik/store"
 import type { Client } from "@/lib/technik/data"
 import { Field, inputCls, PageHeader } from "../ui"
+import { CcEmailField } from "../cc-emails"
 import type { View } from "../app-shell"
 
 const emptyForm = {
@@ -15,6 +16,7 @@ const emptyForm = {
   phone: "",
   industry: "",
   location: "",
+  ccEmails: [] as string[],
 }
 
 export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
@@ -58,6 +60,7 @@ export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
       phone: c.phone,
       industry: c.industry,
       location: c.location,
+      ccEmails: c.ccEmails ?? [],
     })
   }
 
@@ -190,6 +193,9 @@ export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
                   <InfoRow icon={Hash} value={c.rfc ? `RFC ${c.rfc}` : "RFC —"} mono />
                   <InfoRow icon={FileText} value={c.contact} />
                   <InfoRow icon={Mail} value={c.email} />
+                  {(c.ccEmails ?? []).length > 0 ? (
+                    <InfoRow icon={Mail} value={`CC ${(c.ccEmails ?? []).join(", ")}`} />
+                  ) : null}
                   <InfoRow icon={Phone} value={c.phone} mono />
                   <InfoRow icon={MapPin} value={c.location} />
                 </div>
@@ -298,6 +304,17 @@ function ClientForm({
       <Field label="Ubicación">
         <input className={inputCls} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
       </Field>
+      <div className="sm:col-span-2">
+        <CcEmailField
+          label="Copias (CC)"
+          emails={form.ccEmails}
+          onChange={(ccEmails) => setForm({ ...form, ccEmails })}
+          placeholder="Supervisores, socio… Enter para agregar"
+        />
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Estos correos se copian siempre al enviar una cotización a este cliente.
+        </p>
+      </div>
       {error ? <p className="sm:col-span-2 text-xs text-destructive">{error}</p> : null}
       <div className="sm:col-span-2 flex gap-2">
         <button

@@ -24,6 +24,7 @@ type ClientRow = {
   contact: string
   email: string
   phone: string
+  cc_emails?: string[] | null
   industry: string
   location: string
   since: string
@@ -70,6 +71,7 @@ function clientFromRow(row: ClientRow): Client {
     contact: row.contact ?? "",
     email: row.email ?? "",
     phone: row.phone ?? "",
+    ccEmails: Array.isArray(row.cc_emails) ? row.cc_emails.filter(Boolean) : [],
     industry: row.industry ?? "",
     location: row.location ?? "",
     since: row.since ?? "",
@@ -121,18 +123,30 @@ export async function loadCoreWorkspace(): Promise<{
   departmentsError?: string
 }> {
   const supabase = getSupabaseBrowser()
+  const clientSelect =
+    "id, company, rfc, contact, email, phone, cc_emails, industry, location, since"
+  const clientSelectLegacy =
+    "id, company, rfc, contact, email, phone, industry, location, since"
   const [depts, clients, suppliers, catalog] = await Promise.all([
     supabase.from("departments").select("id, label, short, color_id").order("label"),
-    supabase.from("clients").select("id, company, rfc, contact, email, phone, industry, location, since").order("company"),
+    supabase.from("clients").select(clientSelect).order("company"),
     supabase.from("suppliers").select("id, name, contact, email, phone, whatsapp, preferred_channel, specialty, location").order("name"),
     supabase.from("catalog_items").select("id, kind, name, sku, category, unit, unit_cost, supplier_id, active").order("name"),
   ])
 
+  let clientData = (clients.data ?? []) as ClientRow[]
+  let clientError = clients.error
+  if (clientError && /cc_emails/i.test(clientError.message)) {
+    const retry = await supabase.from("clients").select(clientSelectLegacy).order("company")
+    clientData = (retry.data ?? []) as ClientRow[]
+    clientError = retry.error
+  }
+
   if (catalog.error) {
     console.warn("[technik] No se pudo leer el catálogo", catalog.error.message)
   }
-  if (clients.error) {
-    console.warn("[technik] No se pudo leer clientes", clients.error.message)
+  if (clientError) {
+    console.warn("[technik] No se pudo leer clientes", clientError.message)
   }
   if (suppliers.error) {
     console.warn("[technik] No se pudo leer proveedores", suppliers.error.message)
@@ -145,7 +159,7 @@ export async function loadCoreWorkspace(): Promise<{
     departments: depts.error
       ? []
       : ((depts.data ?? []) as DeptRow[]).map(deptFromRow),
-    clients: clients.error ? [] : ((clients.data ?? []) as ClientRow[]).map(clientFromRow),
+    clients: clientError ? [] : clientData.map(clientFromRow),
     suppliers: suppliers.error ? [] : ((suppliers.data ?? []) as SupplierRow[]).map(supplierFromRow),
     catalog: catalog.error
       ? []
@@ -153,7 +167,7 @@ export async function loadCoreWorkspace(): Promise<{
           .filter((row) => row.active !== false)
           .map(catalogFromRow),
     catalogError: catalog.error?.message,
-    clientsError: clients.error?.message,
+    clientsError: clientError?.message,
     suppliersError: suppliers.error?.message,
     departmentsError: depts.error?.message,
   }
@@ -180,17 +194,24 @@ export async function deleteDepartment(id: string) {
 
 export async function persistClient(client: Client) {
   const supabase = getSupabaseBrowser()
-  const { error } = await supabase.from("clients").upsert({
+  const row = {
     id: client.id,
     company: client.company,
     rfc: client.rfc ?? "",
     contact: client.contact ?? "",
     email: client.email ?? "",
     phone: client.phone ?? "",
+    cc_emails: client.ccEmails ?? [],
     industry: client.industry ?? "",
     location: client.location ?? "",
     since: client.since ?? "",
-  })
+  }
+  let { error } = await supabase.from("clients").upsert(row)
+  if (error && /cc_emails/i.test(error.message)) {
+    const { cc_emails: _ignored, ...legacy } = row
+    const retry = await supabase.from("clients").upsert(legacy)
+    error = retry.error
+  }
   if (error) {
     if (error.message.includes("clients_rfc_format")) {
       return { ok: false as const, error: "RFC inválido. Déjalo vacío o usa el formato SAT." }

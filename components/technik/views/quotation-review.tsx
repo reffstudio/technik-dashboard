@@ -21,6 +21,7 @@ import {
   Lock,
   ChevronDown,
   Download,
+  Share2,
 } from "lucide-react"
 import { publicQuoteTotals, quoteTotals, useTechnik } from "@/lib/technik/store"
 import {
@@ -38,7 +39,6 @@ import {
   type QuoteLine,
   type QuotePipelineStatus,
   type Supplier,
-  type SupplierChannel,
 } from "@/lib/technik/data"
 import {
   DEFAULT_ISR_RETENTION_RATE,
@@ -53,16 +53,27 @@ import { VisitPhotosSection } from "../visit-photos-section"
 import type { View } from "../app-shell"
 import {
   clientQuoteMail,
-  dispatchQuoteOutbound,
+  clientQuoteSharePayload,
+  clientWhatsAppNumber,
+  copyTextToClipboard,
+  dispatchQuoteEmail,
+  downloadPdfBlob,
   downloadQuotePdf,
+  getQuotePdfBlob,
   openMailto,
   openWhatsApp,
+  quoteDispatchRecipients,
+  quotePdfFile,
   quotePdfFilename,
+  shareQuotePdf,
   supplierQuoteMail,
+  supplierQuoteSharePayload,
   supplierWhatsAppNumber,
   supplierWhatsAppText,
 } from "@/lib/technik/outbound"
 import { captureLetterPdfBlob } from "@/lib/technik/capture-letter-pdf"
+import { getSupabaseBrowser } from "@/lib/supabase/browser"
+import { CcEmailField } from "../cc-emails"
 
 export function QuotationReview({ id, navigate }: { id: string; navigate: (v: View) => void }) {
   const {
@@ -92,7 +103,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     action?: { label: string; onClick: () => void }
   } | null>(null)
   const [supplierId, setSupplierId] = useState("")
-  const [channel, setChannel] = useState<SupplierChannel>("email")
   const [comments, setComments] = useState("")
   const [publicItems, setPublicItems] = useState<PublicQuoteItem[]>([])
   const [terms, setTerms] = useState(DEFAULT_QUOTE_TERMS)
@@ -103,6 +113,13 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   })
   const [pdfDoc, setPdfDoc] = useState<PdfDocKind>("client")
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [clientExtraCc, setClientExtraCc] = useState<string[]>([])
+  const [supplierExtraCc, setSupplierExtraCc] = useState<string[]>([])
+
+  useEffect(() => {
+    setClientExtraCc([])
+    setSupplierExtraCc([])
+  }, [id])
 
   useEffect(() => {
     setOpenSections({
@@ -141,11 +158,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       .find((i) => i?.kind === "material" && i.supplierId)
     setSupplierId(q.supplierId ?? firstMat?.supplierId ?? suppliers[0]?.id ?? "")
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const s = suppliers.find((x) => x.id === supplierId)
-    if (s) setChannel(s.preferredChannel === "both" ? "email" : s.preferredChannel)
-  }, [supplierId, suppliers])
 
   const pricedLines = useMemo(() => {
     return draftLines.map((l) => ({
@@ -515,163 +527,370 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     }
   }
 
-  async function sendPdf() {
-    if (publicItems.length === 0) {
-      setToast({
-        icon: FileText,
-        title: "Faltan ítems al cliente",
-        msg: "Agrega al menos un ítem público antes de enviar el PDF.",
-      })
-      return
+  async function shareOutbound(kind: PdfDocKind) {
+    if (pdfBusy) return
+    const reference = q!.reference || q!.id
+
+    if (kind === "client") {
+      if (publicItems.length === 0) {
+        setToast({
+          icon: FileText,
+          title: "Faltan ítems al cliente",
+          msg: "Agrega al menos un ítem público antes de enviar el PDF.",
+        })
+        return
+      }
+      if (!client) {
+        setToast({
+          icon: Mail,
+          title: "Sin cliente",
+          msg: "Asigna un cliente a la cotización para compartir el PDF.",
+        })
+        return
+      }
+      if (!client.email.trim() && !client.phone.trim()) {
+        setToast({
+          icon: Mail,
+          title: "Sin contacto del cliente",
+          msg: "Registra el correo o el teléfono del cliente para enviarle la cotización.",
+        })
+        return
+      }
+    } else {
+      if (!supplier) return
+      const bom = buildSupplierBomLines(pricedLines, catalog)
+      if (bom.length === 0) {
+        setToast({
+          icon: Truck,
+          title: "Sin materiales",
+          msg: "Agrega materiales a la cotización antes de generar la solicitud al proveedor.",
+        })
+        return
+      }
+      const waDigits = supplierWhatsAppNumber(supplier)
+      if (!supplier.email.trim() && !waDigits) {
+        setToast({
+          icon: Mail,
+          title: "Sin contacto del proveedor",
+          msg: `Registra el correo o el WhatsApp de ${supplier.name}.`,
+        })
+        return
+      }
     }
-    if (!client?.email?.trim()) {
-      setToast({
-        icon: Mail,
-        title: "Sin correo del cliente",
-        msg: "Registra el email del cliente para enviarle la cotización.",
-      })
-      return
-    }
+
     if (!lockPricesIfNeeded()) return
-    const d = new Date().toISOString().slice(0, 10)
-    const result = updateQuotation(
-      q!.id,
-      {
-        clientSentAt: d,
-        clientResponse: q!.clientResponse ?? "en_espera",
-        publicItems,
-        terms,
-        taxRate,
-        isrRetentionRate,
-      },
-      `PDF enviado al cliente (${client.email})`,
-    )
-    if (!result.ok) {
-      setToast({ icon: Lock, title: "No permitido", msg: result.error })
-      return
-    }
-    const mail = clientQuoteMail({
-      client,
-      reference: q!.reference || q!.id,
-      title: q!.title,
-    })
-    const filename = quotePdfFilename(q!.reference || q!.id, "client")
-    const downloaded = await downloadPdf("client", true)
-    if (downloaded === "blocked" || downloaded === "error" || downloaded === "busy") return
-    const dispatched = await dispatchQuoteOutbound({
-      quotationId: q!.id,
-      kind: "client",
-      channel: "email",
-      toEmail: mail.to,
-      subject: mail.subject,
-      body: mail.body,
-      filename,
-    })
-    if (dispatched === "fallback") {
-      window.setTimeout(() => openMailto(mail.to, mail.subject, mail.body), 400)
-    }
+
+    const filename = quotePdfFilename(reference, kind)
+    setPdfBusy(true)
     setToast({
-      icon: Mail,
-      title: dispatched === "api" ? "PDF enviado al cliente" : "Correo listo",
-      msg:
-        dispatched === "api"
-          ? `Enviado a ${client.email}.`
-          : `Se abrió un correo a ${client.email}. Adjunta el PDF descargado.`,
+      icon: Share2,
+      title: "Generando PDF",
+      msg: "Se abrirá Compartir con el archivo listo.",
     })
+
+    try {
+      const { blob } = await getQuotePdfBlob({
+        quotationId: q!.id,
+        kind,
+        capture: () => captureLetterPdfBlob(kind),
+      })
+      const file = quotePdfFile(blob, filename)
+      const payload =
+        kind === "client"
+          ? clientQuoteSharePayload({
+              client: client!,
+              reference,
+              title: q!.title,
+            })
+          : supplierQuoteSharePayload({
+              supplier: supplier!,
+              reference,
+            })
+
+      if (payload.contact) await copyTextToClipboard(payload.contact)
+
+      const shared = await shareQuotePdf({
+        file,
+        title: payload.title,
+        text: payload.text,
+      })
+
+      if (shared === "cancelled") {
+        setToast({
+          icon: XCircle,
+          title: "Envío cancelado",
+          msg: "No se marcó como enviada.",
+        })
+        return
+      }
+
+      let fallbackChannel: "email" | "whatsapp" | null = null
+      if (shared === "unsupported") {
+        downloadPdfBlob(blob, filename)
+        if (kind === "client") {
+          const mail = clientQuoteMail({
+            client: client!,
+            reference,
+            title: q!.title,
+          })
+          const waDigits = clientWhatsAppNumber(client!)
+          if (mail.to) {
+            fallbackChannel = "email"
+            window.setTimeout(() => openMailto(mail.to, mail.subject, mail.body), 400)
+          } else if (waDigits) {
+            fallbackChannel = "whatsapp"
+            window.setTimeout(() => openWhatsApp(waDigits, payload.text), 400)
+          }
+        } else {
+          const mail = supplierQuoteMail({
+            supplier: supplier!,
+            reference,
+          })
+          const waDigits = supplierWhatsAppNumber(supplier!)
+          if (mail.to) {
+            fallbackChannel = "email"
+            window.setTimeout(() => openMailto(mail.to, mail.subject, mail.body), 400)
+          } else if (waDigits) {
+            fallbackChannel = "whatsapp"
+            const text = supplierWhatsAppText({ supplier: supplier!, reference })
+            window.setTimeout(() => openWhatsApp(waDigits, text), 400)
+          }
+        }
+      }
+
+      const d = new Date().toISOString().slice(0, 10)
+      if (kind === "client") {
+        const result = updateQuotation(
+          q!.id,
+          {
+            clientSentAt: d,
+            clientResponse: q!.clientResponse ?? "en_espera",
+            publicItems,
+            terms,
+            taxRate,
+            isrRetentionRate,
+          },
+          `PDF compartido con el cliente (${payload.contact})`,
+        )
+        if (!result.ok) {
+          setToast({ icon: Lock, title: "No permitido", msg: result.error })
+          return
+        }
+        if (shared === "shared") {
+          setToast({
+            icon: Share2,
+            title: "PDF compartido",
+            msg: "El contacto quedó en el mensaje y en el portapapeles.",
+          })
+        } else if (fallbackChannel === "email") {
+          setToast({
+            icon: Mail,
+            title: "Correo listo",
+            msg: `Se abrió un correo a ${client!.email}. Adjunta el PDF descargado.`,
+          })
+        } else if (fallbackChannel === "whatsapp") {
+          setToast({
+            icon: MessageCircle,
+            title: "WhatsApp listo",
+            msg: `Se abrió el chat con ${client!.phone}. Adjunta el PDF descargado.`,
+          })
+        } else {
+          setToast({
+            icon: Download,
+            title: "PDF descargado",
+            msg: "Copia el contacto del cliente y adjunta el archivo.",
+          })
+        }
+        return
+      }
+
+      updateQuotation(
+        q!.id,
+        { supplierSentAt: d, supplierId: supplier!.id },
+        `Lista de materiales compartida con ${supplier!.name} (${payload.contact})`,
+      )
+      if (shared === "shared") {
+        setToast({
+          icon: Share2,
+          title: "PDF compartido",
+          msg: "El contacto quedó en el mensaje y en el portapapeles.",
+        })
+      } else if (fallbackChannel === "email") {
+        setToast({
+          icon: Mail,
+          title: "Correo listo",
+          msg: `Se abrió un correo a ${supplier!.email}. Adjunta el PDF descargado.`,
+        })
+      } else if (fallbackChannel === "whatsapp") {
+        setToast({
+          icon: MessageCircle,
+          title: "WhatsApp listo",
+          msg: `Se abrió el chat con ${supplier!.whatsapp || supplier!.phone}. Adjunta el PDF descargado.`,
+        })
+      } else {
+        setToast({
+          icon: Download,
+          title: "PDF descargado",
+          msg: "Copia el contacto del proveedor y adjunta el archivo.",
+        })
+      }
+    } catch {
+      setToast({
+        icon: XCircle,
+        title: "No se pudo generar el PDF",
+        msg: "Revisa la vista previa e inténtalo de nuevo.",
+      })
+    } finally {
+      setPdfBusy(false)
+    }
   }
 
-  async function sendSupplier(via: "email" | "whatsapp") {
-    setChannel(via)
-    if (!supplier) return
-    const bom = buildSupplierBomLines(pricedLines, catalog)
-    if (bom.length === 0) {
-      setToast({
-        icon: Truck,
-        title: "Sin materiales",
-        msg: "Agrega materiales a la cotización antes de generar la solicitud al proveedor.",
-      })
-      return
+  async function sendEmailOutbound(kind: PdfDocKind) {
+    if (pdfBusy) return
+    const reference = q!.reference || q!.id
+
+    if (kind === "client") {
+      if (publicItems.length === 0) {
+        setToast({
+          icon: FileText,
+          title: "Faltan ítems al cliente",
+          msg: "Agrega al menos un ítem público antes de enviar el PDF.",
+        })
+        return
+      }
+      if (!client?.email.trim()) {
+        setToast({
+          icon: Mail,
+          title: "Sin correo del cliente",
+          msg: "Registra el email del cliente para enviarle la cotización.",
+        })
+        return
+      }
+    } else {
+      if (!supplier) return
+      const bom = buildSupplierBomLines(pricedLines, catalog)
+      if (bom.length === 0) {
+        setToast({
+          icon: Truck,
+          title: "Sin materiales",
+          msg: "Agrega materiales a la cotización antes de generar la solicitud al proveedor.",
+        })
+        return
+      }
+      if (!supplier.email.trim()) {
+        setToast({
+          icon: Mail,
+          title: "Sin correo del proveedor",
+          msg: `Registra el email de ${supplier.name} para enviarle la solicitud.`,
+        })
+        return
+      }
     }
-    if (via === "email" && !supplier.email.trim()) {
-      setToast({
-        icon: Mail,
-        title: "Sin correo del proveedor",
-        msg: `Registra el email de ${supplier.name} para enviarle la solicitud.`,
-      })
-      return
-    }
-    const waDigits = supplierWhatsAppNumber(supplier)
-    if (via === "whatsapp" && !waDigits) {
-      setToast({
-        icon: MessageCircle,
-        title: "Sin WhatsApp del proveedor",
-        msg: `Registra el WhatsApp o teléfono de ${supplier.name}.`,
-      })
-      return
-    }
+
     if (!lockPricesIfNeeded()) return
-    const d = new Date().toISOString().slice(0, 10)
-    const viaLabel =
-      via === "whatsapp" ? `WhatsApp ${supplier.whatsapp || supplier.phone}` : `correo ${supplier.email}`
-    updateQuotation(
-      q!.id,
-      { supplierSentAt: d, supplierId: supplier.id },
-      `Lista de materiales enviada a ${supplier.name} vía ${viaLabel}`,
-    )
-    const filename = quotePdfFilename(q!.reference || q!.id, "supplier")
-    const downloaded = await downloadPdf("supplier", true)
-    if (downloaded === "blocked" || downloaded === "error" || downloaded === "busy") return
-    if (via === "email") {
-      const mail = supplierQuoteMail({
-        supplier,
-        reference: q!.reference || q!.id,
-      })
-      const dispatched = await dispatchQuoteOutbound({
+
+    const mail =
+      kind === "client"
+        ? clientQuoteMail({
+            client: client!,
+            reference,
+            title: q!.title,
+          })
+        : supplierQuoteMail({
+            supplier: supplier!,
+            reference,
+          })
+    const recipients = quoteDispatchRecipients({
+      to: mail.to,
+      clientCc: kind === "client" ? client?.ccEmails : undefined,
+      extraCc: kind === "client" ? clientExtraCc : supplierExtraCc,
+    })
+    const filename = quotePdfFilename(reference, kind)
+    setPdfBusy(true)
+    setToast({
+      icon: Mail,
+      title: "Enviando correo",
+      msg: `Sale de cotizaciones@solutionstechnik.com a ${recipients.to}.`,
+    })
+
+    try {
+      const { blob } = await getQuotePdfBlob({
         quotationId: q!.id,
-        kind: "supplier",
-        channel: "email",
-        toEmail: mail.to,
+        kind,
+        capture: () => captureLetterPdfBlob(kind),
+      })
+      const supabase = getSupabaseBrowser()
+      let token = (await supabase.auth.getSession()).data.session?.access_token
+      if (!token) {
+        token = (await supabase.auth.refreshSession()).data.session?.access_token
+      }
+      if (!token) {
+        setToast({
+          icon: Lock,
+          title: "Sesión inválida",
+          msg: "Cierra sesión y vuelve a entrar para enviar el correo.",
+        })
+        return
+      }
+
+      const sent = await dispatchQuoteEmail({
+        quotationId: q!.id,
+        kind,
+        toEmail: recipients.to,
+        cc: recipients.cc,
         subject: mail.subject,
         body: mail.body,
         filename,
+        pdf: blob,
+        accessToken: token,
       })
-      if (dispatched === "fallback") {
-        window.setTimeout(() => openMailto(mail.to, mail.subject, mail.body), 400)
+      if (!sent.ok) {
+        setToast({ icon: XCircle, title: "No se pudo enviar", msg: sent.error })
+        return
+      }
+
+      const d = new Date().toISOString().slice(0, 10)
+      const ccNote = recipients.cc.length > 0 ? ` · CC ${recipients.cc.join(", ")}` : ""
+      if (kind === "client") {
+        const result = updateQuotation(
+          q!.id,
+          {
+            clientSentAt: d,
+            clientResponse: q!.clientResponse ?? "en_espera",
+            publicItems,
+            terms,
+            taxRate,
+            isrRetentionRate,
+          },
+          `PDF enviado al cliente (${recipients.to}${ccNote})`,
+        )
+        if (!result.ok) {
+          setToast({ icon: Lock, title: "No permitido", msg: result.error })
+          return
+        }
+      } else {
+        updateQuotation(
+          q!.id,
+          { supplierSentAt: d, supplierId: supplier!.id },
+          `Lista de materiales enviada a ${supplier!.name} (${recipients.to}${ccNote})`,
+        )
       }
       setToast({
-        icon: Mail,
-        title: dispatched === "api" ? "PDF enviado al proveedor" : "Correo listo",
-        msg:
-          dispatched === "api"
-            ? `Enviado a ${supplier.email}.`
-            : `Se abrió un correo a ${supplier.email}. Adjunta el PDF descargado.`,
+        icon: CheckCircle2,
+        title: "Correo enviado",
+        msg: recipients.cc.length
+          ? `Enviado a ${recipients.to}. Copias: ${recipients.cc.join(", ")}.`
+          : `Enviado a ${recipients.to}.`,
       })
-      return
+    } catch {
+      setToast({
+        icon: XCircle,
+        title: "No se pudo generar el PDF",
+        msg: "Revisa la vista previa e inténtalo de nuevo.",
+      })
+    } finally {
+      setPdfBusy(false)
     }
-    const text = supplierWhatsAppText({
-      supplier,
-      reference: q!.reference || q!.id,
-    })
-    const dispatched = await dispatchQuoteOutbound({
-      quotationId: q!.id,
-      kind: "supplier",
-      channel: "whatsapp",
-      toPhone: waDigits,
-      subject: `Solicitud ${q!.reference || q!.id}`,
-      body: text,
-      filename,
-    })
-    if (dispatched === "fallback") {
-      window.setTimeout(() => openWhatsApp(waDigits, text), 400)
-    }
-    setToast({
-      icon: MessageCircle,
-      title: dispatched === "api" ? "WhatsApp enviado" : "WhatsApp listo",
-      msg:
-        dispatched === "api"
-          ? `Enviado a ${supplier.name}.`
-          : `Se abrió el chat con ${supplier.whatsapp || supplier.phone}. Adjunta el PDF descargado.`,
-    })
   }
 
   function onPipelineApplied(
@@ -1145,11 +1364,16 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                   suppliers={suppliers}
                   supplierId={supplierId}
                   setSupplierId={setSupplierId}
-                  channel={channel}
+                  clientExtraCc={clientExtraCc}
+                  setClientExtraCc={setClientExtraCc}
+                  supplierExtraCc={supplierExtraCc}
+                  setSupplierExtraCc={setSupplierExtraCc}
                   pdfBusy={pdfBusy}
-                  onSendPdf={() => void sendPdf()}
+                  onSendEmailClient={() => void sendEmailOutbound("client")}
+                  onShareClient={() => void shareOutbound("client")}
                   onDownloadClient={() => void downloadPdf("client")}
-                  onSendSupplier={(via) => void sendSupplier(via)}
+                  onSendEmailSupplier={() => void sendEmailOutbound("supplier")}
+                  onShareSupplier={() => void shareOutbound("supplier")}
                   onDownloadSupplier={() => void downloadPdf("supplier")}
                   embedded
                 />
@@ -1184,11 +1408,16 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               suppliers={suppliers}
               supplierId={supplierId}
               setSupplierId={setSupplierId}
-              channel={channel}
+              clientExtraCc={clientExtraCc}
+              setClientExtraCc={setClientExtraCc}
+              supplierExtraCc={supplierExtraCc}
+              setSupplierExtraCc={setSupplierExtraCc}
               pdfBusy={pdfBusy}
-              onSendPdf={() => void sendPdf()}
+              onSendEmailClient={() => void sendEmailOutbound("client")}
+              onShareClient={() => void shareOutbound("client")}
               onDownloadClient={() => void downloadPdf("client")}
-              onSendSupplier={(via) => void sendSupplier(via)}
+              onSendEmailSupplier={() => void sendEmailOutbound("supplier")}
+              onShareSupplier={() => void shareOutbound("supplier")}
               onDownloadSupplier={() => void downloadPdf("supplier")}
             />
           </div>
@@ -1357,11 +1586,16 @@ function ActionsPanel({
   suppliers,
   supplierId,
   setSupplierId,
-  channel,
+  clientExtraCc,
+  setClientExtraCc,
+  supplierExtraCc,
+  setSupplierExtraCc,
   pdfBusy,
-  onSendPdf,
+  onSendEmailClient,
+  onShareClient,
   onDownloadClient,
-  onSendSupplier,
+  onSendEmailSupplier,
+  onShareSupplier,
   onDownloadSupplier,
   embedded,
 }: {
@@ -1372,31 +1606,43 @@ function ActionsPanel({
   suppliers: Supplier[]
   supplierId: string
   setSupplierId: (id: string) => void
-  channel: SupplierChannel
+  clientExtraCc: string[]
+  setClientExtraCc: (emails: string[]) => void
+  supplierExtraCc: string[]
+  setSupplierExtraCc: (emails: string[]) => void
   pdfBusy?: boolean
-  onSendPdf: () => void
+  onSendEmailClient: () => void
+  onShareClient: () => void
   onDownloadClient: () => void
-  onSendSupplier: (via: "email" | "whatsapp") => void
+  onSendEmailSupplier: () => void
+  onShareSupplier: () => void
   onDownloadSupplier: () => void
   embedded?: boolean
 }) {
   const waNumber = supplier ? supplier.whatsapp || supplier.phone : ""
+  const hint =
+    "El correo sale de cotizaciones@solutionstechnik.com con el PDF. Compartir es para WhatsApp u otra app."
+  const clientLockedCc = client?.email
+    ? quoteDispatchRecipients({
+        to: client.email,
+        clientCc: client.ccEmails,
+      }).cc
+    : []
+  const supplierLockedCc = supplier?.email
+    ? quoteDispatchRecipients({
+        to: supplier.email,
+      }).cc
+    : []
 
   return (
     <div className={embedded ? "pt-3" : "rounded-2xl surface-card p-5"}>
       {!embedded && (
         <>
           <h2 className="text-sm font-bold text-foreground font-display mb-1">Acciones</h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            Envía o descarga el mismo PDF Letter de la vista previa. Correo y WhatsApp usan el contacto registrado.
-          </p>
+          <p className="text-xs text-muted-foreground mb-4">{hint}</p>
         </>
       )}
-      {embedded && (
-        <p className="text-xs text-muted-foreground mb-3">
-          Envía o descarga el mismo PDF Letter de la vista previa. Correo y WhatsApp usan el contacto registrado.
-        </p>
-      )}
+      {embedded && <p className="text-xs text-muted-foreground mb-3">{hint}</p>}
 
       {canDispatch ? (
         <div className="flex flex-col gap-3">
@@ -1408,7 +1654,7 @@ function ActionsPanel({
 
             <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2.5">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                Destinatario
+                Para
               </p>
               {client ? (
                 <div className="space-y-0.5">
@@ -1420,11 +1666,26 @@ function ActionsPanel({
                     <Mail className="size-3 shrink-0" />
                     {client.email || "Sin correo"}
                   </p>
+                  <p className="flex items-center gap-1.5 text-xs text-primary font-medium mt-0.5">
+                    <MessageCircle className="size-3 shrink-0" />
+                    {client.phone || "Sin teléfono"}
+                  </p>
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">Cliente no encontrado</p>
               )}
             </div>
+
+            {clientLockedCc.length > 0 ? (
+              <LockedCcList emails={clientLockedCc} />
+            ) : null}
+
+            <CcEmailField
+              label="Agregar copia en este envío"
+              emails={clientExtraCc}
+              onChange={setClientExtraCc}
+              placeholder="Supervisor u otro correo…"
+            />
 
             {q.clientSentAt && (
               <div className="flex items-center gap-2 rounded-lg border border-fin-gain/25 bg-fin-gain/10 px-3 py-2 text-xs font-semibold text-fin-gain">
@@ -1435,12 +1696,21 @@ function ActionsPanel({
 
             <button
               type="button"
-              onClick={onSendPdf}
-              disabled={pdfBusy}
+              onClick={onSendEmailClient}
+              disabled={pdfBusy || !client?.email}
               className="flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Mail className="size-4" />
-              {pdfBusy ? "Generando PDF…" : "Enviar PDF a cliente"}
+              {pdfBusy ? "Enviando…" : "Enviar por correo"}
+            </button>
+            <button
+              type="button"
+              onClick={onShareClient}
+              disabled={pdfBusy}
+              className="flex items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Share2 className="size-4" />
+              {pdfBusy ? "Generando PDF…" : "Compartir PDF"}
             </button>
             <button
               type="button"
@@ -1481,7 +1751,7 @@ function ActionsPanel({
             {supplier && (
               <div className="rounded-lg border border-border/80 bg-muted/40 px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Destinatario
+                  Para
                 </p>
                 <p className="text-sm font-semibold text-foreground leading-tight">
                   {supplier.contact}
@@ -1498,6 +1768,17 @@ function ActionsPanel({
               </div>
             )}
 
+            {supplierLockedCc.length > 0 ? (
+              <LockedCcList emails={supplierLockedCc} />
+            ) : null}
+
+            <CcEmailField
+              label="Agregar copia en este envío"
+              emails={supplierExtraCc}
+              onChange={setSupplierExtraCc}
+              placeholder="Otro correo…"
+            />
+
             {q.supplierSentAt && (
               <div className="flex items-center gap-2 rounded-lg border border-fin-gain/25 bg-fin-gain/10 px-3 py-2 text-xs font-semibold text-fin-gain">
                 <CheckCircle2 className="size-3.5 shrink-0" />
@@ -1505,34 +1786,24 @@ function ActionsPanel({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => onSendSupplier("email")}
-                disabled={!supplierId || pdfBusy}
-                className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  channel === "email"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border text-foreground hover:bg-accent"
-                }`}
-              >
-                <Mail className="size-3.5" />
-                Correo
-              </button>
-              <button
-                type="button"
-                onClick={() => onSendSupplier("whatsapp")}
-                disabled={!supplierId || pdfBusy}
-                className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  channel === "whatsapp"
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "border-border text-foreground hover:bg-accent"
-                }`}
-              >
-                <MessageCircle className="size-3.5" />
-                WhatsApp
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onSendEmailSupplier}
+              disabled={!supplierId || pdfBusy || !supplier?.email}
+              className="flex items-center justify-center gap-2 rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Mail className="size-4" />
+              {pdfBusy ? "Enviando…" : "Enviar por correo"}
+            </button>
+            <button
+              type="button"
+              onClick={onShareSupplier}
+              disabled={!supplierId || pdfBusy}
+              className="flex items-center justify-center gap-2 rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Share2 className="size-4" />
+              {pdfBusy ? "Generando PDF…" : "Compartir PDF"}
+            </button>
             <button
               type="button"
               onClick={onDownloadSupplier}
@@ -1549,6 +1820,26 @@ function ActionsPanel({
           Esta cotización aún no está lista para despacho.
         </p>
       )}
+    </div>
+  )
+}
+
+function LockedCcList({ emails }: { emails: string[] }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+        CC automático
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {emails.map((email) => (
+          <span
+            key={email}
+            className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+          >
+            {email}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -2194,15 +2485,6 @@ function Detail({
         {label}
       </p>
       <p className={`text-foreground font-medium ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
-    </div>
-  )
-}
-
-function Line({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={`font-mono ${muted ? "text-muted-foreground" : "font-semibold text-foreground"}`}>{value}</span>
     </div>
   )
 }

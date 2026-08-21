@@ -61,6 +61,8 @@ export interface Client {
   contact: string
   email: string
   phone: string
+  /** Copias fijas (supervisores, socio, etc.) al enviar cotizaciones. */
+  ccEmails: string[]
   industry: string
   location: string
   since: string

@@ -23,7 +23,7 @@ export async function loadProfiles(): Promise<{ ok: true; users: User[] } | { ok
   let { data, error } = await supabase.from("profiles").select(PROFILE_COLUMNS).order("name")
   if (error && /invite_pending/i.test(error.message)) {
     const retry = await supabase.from("profiles").select(PROFILE_COLUMNS_LEGACY).order("name")
-    data = retry.data
+    data = (retry.data ?? null) as typeof data
     error = retry.error
   }
   if (error || !data) return { ok: false }
@@ -45,7 +45,7 @@ async function updateProfileAndRead(authId: string, body: Record<string, unknown
       .eq("id", authId)
       .select(PROFILE_COLUMNS_LEGACY)
       .maybeSingle()
-    data = retry.data
+    data = (retry.data ?? null) as typeof data
     error = retry.error
   }
   if (error) return { ok: false as const, error: profileError(error) }

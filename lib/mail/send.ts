@@ -1,6 +1,6 @@
 import { Resend } from "resend"
 import { isResendConfigured, resendEnv } from "./env"
-import { inviteEmail, recoverEmail } from "./templates"
+import { inviteEmail, quoteDispatchEmail, recoverEmail } from "./templates"
 
 export { isResendConfigured }
 
@@ -46,10 +46,62 @@ export async function sendTechnikMail(input: {
   }
 }
 
+export async function sendQuoteDispatchMail(input: {
+  to: string
+  cc: string[]
+  replyTo?: string
+  subject: string
+  body: string
+  filename: string
+  pdf: Buffer
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isResendConfigured()) {
+    return {
+      ok: false,
+      error:
+        "Falta RESEND_API_KEY en el servidor (re_…). Agrégala en .env.local y en Vercel → Production. No uses NEXT_PUBLIC_.",
+    }
+  }
+
+  const { apiKey, quotesFrom, replyTo: envReplyTo } = resendEnv()
+  const template = quoteDispatchEmail({
+    greeting: input.subject,
+    intro: "Adjuntamos el PDF de la cotización.",
+    body: input.body,
+  })
+  const replyTo = input.replyTo?.trim() || envReplyTo || undefined
+
+  try {
+    const resend = new Resend(apiKey)
+    const { error } = await resend.emails.send({
+      from: quotesFrom,
+      to: input.to,
+      ...(input.cc.length > 0 ? { cc: input.cc } : {}),
+      ...(replyTo ? { replyTo } : {}),
+      subject: input.subject,
+      html: template.html,
+      text: template.text,
+      attachments: [
+        {
+          filename: input.filename,
+          content: input.pdf,
+        },
+      ],
+    })
+    if (error) {
+      return { ok: false, error: explainResendError(error.message) }
+    }
+    return { ok: true }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "No se pudo enviar el correo."
+    return { ok: false, error: explainResendError(msg) }
+  }
+}
+
 function explainResendError(msg: string) {
   const m = msg.toLowerCase()
   if (m.includes("domain") || m.includes("not verified") || m.includes("from")) {
-    return "Resend no acepta el remitente. Con el dominio verificado usa RESEND_FROM=Technik Solutions <noreply@solutionstechnik.com> (no info@)."
+    return "Resend no acepta el remitente. Verifica cotizaciones@solutionstechnik.com (o el dominio solutionstechnik.com) en Resend."
   }
   if (m.includes("api key") || m.includes("unauthorized") || m.includes("forbidden")) {
     return "RESEND_API_KEY no es válida. Crea una en resend.com/api-keys (solo servidor, sin NEXT_PUBLIC_)."
