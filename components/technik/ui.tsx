@@ -27,8 +27,10 @@ import {
   displayStatus,
   initials,
   PROJECT_STAGE_META,
+  isQuotationCreator,
   quotationDepartments,
   outboundSendStatus,
+  QUOTE_PIPELINE_STATUSES,
   STATUS_META,
   type BillingStatus,
   type ClientResponse,
@@ -39,7 +41,7 @@ import {
   type User,
   type WorkDepartment,
 } from "@/lib/technik/data"
-import { useTechnik } from "@/lib/technik/store"
+import { roleLabel, useTechnik } from "@/lib/technik/store"
 import {
   formatYearMonthLabel,
   parseYearMonth,
@@ -159,112 +161,149 @@ export function ClientResponseBadge({
   return <ToneBadge label={meta.label} tone={meta.tone} icon={meta.icon} />
 }
 
-const QUOTE_STATUSES: QuoteStatus[] = ["draft", "pending_review", "approved", "closed"]
-const CLIENT_RESPONSES: ClientResponse[] = ["en_espera", "aprobada", "rechazada"]
-
 const pipelineSelectCls =
-  "w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
+  "w-full rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
 
-/** Admin: cambia estado interno, envío y respuesta del cliente (aprobada → proyecto). */
+const PIPELINE_CHIP: Record<QuoteStatus, string> = {
+  draft: "data-[on=true]:bg-muted data-[on=true]:text-foreground data-[on=true]:border-border",
+  pending_review:
+    "data-[on=true]:bg-chart-3/15 data-[on=true]:text-chart-3 data-[on=true]:border-chart-3/35",
+  approved:
+    "data-[on=true]:bg-chart-2/15 data-[on=true]:text-chart-2 data-[on=true]:border-chart-2/35",
+  closed:
+    "data-[on=true]:bg-destructive/12 data-[on=true]:text-destructive data-[on=true]:border-destructive/30",
+}
+
+function pipelineCanPick(
+  status: QuoteStatus,
+  user: User | null | undefined,
+  quotation: Quotation,
+): boolean {
+  const creator = isQuotationCreator(user, quotation)
+  const admin = user?.role === "admin"
+  if (status === "draft") return creator
+  if (status === "pending_review") return admin || creator
+  return admin
+}
+
+function pipelineVisibleStatuses(user: User | null | undefined, quotation: Quotation): QuoteStatus[] {
+  return QUOTE_PIPELINE_STATUSES.filter(
+    (status) => status === quotation.status || pipelineCanPick(status, user, quotation),
+  )
+}
+
+/** Una sola lista de estado: Borrador / En revisión / Aprobada / Rechazada. */
 export function QuotePipelineControls({
   quotation,
-  fields = ["status", "send", "response"],
   compact = false,
-  onClientResponse,
+  className = "",
+  onApplied,
 }: {
   quotation: Quotation
-  fields?: Array<"status" | "send" | "response">
   compact?: boolean
-  onClientResponse?: (response: ClientResponse) => void
+  className?: string
+  onApplied?: (status: QuoteStatus, extra?: { projectId?: string; error?: string; projectCreated?: boolean }) => void
 }) {
-  const { user, setStatus, setClientResponse, updateQuotation } = useTechnik()
-  if (user?.role !== "admin") return null
-  const sent = !!quotation.clientSentAt
-  const show = (key: "status" | "send" | "response") => fields.includes(key)
+  const { user, setStatus, setClientResponse, updateQuotation, projectByQuotationId, submitForReview } = useTechnik()
+  const options = pipelineVisibleStatuses(user, quotation)
+  const canChange = options.some((status) => status !== quotation.status && pipelineCanPick(status, user, quotation))
+
+  function apply(next: QuoteStatus) {
+    if (next === quotation.status) return
+    if (!pipelineCanPick(next, user, quotation)) return
+    if (next === "approved") {
+      const existed = Boolean(projectByQuotationId(quotation.id))
+      const result = setClientResponse(quotation.id, "aprobada")
+      if (!result.ok) {
+        onApplied?.("approved", { error: result.error })
+        return
+      }
+      onApplied?.("approved", { projectId: result.projectId, projectCreated: !existed })
+      return
+    }
+    if (next === "closed") {
+      const result = updateQuotation(
+        quotation.id,
+        { status: "closed", clientResponse: "rechazada" },
+        "Rechazó cotización · archivó",
+      )
+      if (!result.ok) {
+        onApplied?.("closed", { error: result.error })
+        return
+      }
+      onApplied?.("closed")
+      return
+    }
+    if (next === "pending_review") {
+      submitForReview(quotation.id)
+      onApplied?.(next)
+      return
+    }
+    setStatus(quotation.id, next, `Estado → ${STATUS_META[next].label}`)
+    onApplied?.(next)
+  }
+
+  if (!canChange) {
+    const meta = STATUS_META[quotation.status]
+    return (
+      <div className={className} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+        <ToneBadge label={meta.label} tone={meta.tone} icon={meta.icon} />
+      </div>
+    )
+  }
+
+  if (compact) {
+    return (
+      <div
+        className={`min-w-[9.5rem] ${className}`}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <select
+          aria-label="Estado de la cotización"
+          className={pipelineSelectCls}
+          value={quotation.status}
+          onChange={(e) => apply(e.target.value as QuoteStatus)}
+        >
+          {options.map((status) => (
+            <option key={status} value={status} disabled={!pipelineCanPick(status, user, quotation) && status !== quotation.status}>
+              {STATUS_META[status].label}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
+  }
 
   return (
     <div
-      className={`flex flex-col gap-1.5 ${compact ? "min-w-[10.5rem]" : ""}`}
+      className={`flex flex-col gap-1 min-w-0 ${className}`}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {show("status") && (
-        <label className="block">
-          {!compact && (
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Estado
-            </span>
-          )}
-          <select
-            className={pipelineSelectCls}
-            value={quotation.status}
-            onChange={(e) => {
-              const status = e.target.value as QuoteStatus
-              setStatus(quotation.id, status, `Estado → ${STATUS_META[status].label}`)
-            }}
-          >
-            {QUOTE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_META[s].label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {show("send") && (
-        <label className="block">
-          {!compact && (
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Envío
-            </span>
-          )}
-          <select
-            className={pipelineSelectCls}
-            value={sent ? "enviada" : "en_proceso"}
-            onChange={(e) => {
-              if (e.target.value === "enviada") {
-                const day = quotation.clientSentAt || new Date().toISOString().slice(0, 10)
-                updateQuotation(quotation.id, { clientSentAt: day }, "Marcó enviada al cliente")
-              } else {
-                updateQuotation(quotation.id, { clientSentAt: undefined }, "Marcó en proceso")
-              }
-            }}
-          >
-            <option value="en_proceso">En proceso</option>
-            <option value="enviada">Enviada al cliente</option>
-          </select>
-        </label>
-      )}
-      {show("response") && (
-        <label className="block">
-          {!compact && (
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cliente
-            </span>
-          )}
-          <select
-            className={pipelineSelectCls}
-            value={quotation.clientResponse ?? ""}
-            onChange={(e) => {
-              const value = e.target.value as ClientResponse
-              if (!value) return
-              if (onClientResponse) onClientResponse(value)
-              else setClientResponse(quotation.id, value)
-            }}
-          >
-            <option value="" disabled>
-              Respuesta del cliente
-            </option>
-            {CLIENT_RESPONSES.map((r) => (
-              <option key={r} value={r}>
-                {r === "aprobada"
-                  ? `${CLIENT_RESPONSE_META[r].label} → proyecto`
-                  : CLIENT_RESPONSE_META[r].label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        Estado
+      </span>
+      <div className="flex flex-wrap gap-0.5 rounded-full border border-border/70 bg-muted/40 p-0.5">
+        {options.map((status) => {
+          const on = quotation.status === status
+          const allowed = on || pipelineCanPick(status, user, quotation)
+          return (
+            <button
+              key={status}
+              type="button"
+              disabled={!allowed}
+              data-on={on}
+              onClick={() => apply(status)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${PIPELINE_CHIP[status]} ${
+                on ? "" : "border-transparent bg-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              }`}
+            >
+              {STATUS_META[status].label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -509,15 +548,17 @@ export function UserAvatar({
 function resolveQuoteAuthor(
   quotation: Pick<Quotation, "createdBy" | "createdById">,
   users: User[],
+  viewer?: User | null,
 ) {
   const match = users.find(
     (u) => u.id === quotation.createdById || u.authId === quotation.createdById,
   )
   const name = match?.name || quotation.createdBy || "—"
-  return { user: match ?? { name, avatarUrl: undefined }, name }
+  const role = match?.role ?? (isQuotationCreator(viewer, quotation) ? viewer?.role : undefined)
+  return { user: match ?? { name, avatarUrl: undefined }, name, role }
 }
 
-/** Colaborador que generó la cotización — avatar + nombre. */
+/** Quién generó la cotización — avatar, nombre y rol real. */
 export function QuoteAuthor({
   quotation,
   layout = "pill",
@@ -527,8 +568,9 @@ export function QuoteAuthor({
   layout?: "pill" | "row" | "hero" | "avatar" | "name"
   className?: string
 }) {
-  const { users } = useTechnik()
-  const { user: author, name } = resolveQuoteAuthor(quotation, users)
+  const { users, user: viewer } = useTechnik()
+  const { user: author, name, role } = resolveQuoteAuthor(quotation, users, viewer)
+  const caption = role ? roleLabel(role) : "Creada por"
 
   if (layout === "avatar") {
     return (
@@ -546,7 +588,7 @@ export function QuoteAuthor({
         <UserAvatar user={author} size="md" className="ring-2 ring-primary/25" />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Colaborador
+            {caption}
           </p>
           <p className="text-sm font-bold text-foreground truncate">{name}</p>
         </div>
@@ -558,7 +600,10 @@ export function QuoteAuthor({
     return (
       <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
         <UserAvatar user={author} size="xs" />
-        <span className="text-xs font-semibold text-foreground truncate">{name}</span>
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold text-foreground truncate">{name}</span>
+          <span className="block text-[10px] text-muted-foreground truncate">{caption}</span>
+        </span>
       </span>
     )
   }
@@ -576,7 +621,12 @@ export function QuoteAuthor({
       className={`inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 pl-0.5 pr-2.5 py-0.5 min-w-0 max-w-full ${className}`}
     >
       <UserAvatar user={author} size="xs" />
-      <span className="text-[11px] font-bold text-foreground truncate">{name}</span>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-bold text-foreground truncate leading-tight">{name}</span>
+        <span className="block text-[9px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+          {caption}
+        </span>
+      </span>
     </span>
   )
 }

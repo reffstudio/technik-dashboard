@@ -393,24 +393,21 @@ export interface Quotation {
    * se borra del todo a los 7 días.
    */
   deletedAt?: string
-  /** Foto de portada del PDF al cliente. */
+  /** Foto que el admin eligió mostrar en el PDF (no se toma sola de la visita). */
   coverImageUrl?: string
   history: QuoteEvent[]
 }
 
-/** Foto que pinta el PDF / portada: cover explícita, si no visita, si no ítem. */
-export function quotationCoverUrl(q: Pick<Quotation, "coverImageUrl" | "visitPhotos" | "publicItems">) {
-  if (q.coverImageUrl) return q.coverImageUrl
-  const visit = q.visitPhotos?.[0]?.url || q.visitPhotos?.[0]?.thumbUrl
-  if (visit) return visit
-  return q.publicItems?.find((item) => item.imageUrl)?.imageUrl
+/** Solo la foto que el admin agregó explícitamente a la cotización. */
+export function quotationCoverUrl(q: Pick<Quotation, "coverImageUrl">) {
+  return q.coverImageUrl
 }
 
 export function projectCoverUrl(
   project: Pick<Project, "coverImageUrl">,
-  quote?: Pick<Quotation, "coverImageUrl" | "visitPhotos" | "publicItems">,
+  quote?: Pick<Quotation, "coverImageUrl">,
 ) {
-  return project.coverImageUrl || (quote ? quotationCoverUrl(quote) : undefined)
+  return project.coverImageUrl || quote?.coverImageUrl
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -650,7 +647,23 @@ export const STATUS_META: Record<QuoteStatus, { label: string; tone: string; ico
   draft: { label: "Borrador", tone: "neutral", icon: "draft" },
   pending_review: { label: "En revisión", tone: "amber", icon: "review" },
   approved: { label: "Aprobada", tone: "azure", icon: "approved" },
-  closed: { label: "Cerrada", tone: "teal", icon: "closed" },
+  closed: { label: "Rechazada", tone: "loss", icon: "rejected" },
+}
+
+/** Orden del pipeline único de cotización. */
+export const QUOTE_PIPELINE_STATUSES: QuoteStatus[] = [
+  "draft",
+  "pending_review",
+  "approved",
+  "closed",
+]
+
+export function isQuotationCreator(
+  user: Pick<User, "id" | "authId"> | null | undefined,
+  quotation: Pick<Quotation, "createdById">,
+): boolean {
+  if (!user) return false
+  return user.id === quotation.createdById || Boolean(user.authId && user.authId === quotation.createdById)
 }
 
 export const DRAFT_TRASH_DAYS = 7

@@ -528,18 +528,6 @@ function ClientLetterDocument({
         </div>
       </section>
 
-      {coverUrl && (
-        <div className="shrink-0 mb-3 overflow-hidden border border-neutral-200" style={{ height: "1.55in" }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={coverUrl}
-            alt=""
-            className="w-full h-full object-cover"
-            style={{ width: "100%", height: "1.55in", objectFit: "cover" }}
-          />
-        </div>
-      )}
-
       <div className="flex-1 min-h-0 flex flex-col mb-2">
         <table className="w-full border-collapse table-fixed">
           <thead>
@@ -598,6 +586,19 @@ function ClientLetterDocument({
             )}
           </tbody>
         </table>
+        {coverUrl && (
+          <div className="mt-2 shrink-0">
+            <p className="text-[7px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+              Imagen de referencia
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={coverUrl}
+              alt=""
+              className="h-[0.85in] max-w-[1.6in] object-contain border border-neutral-200"
+            />
+          </div>
+        )}
       </div>
 
       <section className="grid grid-cols-[1.25fr_0.85fr] gap-3 shrink-0 mb-2">

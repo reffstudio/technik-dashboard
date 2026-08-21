@@ -1,10 +1,19 @@
 "use client"
 
 import React, { useEffect, useRef, useState } from "react"
-import { Camera, ImagePlus, Trash2, X, Loader2 } from "lucide-react"
+import { Camera, ImagePlus, Trash2, X, Loader2, FileText } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import { visitPhotosOf, VISIT_PHOTO_MAX } from "@/lib/technik/visit-photos"
 import type { VisitPhoto } from "@/lib/technik/data"
+
+function photoIsOnQuote(photo: VisitPhoto, quotePhotoUrl?: string) {
+  if (!quotePhotoUrl) return false
+  return (
+    quotePhotoUrl === photo.url ||
+    quotePhotoUrl === photo.thumbUrl ||
+    quotePhotoUrl.includes(photo.id)
+  )
+}
 
 function mergePhotoLists(local: VisitPhoto[] | undefined, remote: VisitPhoto[]) {
   const map = new Map<string, VisitPhoto>()
@@ -19,6 +28,9 @@ export function VisitPhotosSection({
   canEdit,
   compact = false,
   onNeedDraft,
+  quotePhotoUrl,
+  onToggleQuotePhoto,
+  quotePhotoLocked = false,
 }: {
   quotationId?: string
   photos: VisitPhoto[] | undefined
@@ -26,6 +38,10 @@ export function VisitPhotosSection({
   compact?: boolean
   /** Si aún no hay folio, el builder crea el borrador y devuelve el id. */
   onNeedDraft?: () => string | Promise<string | null | undefined>
+  /** URL de la foto que el admin eligió para el PDF. */
+  quotePhotoUrl?: string
+  onToggleQuotePhoto?: (photo: VisitPhoto | null) => void
+  quotePhotoLocked?: boolean
 }) {
   const { uploadVisitPhotos, removeVisitPhoto, hydrateVisitPhotos } = useTechnik()
   const cameraRef = useRef<HTMLInputElement>(null)
@@ -93,6 +109,9 @@ export function VisitPhotosSection({
     const result = await removeVisitPhoto(photo.quotationId, photo.id)
     setBusy(false)
     if (!result.ok) setError(result.error)
+    else if (quotePhotoUrl && photoIsOnQuote(photo, quotePhotoUrl)) {
+      onToggleQuotePhoto?.(null)
+    }
     if (viewer?.id === photo.id) setViewer(null)
   }
 
@@ -167,6 +186,12 @@ export function VisitPhotosSection({
 
       {error && <p className="text-[11px] text-destructive mb-2">{error}</p>}
 
+      {onToggleQuotePhoto && (
+        <p className="text-[11px] text-muted-foreground mb-2">
+          Elige si alguna foto va al PDF al cliente. Se muestra pequeña debajo de los ítems.
+        </p>
+      )}
+
       {list.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           {canEdit
@@ -175,12 +200,16 @@ export function VisitPhotosSection({
         </p>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-          {list.map((photo) => (
-            <div key={photo.id} className="relative group aspect-square">
+          {list.map((photo) => {
+            const onQuote = photoIsOnQuote(photo, quotePhotoUrl)
+            return (
+            <div key={photo.id} className="relative group">
               <button
                 type="button"
                 onClick={() => setViewer(photo)}
-                className="block w-full h-full overflow-hidden rounded-xl border border-border bg-neutral-200"
+                className={`block w-full aspect-square overflow-hidden rounded-xl border bg-neutral-200 ${
+                  onQuote ? "border-primary ring-2 ring-primary/30" : "border-border"
+                }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -199,8 +228,24 @@ export function VisitPhotosSection({
                   <Trash2 className="size-3" />
                 </button>
               )}
+              {onToggleQuotePhoto && (
+                <button
+                  type="button"
+                  disabled={quotePhotoLocked}
+                  onClick={() => onToggleQuotePhoto(onQuote ? null : photo)}
+                  className={`mt-1 w-full inline-flex items-center justify-center gap-1 rounded-lg border px-1 py-1 text-[10px] font-semibold leading-tight disabled:opacity-40 ${
+                    onQuote
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border text-foreground hover:border-primary/40"
+                  }`}
+                >
+                  <FileText className="size-3 shrink-0" />
+                  {onQuote ? "En la cotización" : "Agregar foto a cotización"}
+                </button>
+              )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

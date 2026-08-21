@@ -197,17 +197,16 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
         <>
           <div className="hidden lg:block rounded-2xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1080px]">
+              <table className="w-full text-sm min-w-[960px]">
                 <thead>
                   <tr className="bg-primary text-primary-foreground text-left text-[11px] uppercase tracking-wider">
                     <th className="px-3 py-3 font-semibold"># Cotización</th>
                     <th className="px-3 py-3 font-semibold">Empresa</th>
-                    <th className="px-3 py-3 font-semibold">Colaborador</th>
+                    <th className="px-3 py-3 font-semibold">Creada por</th>
                     <th className="px-3 py-3 font-semibold">Descripción</th>
                     <th className="px-3 py-3 font-semibold">Departamentos</th>
-                    <th className="px-3 py-3 font-semibold">Status</th>
+                    <th className="px-3 py-3 font-semibold">Estado</th>
                     <th className="px-3 py-3 font-semibold">Fecha envío</th>
-                    <th className="px-3 py-3 font-semibold">Notas</th>
                     <th className="px-3 py-3 font-semibold">Comentarios</th>
                     <th className="px-2 py-3 w-8" />
                   </tr>
@@ -237,17 +236,10 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                         <DepartmentBadges quotation={q} />
                       </td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <QuotePipelineControls
-                          quotation={q}
-                          compact
-                          fields={["status", "send"]}
-                        />
+                        <QuotePipelineControls quotation={q} compact />
                       </td>
                       <td className="px-3 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {formatSendDate(q.clientSentAt)}
-                      </td>
-                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <QuotePipelineControls quotation={q} compact fields={["response"]} />
                       </td>
                       <td className="px-3 py-3 text-xs text-muted-foreground max-w-[180px]">
                         <span className="line-clamp-2">{q.comments || "—"}</span>

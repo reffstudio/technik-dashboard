@@ -15,8 +15,6 @@ import {
   Mail,
   XCircle,
   ClipboardList,
-  Copy,
-  Archive,
   Plus,
   Trash2,
   ImagePlus,
@@ -26,7 +24,6 @@ import {
 } from "lucide-react"
 import { publicQuoteTotals, quoteTotals, useTechnik } from "@/lib/technik/store"
 import {
-  CLIENT_RESPONSE_META,
   currency,
   currencyMxn,
   currencyPrecise,
@@ -35,11 +32,11 @@ import {
   quotationDepartments,
   suggestedPublicUnitPrice,
   type Client,
-  type ClientResponse,
   type CatalogItem,
   type PublicQuoteItem,
   type Quotation,
   type QuoteLine,
+  type QuoteStatus,
   type Supplier,
   type SupplierChannel,
 } from "@/lib/technik/data"
@@ -49,11 +46,10 @@ import {
   DEFAULT_TAX_RATE,
   formatPercentLabel,
 } from "@/lib/technik/company"
-import { ClientResponseBadge, DepartmentBadges, inputCls, SearchField, SendStatusBadge, StatusBadge, QuoteAuthor, QuotePipelineControls } from "../ui"
+import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls } from "../ui"
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
-import { CoverPhotoField } from "../cover-photo-field"
 import type { View } from "../app-shell"
 import {
   clientQuoteMail,
@@ -77,11 +73,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     departments,
     updateQuotation,
     setStatus,
-    setClientResponse: storeSetClientResponse,
-    duplicateQuotation,
-    archiveQuotation,
     user,
-    projectByQuotationId,
     markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
@@ -93,7 +85,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const [draftLines, setDraftLines] = useState<QuoteLine[]>([])
   const skipLinesAutoSave = useRef(true)
   const skipCommentsAutoSave = useRef(true)
-  const skipCoverAutoSave = useRef(true)
   const [toast, setToast] = useState<{
     icon: React.ElementType
     title: string
@@ -107,7 +98,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const [terms, setTerms] = useState(DEFAULT_QUOTE_TERMS)
   const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE)
   const [isrRetentionRate, setIsrRetentionRate] = useState(DEFAULT_ISR_RETENTION_RATE)
-  const [coverImageUrl, setCoverImageUrl] = useState<string | undefined>()
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     publicItems: true,
   })
@@ -141,13 +131,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     setDraftLines(q.lines.map((l) => ({ ...l })))
     skipLinesAutoSave.current = true
     skipCommentsAutoSave.current = true
-    skipCoverAutoSave.current = true
     setComments(q.comments ?? "")
     setPublicItems(q.publicItems ?? [])
     setTerms(q.terms ?? DEFAULT_QUOTE_TERMS)
     setTaxRate(q.taxRate ?? DEFAULT_TAX_RATE)
     setIsrRetentionRate(q.isrRetentionRate ?? DEFAULT_ISR_RETENTION_RATE)
-    setCoverImageUrl(q.coverImageUrl)
     const firstMat = q.lines
       .map((l) => catalog.find((c) => c.id === l.itemId))
       .find((i) => i?.kind === "material" && i.supplierId)
@@ -234,21 +222,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   }, [comments, q, updateQuotation, markSaving])
 
   useEffect(() => {
-    if (!q) return
-    if (skipCoverAutoSave.current) {
-      skipCoverAutoSave.current = false
-      return
-    }
-    if (sentLocked) return
-    if ((coverImageUrl ?? "") === (q.coverImageUrl ?? "")) return
-    markSaving()
-    const t = window.setTimeout(() => {
-      updateQuotation(q.id, { coverImageUrl })
-    }, 400)
-    return () => window.clearTimeout(t)
-  }, [coverImageUrl, q, sentLocked, updateQuotation, markSaving])
-
-  useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), toast.action ? 7000 : 3200)
     return () => clearTimeout(t)
@@ -333,7 +306,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         terms,
         taxRate,
         isrRetentionRate,
-        coverImageUrl,
       },
       historyAction,
     )
@@ -702,17 +674,14 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     })
   }
 
-  function setClientResponse(response: ClientResponse) {
-    const existed = projectByQuotationId(q!.id)
-    const result = storeSetClientResponse(q!.id, response)
-    if (!result.ok) {
-      setToast({ icon: XCircle, title: "No permitido", msg: result.error })
+  function onPipelineApplied(status: QuoteStatus, extra?: { projectId?: string; error?: string; projectCreated?: boolean }) {
+    if (extra?.error) {
+      setToast({ icon: XCircle, title: "No permitido", msg: extra.error })
       return
     }
-
-    if (response === "aprobada") {
-      const projectId = result.projectId
-      if (projectId && !existed) {
+    if (status === "approved") {
+      const projectId = extra?.projectId
+          if (projectId && extra?.projectCreated) {
         setToast({
           icon: CheckCircle2,
           title: "Proyecto creado",
@@ -727,7 +696,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       if (projectId) {
         setToast({
           icon: CheckCircle2,
-          title: "Cliente: Aprobada",
+          title: "Aprobada",
           msg: `Ya existe el proyecto ${projectId}.`,
           action: {
             label: "Ver proyecto",
@@ -737,35 +706,13 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         return
       }
     }
-
-    setToast({
-      icon: response === "rechazada" ? XCircle : CheckCircle2,
-      title: "Respuesta del cliente",
-      msg: CLIENT_RESPONSE_META[response].label,
-    })
-  }
-
-  function onDuplicate() {
-    const newId = duplicateQuotation(q!.id)
-    if (!newId) return
-    setToast({
-      icon: Copy,
-      title: "Cotización duplicada",
-      msg: `${newId} creada como borrador.`,
-      action: {
-        label: "Abrir copia",
-        onClick: () => navigate({ name: "review", id: newId }),
-      },
-    })
-  }
-
-  function onArchive() {
-    archiveQuotation(q!.id)
-    setToast({
-      icon: Archive,
-      title: "Archivada",
-      msg: "La cotización pasó a estado cerrado.",
-    })
+    if (status === "closed") {
+      setToast({
+        icon: XCircle,
+        title: "Rechazada",
+        msg: "La cotización pasó a archivo.",
+      })
+    }
   }
 
   /** Altura del nav superior del AppShell (h-16). */
@@ -776,7 +723,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   return (
     <div>
       {/* Reserva espacio para la barra fija */}
-      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 248 : 148) }} />
+      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 188 : 132) }} />
 
       <div
         ref={stickyRef}
@@ -784,91 +731,48 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         style={{ top: pinnedTop }}
       >
         <div className="mx-auto max-w-[1400px] px-4 sm:px-5 lg:px-8 py-3">
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+          <button
+            onClick={() => navigate({ name: "quotations" })}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2.5 transition-colors"
+          >
+            <ArrowLeft className="size-3.5" />
+            Volver
+          </button>
+          <div className="rounded-2xl border border-border/80 bg-card/90 px-3.5 py-3 flex flex-col gap-3">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-3">
               <div className="min-w-0 flex-1">
-                <button
-                  onClick={() => navigate({ name: "quotations" })}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-1.5 transition-colors"
-                >
-                  <ArrowLeft className="size-3.5" />
-                  Volver
-                </button>
+                <p className="text-[11px] font-mono text-primary truncate">{q.reference}</p>
                 <h1 className="text-lg lg:text-xl font-bold text-foreground tracking-tight font-display truncate">
                   {q.title}
                 </h1>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  <span className="font-mono text-foreground/80">{q.reference}</span>
-                </p>
-                <QuoteAuthor quotation={q} layout="hero" className="mt-2.5" />
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {client?.company && (
+                    <p className="text-xs text-muted-foreground truncate">{client.company}</p>
+                  )}
+                  <DepartmentBadges quotation={q} />
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                <DepartmentBadges quotation={q} />
-                <StatusBadge quotation={q} />
-                {q.status !== "draft" && q.status !== "pending_review" && (
-                  <SendStatusBadge quotation={q} />
-                )}
-                <ClientResponseBadge quotation={q} />
-                {isAdmin && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={onDuplicate}
-                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent"
-                    >
-                      <Copy className="size-3" />
-                      Duplicar
-                    </button>
-                    {q.status !== "closed" && (
-                      <button
-                        type="button"
-                        onClick={onArchive}
-                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent"
-                      >
-                        <Archive className="size-3" />
-                        Archivar
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+              <div className="hidden lg:block w-px self-stretch bg-border/80" />
+              <QuoteAuthor quotation={q} layout="hero" className="shrink-0" />
+              <div className="hidden lg:block w-px self-stretch bg-border/80" />
+              <QuotePipelineControls
+                quotation={q}
+                className="shrink-0 lg:max-w-[22rem]"
+                onApplied={onPipelineApplied}
+              />
             </div>
-
             {isAdmin && (
-              <div className="rounded-xl border border-border/80 bg-card/80 p-3 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ClipboardList className="size-3.5 text-primary shrink-0" />
-                    <p className="text-xs font-semibold text-foreground">Seguimiento</p>
-                    <span className="text-[11px] text-muted-foreground truncate">
-                      {q.clientSentAt
-                        ? `PDF enviado el ${q.clientSentAt}`
-                        : "Sin enviar al cliente"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-start gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0 sm:w-28 sm:pt-2">
-                    Pipeline
-                  </p>
-                  <QuotePipelineControls quotation={q} onClientResponse={setClientResponse} />
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-                  <label className="block flex-1 min-w-0">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Notas internas
-                    </span>
-                    <input
-                      value={comments}
-                      onChange={(e) => setComments(e.target.value)}
-                      placeholder="Acuerdos, llamadas, motivo de rechazo…"
-                      className="mt-1 w-full rounded-lg bg-input/60 border border-border px-3 py-1.5 text-xs outline-none focus:border-primary/60"
-                    />
-                  </label>
-                </div>
-              </div>
+              <label className="block min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Notas internas
+                </span>
+                <input
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  placeholder="Acuerdos, llamadas, motivo de rechazo…"
+                  className="mt-1 w-full rounded-lg bg-input/60 border border-border px-3 py-1.5 text-xs outline-none focus:border-primary/60"
+                />
+              </label>
             )}
           </div>
         </div>
@@ -900,8 +804,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               <PublicItemsEditor
                 items={publicItems}
                 setItems={setPublicItems}
-                coverImageUrl={coverImageUrl}
-                setCoverImageUrl={setCoverImageUrl}
                 terms={terms}
                 setTerms={setTerms}
                 taxRate={taxRate}
@@ -1028,6 +930,16 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               <VisitPhotosSection
                 quotationId={q.id}
                 photos={q.visitPhotos}
+                quotePhotoUrl={q.coverImageUrl}
+                quotePhotoLocked={sentLocked}
+                onToggleQuotePhoto={
+                  isAdmin
+                    ? (photo) => {
+                        if (sentLocked) return
+                        updateQuotation(q.id, { coverImageUrl: photo?.url })
+                      }
+                    : undefined
+                }
                 canEdit={
                   !isAdmin &&
                   user?.role === "empleado" &&
@@ -1680,8 +1592,6 @@ function PercentField({
 function PublicItemsEditor({
   items,
   setItems,
-  coverImageUrl,
-  setCoverImageUrl,
   terms,
   setTerms,
   taxRate,
@@ -1694,8 +1604,6 @@ function PublicItemsEditor({
 }: {
   items: PublicQuoteItem[]
   setItems: React.Dispatch<React.SetStateAction<PublicQuoteItem[]>>
-  coverImageUrl?: string
-  setCoverImageUrl: (url: string | undefined) => void
   terms: string
   setTerms: (v: string) => void
   taxRate: number
@@ -1741,14 +1649,6 @@ function PublicItemsEditor({
           Enviada al cliente: ítems bloqueados. Usa Duplicar para una nueva versión.
         </div>
       )}
-      <div className="mb-4">
-        <CoverPhotoField
-          imageUrl={coverImageUrl}
-          onChange={setCoverImageUrl}
-          disabled={locked}
-          hint="Aparece arriba de los conceptos en el PDF"
-        />
-      </div>
       <div className="mb-1">
         <p className="text-xs text-muted-foreground max-w-md">
           En el PDF solo se ven nombre y totales. Los costos y fórmulas quedan solo para uso interno.
