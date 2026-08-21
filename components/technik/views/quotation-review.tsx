@@ -50,7 +50,7 @@ import {
   DEFAULT_TAX_RATE,
   formatPercentLabel,
 } from "@/lib/technik/company"
-import { ClientResponseBadge, DepartmentBadges, inputCls, SearchField, SendStatusBadge, StatusBadge } from "../ui"
+import { ClientResponseBadge, DepartmentBadges, inputCls, SearchField, SendStatusBadge, StatusBadge, QuoteAuthor } from "../ui"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
 import type { View } from "../app-shell"
@@ -748,7 +748,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   return (
     <div>
       {/* Reserva espacio para la barra fija */}
-      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 196 : 88) }} />
+      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 248 : 148) }} />
 
       <div
         ref={stickyRef}
@@ -771,9 +771,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                 </h1>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">
                   <span className="font-mono text-foreground/80">{q.reference}</span>
-                  {" · "}
-                  {q.createdBy}
                 </p>
+                <QuoteAuthor quotation={q} layout="hero" className="mt-2.5" />
               </div>
               <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                 <DepartmentBadges quotation={q} />

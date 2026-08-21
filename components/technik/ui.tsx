@@ -370,7 +370,8 @@ export function Field({ label, children }: { label: string; children: React.Reac
   )
 }
 
-const AVATAR_SIZE: Record<"sm" | "md" | "lg", string> = {
+const AVATAR_SIZE: Record<"xs" | "sm" | "md" | "lg", string> = {
+  xs: "size-6 text-[10px] rounded-full",
   sm: "size-8 text-xs rounded-lg",
   md: "size-11 text-sm rounded-xl",
   lg: "size-14 text-lg rounded-2xl",
@@ -382,7 +383,7 @@ export function UserAvatar({
   className = "",
 }: {
   user: Pick<User, "name" | "avatarUrl">
-  size?: "sm" | "md" | "lg"
+  size?: "xs" | "sm" | "md" | "lg"
   className?: string
 }) {
   const base = `flex shrink-0 items-center justify-center overflow-hidden font-bold bg-primary/15 text-primary ${AVATAR_SIZE[size]} ${className}`
@@ -393,4 +394,71 @@ export function UserAvatar({
     )
   }
   return <div className={base}>{initials(user.name)}</div>
+}
+
+function resolveQuoteAuthor(
+  quotation: Pick<Quotation, "createdBy" | "createdById">,
+  users: User[],
+) {
+  const match = users.find(
+    (u) => u.id === quotation.createdById || u.authId === quotation.createdById,
+  )
+  const name = match?.name || quotation.createdBy || "—"
+  return { user: match ?? { name, avatarUrl: undefined }, name }
+}
+
+/** Colaborador que generó la cotización — avatar + nombre. */
+export function QuoteAuthor({
+  quotation,
+  layout = "pill",
+  className = "",
+}: {
+  quotation: Pick<Quotation, "createdBy" | "createdById">
+  layout?: "pill" | "row" | "hero" | "avatar"
+  className?: string
+}) {
+  const { users } = useTechnik()
+  const { user: author, name } = resolveQuoteAuthor(quotation, users)
+
+  if (layout === "avatar") {
+    return (
+      <UserAvatar
+        user={author}
+        size="md"
+        className={`ring-2 ring-primary/25 ${className}`}
+      />
+    )
+  }
+
+  if (layout === "hero") {
+    return (
+      <div className={`flex items-center gap-2.5 min-w-0 ${className}`}>
+        <UserAvatar user={author} size="md" className="ring-2 ring-primary/25" />
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Colaborador
+          </p>
+          <p className="text-sm font-bold text-foreground truncate">{name}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (layout === "row") {
+    return (
+      <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
+        <UserAvatar user={author} size="xs" />
+        <span className="text-xs font-semibold text-foreground truncate">{name}</span>
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 pl-0.5 pr-2.5 py-0.5 min-w-0 max-w-full ${className}`}
+    >
+      <UserAvatar user={author} size="xs" />
+      <span className="text-[11px] font-bold text-foreground truncate">{name}</span>
+    </span>
+  )
 }

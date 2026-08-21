@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
-  FileText,
   FolderKanban,
   Hourglass,
   Inbox,
@@ -56,6 +55,7 @@ import {
   DepartmentBadges,
   MonthSwitcher,
   ProjectStageBadge,
+  QuoteAuthor,
   StatusBadge,
 } from "../ui"
 import type { View } from "../app-shell"
@@ -779,14 +779,15 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         transition={{ duration: 2.2, ease: EASE, delay: 0.15 }}
                         className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-r from-primary/25 via-primary/10 to-transparent"
                       />
-                      <div className="relative flex size-9 items-center justify-center rounded-xl shrink-0 bg-background">
-                        <FileText className="size-4 text-primary" />
+                      <div className="relative shrink-0">
+                        <QuoteAuthor quotation={q} layout="avatar" />
                       </div>
                       <div className="relative min-w-0 flex-1">
                         <p className="text-sm font-semibold truncate">
                           {client?.company ?? "—"}
                         </p>
                         <p className="text-[11px] truncate text-muted-foreground">{q.title}</p>
+                        <QuoteAuthor quotation={q} className="mt-1" />
                       </div>
                       <span className="relative font-mono text-[10px] shrink-0 text-muted-foreground">
                         {q.reference.slice(-4)}
@@ -857,6 +858,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold truncate">{client?.company}</p>
                           <p className="text-[10px] text-muted-foreground truncate">{q.title}</p>
+                          <QuoteAuthor quotation={q} layout="row" className="mt-1" />
                         </div>
                         <ClientResponseBadge quotation={q} />
                       </button>

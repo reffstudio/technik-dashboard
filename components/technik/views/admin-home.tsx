@@ -17,6 +17,7 @@ import {
   SendStatusBadge,
   ClientResponseBadge,
   SearchField,
+  QuoteAuthor,
 } from "../ui"
 import type { View } from "../app-shell"
 
@@ -198,11 +199,12 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
         <>
           <div className="hidden lg:block rounded-2xl border border-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[960px]">
+              <table className="w-full text-sm min-w-[1080px]">
                 <thead>
                   <tr className="bg-primary text-primary-foreground text-left text-[11px] uppercase tracking-wider">
                     <th className="px-3 py-3 font-semibold"># Cotización</th>
                     <th className="px-3 py-3 font-semibold">Empresa</th>
+                    <th className="px-3 py-3 font-semibold">Colaborador</th>
                     <th className="px-3 py-3 font-semibold">Descripción</th>
                     <th className="px-3 py-3 font-semibold">Departamentos</th>
                     <th className="px-3 py-3 font-semibold">Status</th>
@@ -226,6 +228,9 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                       </td>
                       <td className="px-3 py-3 font-semibold text-foreground whitespace-nowrap">
                         {clientName(q.clientId)}
+                      </td>
+                      <td className="px-3 py-3">
+                        <QuoteAuthor quotation={q} layout="row" />
                       </td>
                       <td className="px-3 py-3 text-muted-foreground max-w-[220px]">
                         <span className="line-clamp-2">{q.title}</span>
@@ -272,7 +277,8 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                   <DepartmentBadges quotation={q} />
                 </div>
                 <p className="text-sm font-semibold text-foreground mb-1">{q.title}</p>
-                <p className="text-xs text-muted-foreground mb-3">{clientName(q.clientId)}</p>
+                <p className="text-xs text-muted-foreground mb-2">{clientName(q.clientId)}</p>
+                <QuoteAuthor quotation={q} className="mb-3" />
                 <div className="flex flex-wrap items-center gap-2">
                   {q.status === "pending_review" || q.status === "draft" ? (
                     <StatusBadge quotation={q} />
