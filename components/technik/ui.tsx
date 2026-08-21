@@ -414,7 +414,7 @@ export function QuoteAuthor({
   className = "",
 }: {
   quotation: Pick<Quotation, "createdBy" | "createdById">
-  layout?: "pill" | "row" | "hero" | "avatar"
+  layout?: "pill" | "row" | "hero" | "avatar" | "name"
   className?: string
 }) {
   const { users } = useTechnik()
@@ -449,6 +449,14 @@ export function QuoteAuthor({
       <span className={`inline-flex items-center gap-2 min-w-0 ${className}`}>
         <UserAvatar user={author} size="xs" />
         <span className="text-xs font-semibold text-foreground truncate">{name}</span>
+      </span>
+    )
+  }
+
+  if (layout === "name") {
+    return (
+      <span className={`block text-[11px] font-medium text-muted-foreground truncate ${className}`}>
+        {name}
       </span>
     )
   }

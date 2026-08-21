@@ -310,6 +310,8 @@ interface TechnikState {
     departments?: WorkDepartment[]
     totalDue: number
     notes?: string
+    stage?: ProjectStage
+    dueDate?: string
   }) => string
   updateProject: (id: string, patch: Partial<Project>, historyAction?: string) => void
   setProjectStage: (id: string, stage: ProjectStage) => void
@@ -2086,11 +2088,15 @@ export function TechnikProvider({
       departments?: WorkDepartment[]
       totalDue: number
       notes?: string
+      stage?: ProjectStage
+      dueDate?: string
     }) => {
       const id = nextProjectCode(projects.map((p) => p.id))
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
+      const stage = input.stage ?? "en_proceso"
+      const dueDate = input.dueDate?.trim() || undefined
       const project: Project = {
         id,
         title: input.title.trim(),
@@ -2099,20 +2105,25 @@ export function TechnikProvider({
         totalDue: input.totalDue,
         notes: input.notes?.trim() || undefined,
         createdById: user?.id,
-        stage: "procesando_solicitud",
+        stage,
+        dueDate,
         installments: [],
         createdAt: d,
         updatedAt: d,
         history: [
-          { at: stamp, by: actor, action: "Proyecto creado sin cotización" },
+          {
+            at: stamp,
+            by: actor,
+            action: `Proyecto cargado · ${PROJECT_STAGE_META[stage].label}`,
+          },
         ],
       }
       setProjects((prev) => [project, ...prev])
       persistProjectNow(project)
-      announce(`${actor} · Nuevo proyecto ${id} (sin cotización)`, "except_self", {
+      announce(`${actor} · Proyecto cargado ${id}`, "except_self", {
         id: `project-new-${id}`,
         kind: "activity",
-        title: "Nuevo proyecto",
+        title: "Proyecto cargado",
         body: `${id} · ${input.title.trim()}`,
         href: { name: "project", id },
       })

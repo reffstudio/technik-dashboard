@@ -783,14 +783,18 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         <QuoteAuthor quotation={q} layout="avatar" />
                       </div>
                       <div className="relative min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate">
+                        <p className="text-sm font-semibold truncate leading-tight">
                           {client?.company ?? "—"}
                         </p>
-                        <p className="text-[11px] truncate text-muted-foreground">{q.title}</p>
-                        <QuoteAuthor quotation={q} className="mt-1" />
+                        {q.title.trim() && q.title.trim() !== client?.company ? (
+                          <p className="text-[11px] truncate text-muted-foreground mt-0.5">
+                            {q.title}
+                          </p>
+                        ) : null}
+                        <QuoteAuthor quotation={q} layout="name" className="mt-0.5" />
                       </div>
-                      <span className="relative font-mono text-[10px] shrink-0 text-muted-foreground">
-                        {q.reference.slice(-4)}
+                      <span className="relative font-mono text-[10px] shrink-0 text-muted-foreground tabular-nums">
+                        {q.reference.replace(/^TKS-Q-/, "")}
                       </span>
                     </motion.button>
                   )

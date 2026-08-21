@@ -58,9 +58,12 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
   const [manualTitle, setManualTitle] = useState("")
   const [manualClientId, setManualClientId] = useState(clients[0]?.id ?? "")
   const [manualTotal, setManualTotal] = useState("")
-  const [manualDept, setManualDept] = useState<WorkDepartment | "">(
-    departments[0]?.id ?? "",
+  const [manualDepts, setManualDepts] = useState<WorkDepartment[]>(
+    departments[0]?.id ? [departments[0].id] : [],
   )
+  const [manualStage, setManualStage] = useState<ProjectStage>("en_proceso")
+  const [manualDue, setManualDue] = useState("")
+  const [manualNotes, setManualNotes] = useState("")
 
   const scoped = useMemo(() => {
     if (isAdmin) return projects
@@ -108,6 +111,12 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
     return [...base].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
   }, [scoped, stage, dept, query, quotations, clients])
 
+  function toggleManualDept(id: WorkDepartment) {
+    setManualDepts((prev) =>
+      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id],
+    )
+  }
+
   function submitManualProject() {
     const total = Number(manualTotal)
     if (!manualTitle.trim() || !manualClientId || !Number.isFinite(total) || total <= 0) {
@@ -117,11 +126,17 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
       title: manualTitle.trim(),
       clientId: manualClientId,
       totalDue: total,
-      departments: manualDept ? [manualDept] : undefined,
+      departments: manualDepts.length ? manualDepts : undefined,
+      stage: manualStage,
+      dueDate: manualDue || undefined,
+      notes: manualNotes.trim() || undefined,
     })
     setManualOpen(false)
     setManualTitle("")
     setManualTotal("")
+    setManualDue("")
+    setManualNotes("")
+    setManualStage("en_proceso")
     navigate({ name: "project", id })
   }
 
@@ -138,77 +153,135 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="size-4" />
-            Sin cotización
+            Cargar proyecto
           </button>
         )}
       </PageHeader>
 
       {isAdmin && manualOpen && (
         <div className="rounded-2xl surface-card border border-primary/25 p-4 sm:p-5 mb-6">
-          <p className="text-sm font-semibold mb-1">Proyecto / cobro sin cotización</p>
-          <p className="text-[11px] text-muted-foreground mb-3">
-            Equivale a las filas con # de cotización N/A del Excel de pagos.
+          <p className="text-sm font-semibold mb-1">Cargar proyecto activo</p>
+          <p className="text-[11px] text-muted-foreground mb-4 max-w-2xl">
+            Para trabajos que ya están en marcha y no nacieron de una cotización aquí.
+            Entra el cliente, el alcance y en qué etapa va. El plan de cobro se arma
+            después en la ficha del proyecto.
           </p>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
-            <label className="block sm:col-span-2">
-              <span className="text-[11px] text-muted-foreground">Descripción</span>
-              <input
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                placeholder="Descripción del proyecto"
-                className={`${inputCls} mt-1`}
-              />
-            </label>
-            <label className="block">
-              <span className="text-[11px] text-muted-foreground">Empresa</span>
-              <select
-                value={manualClientId}
-                onChange={(e) => setManualClientId(e.target.value)}
-                className={`${inputCls} mt-1`}
+          {clients.length === 0 ? (
+            <p className="text-sm text-muted-foreground mb-3">
+              Primero registra el cliente en{" "}
+              <button
+                type="button"
+                onClick={() => navigate({ name: "clients" })}
+                className="text-primary font-semibold underline-offset-2 hover:underline"
               >
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.company}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-[11px] text-muted-foreground">Cantidad (con IVA)</span>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={manualTotal}
-                onChange={(e) => setManualTotal(e.target.value)}
-                placeholder="0.00"
-                className={`${inputCls} mt-1 font-mono`}
-              />
-            </label>
-            <label className="block">
-              <span className="text-[11px] text-muted-foreground">Departamento</span>
-              <select
-                value={manualDept}
-                onChange={(e) => setManualDept(e.target.value)}
-                className={`${inputCls} mt-1`}
-              >
-                <option value="">—</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+                Clientes
+              </button>
+              , luego vuelve a cargar el proyecto.
+            </p>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+              <label className="block sm:col-span-2">
+                <span className="text-[11px] text-muted-foreground">Trabajo / nombre</span>
+                <input
+                  value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  placeholder="Ej. Línea de ensamble planta norte"
+                  className={`${inputCls} mt-1`}
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-muted-foreground">Cliente</span>
+                <select
+                  value={manualClientId}
+                  onChange={(e) => setManualClientId(e.target.value)}
+                  className={`${inputCls} mt-1`}
+                >
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.company}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-muted-foreground">Total a cobrar (con IVA)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={manualTotal}
+                  onChange={(e) => setManualTotal(e.target.value)}
+                  placeholder="0.00"
+                  className={`${inputCls} mt-1 font-mono`}
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-muted-foreground">Etapa actual</span>
+                <select
+                  value={manualStage}
+                  onChange={(e) => setManualStage(e.target.value as ProjectStage)}
+                  className={`${inputCls} mt-1`}
+                >
+                  {PROJECT_STAGES.filter((s) => s !== "completado").map((s) => (
+                    <option key={s} value={s}>
+                      {PROJECT_STAGE_META[s].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-muted-foreground">Entrega comprometida</span>
+                <input
+                  type="date"
+                  value={manualDue}
+                  onChange={(e) => setManualDue(e.target.value)}
+                  className={`${inputCls} mt-1 font-mono`}
+                />
+              </label>
+              <div className="sm:col-span-2 lg:col-span-3">
+                <span className="text-[11px] text-muted-foreground">Departamento</span>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {departments.map((d) => {
+                    const on = manualDepts.includes(d.id)
+                    return (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => toggleManualDept(d.id)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                          on
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <label className="block sm:col-span-2 lg:col-span-3">
+                <span className="text-[11px] text-muted-foreground">Notas (opcional)</span>
+                <textarea
+                  value={manualNotes}
+                  onChange={(e) => setManualNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Contexto del trabajo, folio viejo, lo que el taller ya avanzó…"
+                  className={`${inputCls} mt-1 min-h-[4.5rem] resize-y`}
+                />
+              </label>
+            </div>
+          )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={submitManualProject}
-              className="rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground"
-            >
-              Crear proyecto
-            </button>
+            {clients.length > 0 && (
+              <button
+                type="button"
+                onClick={submitManualProject}
+                className="rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground"
+              >
+                Cargar y abrir ficha
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setManualOpen(false)}
@@ -295,7 +368,8 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
         <div className="rounded-2xl border border-dashed border-border p-10 text-center">
           <FolderKanban className="size-8 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
-            No hay proyectos con estos filtros. Se crean al marcar la cotización como aprobada por el cliente.
+            No hay proyectos con estos filtros. Se crean al aprobar una cotización, o con
+            Cargar proyecto si el trabajo ya estaba en marcha.
           </p>
         </div>
       ) : (
