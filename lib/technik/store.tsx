@@ -30,6 +30,7 @@ import {
   quotationHasDepartment,
   quotationIsTrashed,
   quotationTrashExpired,
+  quotationCoverUrl,
   shortDepartmentLabel,
   suggestedPrice,
   type Client,
@@ -369,12 +370,14 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
-/** Marca de tiempo para historial: YYYY-MM-DD HH:mm */
+/** Marca de tiempo para historial (ISO, comparable entre cliente y Supabase). */
 function nowStamp() {
-  const d = new Date()
-  const date = d.toISOString().slice(0, 10)
-  const time = d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", hour12: false })
-  return `${date} ${time}`
+  return new Date().toISOString()
+}
+
+/** updatedAt de cotización: mismo formato que carga Supabase (evita re-guardar en bucle). */
+function fieldStamp() {
+  return new Date().toISOString().slice(0, 16).replace("T", " ")
 }
 
 export function TechnikProvider({
@@ -500,6 +503,7 @@ export function TechnikProvider({
         setSaveStatus("offline")
         return res
       }
+      console.warn("[technik] No se pudo guardar", key, res.error)
       setSaveError(res.error || "No se pudo guardar.")
       setSaveStatus("error")
       return res
@@ -1271,6 +1275,34 @@ export function TechnikProvider({
     })
   }, [])
 
+  const fetchPendingInviteIds = useCallback(async (): Promise<Set<string>> => {
+    const ids = new Set<string>()
+    if (!isSupabaseConfigured()) return ids
+    try {
+      const supabase = getSupabaseBrowser()
+      const token = (await supabase.auth.getSession()).data.session?.access_token
+      if (!token) return ids
+      const res = await fetch("/api/users/pending-invites", {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
+      })
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; ids?: string[] } | null
+      if (json?.ok && Array.isArray(json.ids)) {
+        for (const id of json.ids) ids.add(id)
+      }
+    } catch {
+      /* roster sigue con invite_pending de profiles */
+    }
+    return ids
+  }, [])
+
+  const withPendingInvites = useCallback((list: User[], pendingIds: Set<string>) => {
+    if (pendingIds.size === 0) return list
+    return list.map((u) =>
+      u.authId && pendingIds.has(u.authId) ? { ...u, invitePending: true } : u,
+    )
+  }, [])
+
   const applyAuthUser = useCallback(async (authUserId: string, authEmail?: string | null) => {
     if (logoutIntentRef.current) return { ok: false as const, error: "Sesión cerrada." }
     if (hydrateInFlight.current && hydrateInFlightId.current === authUserId) {
@@ -1340,11 +1372,17 @@ export function TechnikProvider({
       const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
       if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
       if (rosterRes.ok) {
+        const pendingIds =
+          row.role === "admin" ? await fetchPendingInviteIds() : new Set<string>()
+        const incoming = withPendingInvites(
+          rosterRes.users.length > 0 ? rosterRes.users : [next],
+          pendingIds,
+        )
         setUsers((prev) =>
           dedupeUsers(
             adoptByKey(
               prev.length > 0 ? prev : [next],
-              rosterRes.users.length > 0 ? rosterRes.users : [next],
+              incoming,
               (u) => u.authId || u.id,
               (_a, b) => b,
             ),
@@ -1386,7 +1424,7 @@ export function TechnikProvider({
         hydrateInFlightId.current = null
       }
     }
-  }, [applyLoadedOps, applyLoadedCore])
+  }, [applyLoadedOps, applyLoadedCore, fetchPendingInviteIds, withPendingInvites])
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -1597,9 +1635,16 @@ export function TechnikProvider({
         setUsers((prev) => dedupeUsers([...prev, invited]))
         const roster = await loadProfiles()
         if (roster.ok && roster.users.length > 0) {
+          const pendingIds = await fetchPendingInviteIds()
+          pendingIds.add(json.id)
           setUsers((prev) =>
             dedupeUsers(
-              adoptByKey(prev, roster.users, (u) => u.authId || u.id, (_a, b) => b),
+              adoptByKey(
+                prev,
+                withPendingInvites(roster.users, pendingIds),
+                (u) => u.authId || u.id,
+                (_a, b) => b,
+              ),
             ),
           )
         }
@@ -1619,19 +1664,27 @@ export function TechnikProvider({
         }
       }
     },
-    [],
+    [fetchPendingInviteIds, withPendingInvites],
   )
 
   const refreshUsers = useCallback(async () => {
     if (!isSupabaseConfigured()) return
     const roster = await loadProfiles()
     if (roster.ok && roster.users.length > 0) {
+      const pendingIds = await fetchPendingInviteIds()
       setUsers((prev) =>
-        dedupeUsers(adoptByKey(prev, roster.users, (u) => u.authId || u.id, (_a, b) => b)),
+        dedupeUsers(
+          adoptByKey(
+            prev,
+            withPendingInvites(roster.users, pendingIds),
+            (u) => u.authId || u.id,
+            (_a, b) => b,
+          ),
+        ),
       )
       if (user?.authId) rosterReadyForAuthId.current = user.authId
     }
-  }, [user?.authId])
+  }, [user?.authId, fetchPendingInviteIds, withPendingInvites])
 
   const deleteUser = useCallback(async (authId: string) => {
     const supabase = getSupabaseBrowser()
@@ -1967,9 +2020,16 @@ export function TechnikProvider({
         return {
           ...q,
           ...nextPatch,
-          updatedAt: stamp,
+          updatedAt: fieldStamp(),
           history: historyAction
-            ? [...q.history, { at: stamp, by: actor, action: historyAction }]
+            ? (() => {
+                const prev = q.history ?? []
+                const last = prev[prev.length - 1]
+                if (last && last.action === historyAction && last.by === actor) {
+                  return [...prev.slice(0, -1), { at: stamp, by: actor, action: historyAction }]
+                }
+                return [...prev, { at: stamp, by: actor, action: historyAction }]
+              })()
             : q.history,
         }
       })
@@ -2238,6 +2298,7 @@ export function TechnikProvider({
         quotationId,
         stage: "procesando_solicitud",
         installments: [],
+        coverImageUrl: quotationCoverUrl(quote),
         createdAt: d,
         updatedAt: d,
         history: [
@@ -2267,9 +2328,15 @@ export function TechnikProvider({
 
   const setClientResponse = useCallback(
     (id: string, response: ClientResponse) => {
+      const current = quotations.find((q) => q.id === id)
+      const patch: Partial<Quotation> = { clientResponse: response }
+      if (response === "aprobada") {
+        if (current && current.status !== "closed") patch.status = "approved"
+        if (current && !current.clientSentAt) patch.clientSentAt = today()
+      }
       const result = updateQuotation(
         id,
-        { clientResponse: response },
+        patch,
         `Cliente: ${CLIENT_RESPONSE_META[response].label}`,
       )
       if (!result.ok) return result
@@ -2370,7 +2437,14 @@ export function TechnikProvider({
             notes: nextNotes,
             updatedAt: d,
             history: historyAction
-              ? [...p.history, { at: stamp, by: actor, action: historyAction }]
+              ? (() => {
+                  const prevH = p.history ?? []
+                  const last = prevH[prevH.length - 1]
+                  if (last && last.action === historyAction && last.by === actor) {
+                    return [...prevH.slice(0, -1), { at: stamp, by: actor, action: historyAction }]
+                  }
+                  return [...prevH, { at: stamp, by: actor, action: historyAction }]
+                })()
               : p.history,
           }
           persistProjectNow(next)

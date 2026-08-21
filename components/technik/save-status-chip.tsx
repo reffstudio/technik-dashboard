@@ -46,7 +46,9 @@ export function SaveStatusChip() {
       className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-destructive shrink-0 max-w-[42vw] sm:max-w-none text-left"
       title={saveError || "Reintentar"}
     >
-      No se pudo guardar
+      <span className="truncate">
+        No se pudo guardar{saveError ? ` · ${saveError}` : ""}
+      </span>
     </button>
   )
 }

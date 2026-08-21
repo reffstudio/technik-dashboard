@@ -26,11 +26,13 @@ import {
   projectBillingSummary,
   projectIsOverdue,
   projectTitle,
+  projectCoverUrl,
   type PaymentMethod,
   type PaymentMode,
   type ProjectStage,
 } from "@/lib/technik/data"
 import { publicQuoteTotals, quoteTotals, useTechnik } from "@/lib/technik/store"
+import { formatActivityAt } from "@/lib/technik/activity-history"
 import {
   DepartmentBadges,
   PageHeader,
@@ -38,7 +40,7 @@ import {
   ToneBadge,
   inputCls,
 } from "../ui"
-import type { View } from "../app-shell"
+import { CoverPhotoField } from "../cover-photo-field"
 
 function formatDate(iso?: string) {
   if (!iso) return "—"
@@ -156,15 +158,11 @@ export function ProjectDetail({
     if (same) return
     markSaving()
     const t = window.setTimeout(() => {
-      updateProject(
-        project.id,
-        {
+      updateProject(project.id, {
           dueDate: dueDate || undefined,
           deliveredAt: deliveredAt || undefined,
           notes: notes.trim() || undefined,
-        },
-        "Actualizó fechas / notas del proyecto",
-      )
+        })
     }, 700)
     return () => window.clearTimeout(t)
   }, [
@@ -371,6 +369,22 @@ export function ProjectDetail({
           )}
         </div>
       </PageHeader>
+
+      <section className="mb-6 rounded-2xl surface-card overflow-hidden">
+        <div className="p-4 pb-3">
+          <h2 className="text-sm font-bold font-display">Foto de portada</h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Una sola foto. Se ve en el listado de proyectos y aquí.
+          </p>
+        </div>
+        <div className="px-4 pb-4">
+          <CoverPhotoField
+            imageUrl={projectCoverUrl(project, quote)}
+            onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
+            hint="Empleado y admin pueden subirla"
+          />
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
         <div className="flex flex-col gap-4 min-w-0">
@@ -1253,11 +1267,11 @@ export function ProjectDetail({
           <ul className="mt-3 flex flex-col gap-2">
             {[...project.history].reverse().map((h, i) => (
               <li
-                key={`${h.at}-${i}`}
+                key={`${h.at}-${h.action}-${i}`}
                 className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3 text-sm border-b border-border/40 pb-2 last:border-0"
               >
                 <span className="font-mono text-[11px] text-muted-foreground shrink-0">
-                  {h.at}
+                  {formatActivityAt(h.at).label}
                 </span>
                 <span className="text-muted-foreground shrink-0">{h.by}</span>
                 <span className="text-foreground">{h.action}</span>

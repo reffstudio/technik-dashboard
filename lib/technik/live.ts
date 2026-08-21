@@ -13,6 +13,7 @@ import type {
   User,
 } from "./data"
 import { parseActivityMs, type InboxEvent } from "./notifications"
+import { mergeActivityHistory } from "./activity-history"
 
 export const LIVE_CHANNEL = "technik-live-v1"
 export const WORKSPACE_STORAGE_KEY = "technik-workspace-v1"
@@ -170,11 +171,10 @@ function preferQuote(a: Quotation, b: Quotation): Quotation {
       winner = aHist >= bHist ? a : b
     }
   }
-  const history =
-    (a.history?.length ?? 0) >= (b.history?.length ?? 0) ? a.history : b.history
+  const history = mergeActivityHistory(a.history, b.history)
   return {
     ...winner,
-    history: history ?? winner.history,
+    history,
     visitPhotos: mergeVisitPhotos(a.visitPhotos, b.visitPhotos),
   }
 }
@@ -323,7 +323,10 @@ export function adoptQuotations(
 }
 
 export function adoptProjects(local: Project[], incoming: Project[]): Project[] {
-  return adoptById(local, incoming, preferByUpdatedAt)
+  return adoptById(local, incoming, (a, b) => {
+    const winner = preferByUpdatedAt(a, b)
+    return { ...winner, history: mergeActivityHistory(a.history, b.history) }
+  })
 }
 
 function mergeTreasuryMonths(

@@ -7,6 +7,7 @@ import { publicQuoteTotals } from "@/lib/technik/store"
 import {
   currencyMxn,
   lineTotalMxn,
+  quotationCoverUrl,
   type CatalogItem,
   type Client,
   type PublicQuoteItem,
@@ -113,6 +114,7 @@ export function QuotePdfPreview({
     quotation.clientSentAt ?? quotation.updatedAt?.slice(0, 10) ?? quotation.createdAt.slice(0, 10),
   )
   const quoteNo = quotation.reference || quotation.id
+  const coverUrl = quotationCoverUrl(quotation)
 
   const stageRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
@@ -161,6 +163,7 @@ export function QuotePdfPreview({
     totals,
     quoteDate,
     quoteNo,
+    coverUrl,
   }
   const supplierLetterProps = {
     supplier,
@@ -467,6 +470,7 @@ type ClientLetterDocumentProps = {
   totals: ReturnType<typeof publicQuoteTotals>
   quoteDate: string
   quoteNo: string
+  coverUrl?: string
   printKind?: PdfDocKind
   className?: string
 }
@@ -480,6 +484,7 @@ function ClientLetterDocument({
   totals,
   quoteDate,
   quoteNo,
+  coverUrl,
   printKind,
   className = "",
 }: ClientLetterDocumentProps) {
@@ -522,6 +527,18 @@ function ClientLetterDocument({
           )}
         </div>
       </section>
+
+      {coverUrl && (
+        <div className="shrink-0 mb-3 overflow-hidden border border-neutral-200" style={{ height: "1.55in" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={coverUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            style={{ width: "100%", height: "1.55in", objectFit: "cover" }}
+          />
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col mb-2">
         <table className="w-full border-collapse table-fixed">

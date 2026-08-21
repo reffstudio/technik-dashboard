@@ -4,6 +4,8 @@ import type { QuotePdfKind } from "./outbound"
 
 const LETTER_IN_W = 8.5
 const LETTER_IN_H = 11
+const LETTER_PX_W = Math.round(LETTER_IN_W * 96)
+const LETTER_PX_H = Math.round(LETTER_IN_H * 96)
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms))
@@ -29,7 +31,7 @@ async function waitForImages(root: HTMLElement) {
 }
 
 async function findLetter(kind: QuotePdfKind): Promise<HTMLElement> {
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 40; i++) {
     const el = document.querySelector<HTMLElement>(
       `[data-print-letter][data-print-kind="${kind}"]`,
     )
@@ -40,7 +42,7 @@ async function findLetter(kind: QuotePdfKind): Promise<HTMLElement> {
 }
 
 /**
- * Rasteriza la carta 8.5×11″ del preview y la mete en un PDF de una sola hoja.
+ * Rasteriza la carta 8.5×11″ del preview (misma plantilla, modo claro, 1 hoja).
  */
 export async function captureLetterPdfBlob(kind: QuotePdfKind): Promise<Blob> {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
@@ -48,60 +50,65 @@ export async function captureLetterPdfBlob(kind: QuotePdfKind): Promise<Blob> {
     import("jspdf"),
   ])
 
-  const el = await findLetter(kind)
-  const host = el.closest<HTMLElement>("[data-print-host]")
-
-  const restoreHost = host
-    ? { opacity: host.style.opacity, zIndex: host.style.zIndex }
-    : null
-  const restoreSiblings: Array<{ node: HTMLElement; display: string }> = []
-
-  if (host) {
-    host.style.opacity = "1"
-    host.style.zIndex = "-1"
-    host.querySelectorAll<HTMLElement>("[data-print-letter]").forEach((node) => {
-      if (node.getAttribute("data-print-kind") === kind) return
-      const wrap = node.parentElement ?? node
-      restoreSiblings.push({ node: wrap, display: wrap.style.display })
-      wrap.style.display = "none"
-    })
-  }
+  const source = await findLetter(kind)
+  const stage = document.createElement("div")
+  stage.setAttribute("data-pdf-capture-stage", "true")
+  Object.assign(stage.style, {
+    position: "fixed",
+    left: "-12000px",
+    top: "0",
+    width: `${LETTER_PX_W}px`,
+    height: `${LETTER_PX_H}px`,
+    overflow: "hidden",
+    opacity: "1",
+    background: "#ffffff",
+    colorScheme: "light",
+    zIndex: "2147483646",
+    pointerEvents: "none",
+  })
+  const clone = source.cloneNode(true) as HTMLElement
+  clone.removeAttribute("data-print-letter")
+  Object.assign(clone.style, {
+    width: `${LETTER_PX_W}px`,
+    height: `${LETTER_PX_H}px`,
+    maxWidth: "none",
+    maxHeight: "none",
+    transform: "none",
+    boxShadow: "none",
+    backgroundColor: "#ffffff",
+    color: "#171717",
+    colorScheme: "light",
+  })
+  stage.appendChild(clone)
+  document.body.appendChild(stage)
 
   try {
-    await waitForImages(el)
+    await waitForImages(clone)
     if (document.fonts?.ready) await document.fonts.ready
     await waitFrames(2)
-    await sleep(40)
+    await sleep(60)
 
-    const w = el.offsetWidth
-    const h = el.offsetHeight
-
-    const canvas = await html2canvas(el, {
+    const canvas = await html2canvas(clone, {
       scale: 2,
       useCORS: true,
       backgroundColor: "#ffffff",
       logging: false,
       imageTimeout: 10_000,
-      scrollX: 0,
-      scrollY: 0,
-      x: 0,
-      y: 0,
-      width: w,
-      height: h,
-      onclone: (_doc, cloned) => {
-        let node: HTMLElement | null = cloned
-        while (node) {
-          node.style.opacity = "1"
-          node.style.visibility = "visible"
-          node.style.transform = "none"
-          node.style.clipPath = "none"
-          node = node.parentElement
-        }
-        cloned.style.width = `${w}px`
-        cloned.style.height = `${h}px`
-        cloned.style.boxShadow = "none"
-        cloned.style.colorScheme = "light"
+      width: LETTER_PX_W,
+      height: LETTER_PX_H,
+      windowWidth: LETTER_PX_W,
+      windowHeight: LETTER_PX_H,
+      onclone: (doc, cloned) => {
+        doc.documentElement.classList.remove("dark")
+        doc.documentElement.style.colorScheme = "light"
+        doc.body.style.background = "#ffffff"
+        cloned.style.width = `${LETTER_PX_W}px`
+        cloned.style.height = `${LETTER_PX_H}px`
         cloned.style.backgroundColor = "#ffffff"
+        cloned.style.color = "#171717"
+        cloned.style.colorScheme = "light"
+        cloned.style.transform = "none"
+        cloned.style.boxShadow = "none"
       },
     })
 
@@ -111,16 +118,10 @@ export async function captureLetterPdfBlob(kind: QuotePdfKind): Promise<Blob> {
       format: "letter",
       compress: true,
     })
-    const img = canvas.toDataURL("image/jpeg", 0.93)
+    const img = canvas.toDataURL("image/jpeg", 0.95)
     pdf.addImage(img, "JPEG", 0, 0, LETTER_IN_W, LETTER_IN_H, undefined, "FAST")
     return pdf.output("blob")
   } finally {
-    for (const { node, display } of restoreSiblings) {
-      node.style.display = display
-    }
-    if (host && restoreHost) {
-      host.style.opacity = restoreHost.opacity
-      host.style.zIndex = restoreHost.zIndex
-    }
+    stage.remove()
   }
 }

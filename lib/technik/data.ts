@@ -347,6 +347,8 @@ export interface Project {
   createdAt: string
   updatedAt: string
   history: ProjectEvent[]
+  /** Portada del listado (1 foto). */
+  coverImageUrl?: string
 }
 
 export interface Quotation {
@@ -391,7 +393,24 @@ export interface Quotation {
    * se borra del todo a los 7 días.
    */
   deletedAt?: string
+  /** Foto de portada del PDF al cliente. */
+  coverImageUrl?: string
   history: QuoteEvent[]
+}
+
+/** Foto que pinta el PDF / portada: cover explícita, si no visita, si no ítem. */
+export function quotationCoverUrl(q: Pick<Quotation, "coverImageUrl" | "visitPhotos" | "publicItems">) {
+  if (q.coverImageUrl) return q.coverImageUrl
+  const visit = q.visitPhotos?.[0]?.url || q.visitPhotos?.[0]?.thumbUrl
+  if (visit) return visit
+  return q.publicItems?.find((item) => item.imageUrl)?.imageUrl
+}
+
+export function projectCoverUrl(
+  project: Pick<Project, "coverImageUrl">,
+  quote?: Pick<Quotation, "coverImageUrl" | "visitPhotos" | "publicItems">,
+) {
+  return project.coverImageUrl || (quote ? quotationCoverUrl(quote) : undefined)
 }
 
 // ─── Helpers ────────────────────────────────────────────────────

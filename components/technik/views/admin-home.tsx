@@ -11,13 +11,11 @@ import {
 } from "@/lib/technik/data"
 import {
   PageHeader,
-  StatusBadge,
   Stat,
   DepartmentBadges,
-  SendStatusBadge,
-  ClientResponseBadge,
   SearchField,
   QuoteAuthor,
+  QuotePipelineControls,
 } from "../ui"
 import type { View } from "../app-shell"
 
@@ -238,18 +236,18 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                       <td className="px-3 py-3">
                         <DepartmentBadges quotation={q} />
                       </td>
-                      <td className="px-3 py-3">
-                        {q.status === "pending_review" || q.status === "draft" ? (
-                          <StatusBadge quotation={q} />
-                        ) : (
-                          <SendStatusBadge quotation={q} />
-                        )}
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <QuotePipelineControls
+                          quotation={q}
+                          compact
+                          fields={["status", "send"]}
+                        />
                       </td>
                       <td className="px-3 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {formatSendDate(q.clientSentAt)}
                       </td>
-                      <td className="px-3 py-3">
-                        <ClientResponseBadge quotation={q} />
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <QuotePipelineControls quotation={q} compact fields={["response"]} />
                       </td>
                       <td className="px-3 py-3 text-xs text-muted-foreground max-w-[180px]">
                         <span className="line-clamp-2">{q.comments || "—"}</span>
@@ -267,33 +265,28 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
           {/* Mobile / tablet cards */}
           <div className="flex flex-col gap-2.5 lg:hidden">
             {list.map((q) => (
-              <button
+              <div
                 key={q.id}
-                onClick={() => navigate({ name: "review", id: q.id })}
-                className="group rounded-2xl surface-card p-4 text-left hover:border-primary/40 transition-colors"
+                className="rounded-2xl surface-card p-4 text-left"
               >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="font-mono text-xs text-primary">{q.reference}</span>
-                  <DepartmentBadges quotation={q} />
-                </div>
-                <p className="text-sm font-semibold text-foreground mb-1">{q.title}</p>
-                <p className="text-xs text-muted-foreground mb-2">{clientName(q.clientId)}</p>
-                <QuoteAuthor quotation={q} className="mb-3" />
-                <div className="flex flex-wrap items-center gap-2">
-                  {q.status === "pending_review" || q.status === "draft" ? (
-                    <StatusBadge quotation={q} />
-                  ) : (
-                    <SendStatusBadge quotation={q} />
-                  )}
-                  <ClientResponseBadge quotation={q} />
-                  <span className="text-[11px] font-mono text-muted-foreground">
-                    {formatSendDate(q.clientSentAt)}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate({ name: "review", id: q.id })}
+                  className="w-full text-left hover:opacity-90"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <span className="font-mono text-xs text-primary">{q.reference}</span>
+                    <DepartmentBadges quotation={q} />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground mb-1">{q.title}</p>
+                  <p className="text-xs text-muted-foreground mb-2">{clientName(q.clientId)}</p>
+                  <QuoteAuthor quotation={q} className="mb-3" />
+                </button>
+                <QuotePipelineControls quotation={q} compact />
                 {q.comments && (
                   <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{q.comments}</p>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         </>

@@ -22,6 +22,7 @@ import { useTechnik } from "@/lib/technik/store"
 import { quotationIsTrashed, type CatalogItem, type QuoteLine, type WorkDepartment } from "@/lib/technik/data"
 import { Field, inputCls, PageHeader } from "../ui"
 import { VisitPhotosSection } from "../visit-photos-section"
+import { CoverPhotoField } from "../cover-photo-field"
 import type { View } from "../app-shell"
 
 type Step = "client" | "materials" | "labor" | "extras" | "review"
@@ -634,6 +635,19 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
               rows={3}
               className={`${inputCls} resize-none text-sm`}
               placeholder="Medidas, acuerdos con el cliente, acceso al sitio, urgencias…"
+            />
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-3 mb-1.5">
+              Foto de portada (PDF)
+            </p>
+            <CoverPhotoField
+              imageUrl={liveQuote?.coverImageUrl}
+              onChange={(url) => {
+                const id = liveQuote?.id ?? ensureDraftId()
+                if (!id) return
+                updateQuotation(id, { coverImageUrl: url })
+              }}
+              disabled={sentLocked}
+              hint="Se ve en la cotización al cliente"
             />
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-3 mb-1.5">
               Agregar fotos

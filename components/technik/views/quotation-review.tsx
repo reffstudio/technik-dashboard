@@ -13,7 +13,6 @@ import {
   X,
   MessageCircle,
   Mail,
-  Hourglass,
   XCircle,
   ClipboardList,
   Copy,
@@ -50,9 +49,11 @@ import {
   DEFAULT_TAX_RATE,
   formatPercentLabel,
 } from "@/lib/technik/company"
-import { ClientResponseBadge, DepartmentBadges, inputCls, SearchField, SendStatusBadge, StatusBadge, QuoteAuthor } from "../ui"
+import { ClientResponseBadge, DepartmentBadges, inputCls, SearchField, SendStatusBadge, StatusBadge, QuoteAuthor, QuotePipelineControls } from "../ui"
+import { formatActivityAt } from "@/lib/technik/activity-history"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
+import { CoverPhotoField } from "../cover-photo-field"
 import type { View } from "../app-shell"
 import {
   clientQuoteMail,
@@ -66,8 +67,6 @@ import {
   supplierWhatsAppText,
 } from "@/lib/technik/outbound"
 import { captureLetterPdfBlob } from "@/lib/technik/capture-letter-pdf"
-
-const CLIENT_RESPONSES = Object.keys(CLIENT_RESPONSE_META) as ClientResponse[]
 
 export function QuotationReview({ id, navigate }: { id: string; navigate: (v: View) => void }) {
   const {
@@ -94,6 +93,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const [draftLines, setDraftLines] = useState<QuoteLine[]>([])
   const skipLinesAutoSave = useRef(true)
   const skipCommentsAutoSave = useRef(true)
+  const skipCoverAutoSave = useRef(true)
   const [toast, setToast] = useState<{
     icon: React.ElementType
     title: string
@@ -107,6 +107,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const [terms, setTerms] = useState(DEFAULT_QUOTE_TERMS)
   const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE)
   const [isrRetentionRate, setIsrRetentionRate] = useState(DEFAULT_ISR_RETENTION_RATE)
+  const [coverImageUrl, setCoverImageUrl] = useState<string | undefined>()
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     publicItems: true,
   })
@@ -140,11 +141,13 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     setDraftLines(q.lines.map((l) => ({ ...l })))
     skipLinesAutoSave.current = true
     skipCommentsAutoSave.current = true
+    skipCoverAutoSave.current = true
     setComments(q.comments ?? "")
     setPublicItems(q.publicItems ?? [])
     setTerms(q.terms ?? DEFAULT_QUOTE_TERMS)
     setTaxRate(q.taxRate ?? DEFAULT_TAX_RATE)
     setIsrRetentionRate(q.isrRetentionRate ?? DEFAULT_ISR_RETENTION_RATE)
+    setCoverImageUrl(q.coverImageUrl)
     const firstMat = q.lines
       .map((l) => catalog.find((c) => c.id === l.itemId))
       .find((i) => i?.kind === "material" && i.supplierId)
@@ -208,7 +211,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
 
     markSaving()
     const t = window.setTimeout(() => {
-      const result = updateQuotation(q.id, { lines }, "Actualizó materiales / horas")
+      const result = updateQuotation(q.id, { lines })
       if (!result.ok) {
         setToast({ icon: Lock, title: "No permitido", msg: result.error })
       }
@@ -225,10 +228,25 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if ((comments ?? "") === (q.comments ?? "")) return
     markSaving()
     const t = window.setTimeout(() => {
-      updateQuotation(q.id, { comments }, "Actualizó comentarios")
+      updateQuotation(q.id, { comments })
     }, 700)
     return () => window.clearTimeout(t)
   }, [comments, q, updateQuotation, markSaving])
+
+  useEffect(() => {
+    if (!q) return
+    if (skipCoverAutoSave.current) {
+      skipCoverAutoSave.current = false
+      return
+    }
+    if (sentLocked) return
+    if ((coverImageUrl ?? "") === (q.coverImageUrl ?? "")) return
+    markSaving()
+    const t = window.setTimeout(() => {
+      updateQuotation(q.id, { coverImageUrl })
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [coverImageUrl, q, sentLocked, updateQuotation, markSaving])
 
   useEffect(() => {
     if (!toast) return
@@ -315,6 +333,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         terms,
         taxRate,
         isrRetentionRate,
+        coverImageUrl,
       },
       historyAction,
     )
@@ -829,46 +848,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0 sm:w-28">
-                    Respuesta
+                <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0 sm:w-28 sm:pt-2">
+                    Pipeline
                   </p>
-                  {!q.clientSentAt ? (
-                    <p className="text-xs text-muted-foreground">
-                      Se habilita después de enviar el PDF.
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {CLIENT_RESPONSES.map((r) => {
-                        const active =
-                          (q.clientResponse ?? (q.clientSentAt ? "en_espera" : undefined)) === r
-                        const meta = CLIENT_RESPONSE_META[r]
-                        const Icon =
-                          r === "aprobada" ? CheckCircle2 : r === "rechazada" ? XCircle : Hourglass
-                        const activeCls =
-                          r === "aprobada"
-                            ? "border-fin-gain/40 bg-fin-gain/12 text-fin-gain"
-                            : r === "rechazada"
-                              ? "border-destructive/40 bg-destructive/12 text-destructive"
-                              : "border-chart-3/40 bg-chart-3/12 text-chart-3"
-                        return (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => setClientResponse(r)}
-                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
-                              active
-                                ? activeCls
-                                : "border-border text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                            }`}
-                          >
-                            <Icon className="size-3 shrink-0" aria-hidden />
-                            {meta.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
+                  <QuotePipelineControls quotation={q} onClientResponse={setClientResponse} />
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
@@ -916,6 +900,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               <PublicItemsEditor
                 items={publicItems}
                 setItems={setPublicItems}
+                coverImageUrl={coverImageUrl}
+                setCoverImageUrl={setCoverImageUrl}
                 terms={terms}
                 setTerms={setTerms}
                 taxRate={taxRate}
@@ -1309,15 +1295,13 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         {!!openSections.history && (
           <ul className="mt-3 flex flex-col gap-2.5">
             {[...q.history].reverse().map((h, i) => {
-              const [datePart, timePart] = h.at.includes(" ")
-                ? h.at.split(" ")
-                : [h.at, undefined]
+              const when = formatActivityAt(h.at)
               return (
-                <li key={`${h.at}-${i}`} className="flex gap-3 text-sm">
+                <li key={`${h.at}-${h.action}-${i}`} className="flex gap-3 text-sm">
                   <div className="shrink-0 w-[7.5rem] pt-0.5">
-                    <p className="font-mono text-[11px] text-muted-foreground">{datePart}</p>
-                    {timePart && (
-                      <p className="font-mono text-[11px] text-muted-foreground">{timePart}</p>
+                    <p className="font-mono text-[11px] text-muted-foreground">{when.date}</p>
+                    {when.time && (
+                      <p className="font-mono text-[11px] text-muted-foreground">{when.time}</p>
                     )}
                   </div>
                   <div>
@@ -1696,6 +1680,8 @@ function PercentField({
 function PublicItemsEditor({
   items,
   setItems,
+  coverImageUrl,
+  setCoverImageUrl,
   terms,
   setTerms,
   taxRate,
@@ -1708,6 +1694,8 @@ function PublicItemsEditor({
 }: {
   items: PublicQuoteItem[]
   setItems: React.Dispatch<React.SetStateAction<PublicQuoteItem[]>>
+  coverImageUrl?: string
+  setCoverImageUrl: (url: string | undefined) => void
   terms: string
   setTerms: (v: string) => void
   taxRate: number
@@ -1753,6 +1741,14 @@ function PublicItemsEditor({
           Enviada al cliente: ítems bloqueados. Usa Duplicar para una nueva versión.
         </div>
       )}
+      <div className="mb-4">
+        <CoverPhotoField
+          imageUrl={coverImageUrl}
+          onChange={setCoverImageUrl}
+          disabled={locked}
+          hint="Aparece arriba de los conceptos en el PDF"
+        />
+      </div>
       <div className="mb-1">
         <p className="text-xs text-muted-foreground max-w-md">
           En el PDF solo se ven nombre y totales. Los costos y fórmulas quedan solo para uso interno.

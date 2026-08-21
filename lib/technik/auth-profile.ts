@@ -47,7 +47,10 @@ export function userFromProfile(row: ProfileRow): User {
     location: row.location ?? "",
     since: row.since ?? "",
     active: row.active,
-    invitePending: row.invite_pending === true,
+    invitePending:
+      row.invite_pending === true ||
+      row.invite_pending === ("t" as unknown as boolean) ||
+      String(row.invite_pending) === "true",
     avatarUrl: publicAvatarUrl(row.avatar_path, row.updated_at),
   }
 }

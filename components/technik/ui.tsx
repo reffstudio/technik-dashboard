@@ -159,6 +159,116 @@ export function ClientResponseBadge({
   return <ToneBadge label={meta.label} tone={meta.tone} icon={meta.icon} />
 }
 
+const QUOTE_STATUSES: QuoteStatus[] = ["draft", "pending_review", "approved", "closed"]
+const CLIENT_RESPONSES: ClientResponse[] = ["en_espera", "aprobada", "rechazada"]
+
+const pipelineSelectCls =
+  "w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
+
+/** Admin: cambia estado interno, envío y respuesta del cliente (aprobada → proyecto). */
+export function QuotePipelineControls({
+  quotation,
+  fields = ["status", "send", "response"],
+  compact = false,
+  onClientResponse,
+}: {
+  quotation: Quotation
+  fields?: Array<"status" | "send" | "response">
+  compact?: boolean
+  onClientResponse?: (response: ClientResponse) => void
+}) {
+  const { user, setStatus, setClientResponse, updateQuotation } = useTechnik()
+  if (user?.role !== "admin") return null
+  const sent = !!quotation.clientSentAt
+  const show = (key: "status" | "send" | "response") => fields.includes(key)
+
+  return (
+    <div
+      className={`flex flex-col gap-1.5 ${compact ? "min-w-[10.5rem]" : ""}`}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {show("status") && (
+        <label className="block">
+          {!compact && (
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Estado
+            </span>
+          )}
+          <select
+            className={pipelineSelectCls}
+            value={quotation.status}
+            onChange={(e) => {
+              const status = e.target.value as QuoteStatus
+              setStatus(quotation.id, status, `Estado → ${STATUS_META[status].label}`)
+            }}
+          >
+            {QUOTE_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_META[s].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {show("send") && (
+        <label className="block">
+          {!compact && (
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Envío
+            </span>
+          )}
+          <select
+            className={pipelineSelectCls}
+            value={sent ? "enviada" : "en_proceso"}
+            onChange={(e) => {
+              if (e.target.value === "enviada") {
+                const day = quotation.clientSentAt || new Date().toISOString().slice(0, 10)
+                updateQuotation(quotation.id, { clientSentAt: day }, "Marcó enviada al cliente")
+              } else {
+                updateQuotation(quotation.id, { clientSentAt: undefined }, "Marcó en proceso")
+              }
+            }}
+          >
+            <option value="en_proceso">En proceso</option>
+            <option value="enviada">Enviada al cliente</option>
+          </select>
+        </label>
+      )}
+      {show("response") && (
+        <label className="block">
+          {!compact && (
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cliente
+            </span>
+          )}
+          <select
+            className={pipelineSelectCls}
+            value={quotation.clientResponse ?? ""}
+            onChange={(e) => {
+              const value = e.target.value as ClientResponse
+              if (!value) return
+              if (onClientResponse) onClientResponse(value)
+              else setClientResponse(quotation.id, value)
+            }}
+          >
+            <option value="" disabled>
+              Respuesta del cliente
+            </option>
+            {CLIENT_RESPONSES.map((r) => (
+              <option key={r} value={r}>
+                {r === "aprobada"
+                  ? `${CLIENT_RESPONSE_META[r].label} → proyecto`
+                  : CLIENT_RESPONSE_META[r].label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </div>
+  )
+}
+
 export function ProjectStageBadge({ stage }: { stage: ProjectStage }) {
   const meta = PROJECT_STAGE_META[stage]
   return <ToneBadge label={meta.label} tone={meta.tone} icon={meta.icon} />

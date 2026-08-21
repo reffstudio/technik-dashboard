@@ -12,6 +12,7 @@ import type {
   User,
 } from "./data"
 import { normalizeApartadoMovement, normalizeProject, normalizeTreasurySeparado } from "./data"
+import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl } from "./cover-image"
 import type { InboxEvent } from "./notifications"
 
 function num(value: number | string | null | undefined, fallback = 0) {
@@ -54,6 +55,7 @@ type ProjectRow = {
   delivered_at: string | null
   notes: string | null
   payment_mode: Project["paymentMode"] | null
+  cover_image_path?: string | null
   created_at: string
   updated_at: string
 }
@@ -155,6 +157,9 @@ export async function loadOpsWorkspace(users: User[]): Promise<
     })
     histBy.set(row.project_id, list)
   }
+  for (const [id, list] of histBy) {
+    histBy.set(id, dedupeActivityHistory(list))
+  }
 
   const projects = ((projectsRes.data ?? []) as ProjectRow[]).map((row) =>
     normalizeProject({
@@ -174,6 +179,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       createdAt: (row.created_at ?? "").slice(0, 10),
       updatedAt: (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],
+      coverImageUrl: row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined,
     }),
   )
 
@@ -321,7 +327,7 @@ export async function persistProject(
     ctx.actorAuthId ||
     null
 
-  const { error } = await supabase.from("projects").upsert({
+  const payload: Record<string, unknown> = {
     id: project.id,
     quotation_id: project.quotationId ?? null,
     title: project.title ?? null,
@@ -333,7 +339,28 @@ export async function persistProject(
     delivered_at: project.deliveredAt || null,
     notes: project.notes ?? null,
     payment_mode: project.paymentMode ?? null,
-  })
+  }
+
+  const coverPath = project.coverImageUrl
+    ? await persistStorageImage(
+        project.coverImageUrl.startsWith("data:")
+          ? coverPathForProject(project.id, extFromDataUrl(project.coverImageUrl))
+          : coverPathForProject(project.id),
+        project.coverImageUrl,
+      )
+    : null
+  if (coverPath) payload.cover_image_path = coverPath
+  else if (!project.coverImageUrl) payload.cover_image_path = null
+  else if (project.coverImageUrl.startsWith("data:")) {
+    return { ok: false, error: "No se pudo subir la foto de portada. Revisa Storage quote-images." }
+  }
+
+  let { error } = await supabase.from("projects").upsert(payload)
+  if (error && /cover_image_path/i.test(error.message)) {
+    delete payload.cover_image_path
+    const retry = await supabase.from("projects").upsert(payload)
+    error = retry.error
+  }
   if (error) return { ok: false, error: error.message }
 
   await supabase.from("project_departments").delete().eq("project_id", project.id)
@@ -380,11 +407,13 @@ export async function persistProject(
     .select("action, created_at")
     .eq("project_id", project.id)
   const seen = new Set(
-    ((existingEv ?? []) as { action: string; created_at: string }[]).map(
-      (e) => `${eventAt(e.created_at)}|${e.action}`,
+    ((existingEv ?? []) as { action: string; created_at: string }[]).map((e) =>
+      activityEventKey(e.created_at, e.action),
     ),
   )
-  const fresh = (project.history ?? []).filter((h) => !seen.has(`${h.at}|${h.action}`))
+  const fresh = dedupeActivityHistory(project.history ?? [])
+    .filter((h) => !seen.has(activityEventKey(h.at, h.action)))
+    .slice(-20)
   if (fresh.length > 0) {
     const { error: eErr } = await supabase.from("project_events").insert(
       fresh.map((h) => ({
@@ -394,7 +423,9 @@ export async function persistProject(
         created_at: parseStamp(h.at),
       })),
     )
-    if (eErr) return { ok: false, error: eErr.message }
+    if (eErr) {
+      console.warn("[technik] Historial de proyecto no se pudo append", eErr.message)
+    }
   }
 
   return { ok: true }

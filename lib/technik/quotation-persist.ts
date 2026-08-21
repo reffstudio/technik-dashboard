@@ -12,6 +12,8 @@ import type {
   WorkDepartment,
 } from "./data"
 import { quotationTrashExpired } from "./data"
+import { activityEventKey, dedupeActivityHistory } from "./activity-history"
+import { persistStorageImage, storagePublicUrl, coverPathForQuote, extFromDataUrl } from "./cover-image"
 import { visitPhotoUrl } from "./visit-photos"
 
 const OPS_BACKUP_KEY = "technik-ops-backup-v1"
@@ -34,6 +36,7 @@ type QuoteRow = {
   supplier_sent_at: string | null
   supplier_id: string | null
   deleted_at?: string | null
+  cover_image_path?: string | null
   created_at: string
   updated_at: string
 }
@@ -97,7 +100,7 @@ function authorOf(createdBy: string, users: User[]) {
 }
 
 function eventKey(at: string, action: string) {
-  return `${at}|${action}`
+  return activityEventKey(at, action)
 }
 
 function isUuid(id: string) {
@@ -113,47 +116,18 @@ async function persistQuoteImage(
 ): Promise<string | null> {
   if (!imageUrl) return null
   if (imageUrl.startsWith("data:")) {
-    const match = imageUrl.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,(.+)$/i)
-    if (!match) return null
-    const mime = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase()
-    const raw = match[2]
-    const binary = atob(raw)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    const ext = mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : "jpg"
+    const ext = imageUrl.includes("webp") ? "webp" : imageUrl.includes("png") ? "png" : "jpg"
     const safeId = itemId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "item"
-    const path = `${quotationId}/${safeId}.${ext}`
-    const supabase = getSupabaseBrowser()
-    const { error } = await supabase.storage.from("quote-images").upload(path, bytes, {
-      contentType: mime,
-      upsert: true,
-    })
-    if (error) {
-      console.warn("[technik] No se pudo subir imagen de cotización", error.message)
-      return null
-    }
-    return path
+    return persistStorageImage(`${quotationId}/${safeId}.${ext}`, imageUrl)
   }
-  const publicMarker = "/object/public/quote-images/"
-  const idx = imageUrl.indexOf(publicMarker)
-  if (idx >= 0) return decodeURIComponent(imageUrl.slice(idx + publicMarker.length).split("?")[0])
-  if (imageUrl.startsWith("http") || imageUrl.startsWith("/")) return imageUrl
-  return imageUrl
-}
-
-function storagePublicUrl(path: string | null | undefined, bucket: string) {
-  if (!path) return ""
-  if (path.startsWith("http") || path.startsWith("data:") || path.startsWith("/")) return path
-  const supabase = getSupabaseBrowser()
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path)
-  return data.publicUrl
+  return persistStorageImage(`${quotationId}/${itemId}`, imageUrl)
 }
 
 export function quotesSignature(list: Quotation[]) {
   return list
     .map(
       (q) =>
-        `${q.id}:${q.updatedAt}:${q.status}:${q.deletedAt ?? ""}:${q.lines.length}:${q.history?.length ?? 0}:${q.publicItems?.length ?? 0}:${q.visitPhotos?.length ?? 0}:${q.clientResponse ?? ""}:${q.comments ?? ""}`,
+        `${q.id}:${q.updatedAt}:${q.status}:${q.deletedAt ?? ""}:${q.lines.length}:${q.history?.length ?? 0}:${q.publicItems?.length ?? 0}:${q.visitPhotos?.length ?? 0}:${q.clientResponse ?? ""}:${q.comments ?? ""}:${q.coverImageUrl ?? ""}`,
     )
     .sort()
     .join("|")
@@ -225,6 +199,7 @@ function quoteFromRow(
     supplierSentAt: row.supplier_sent_at ?? undefined,
     supplierId: row.supplier_id ?? undefined,
     deletedAt: row.deleted_at ?? undefined,
+    coverImageUrl: row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined,
     visitPhotos,
     history,
   }
@@ -234,15 +209,33 @@ export async function loadQuotations(users: User[]): Promise<
   { ok: true; quotations: Quotation[] } | { ok: false; error: string }
 > {
   const supabase = getSupabaseBrowser()
-  const { data, error } = await supabase
-    .from("quotations")
-    .select(
-      "id, reference, client_id, title, status, department_ids, created_by, notes, comments, terms, tax_rate, isr_retention_rate, client_response, client_sent_at, supplier_sent_at, supplier_id, deleted_at, created_at, updated_at",
-    )
-    .order("created_at", { ascending: false })
+  const quoteSelect =
+    "id, reference, client_id, title, status, department_ids, created_by, notes, comments, terms, tax_rate, isr_retention_rate, client_response, client_sent_at, supplier_sent_at, supplier_id, deleted_at, cover_image_path, created_at, updated_at"
+  const { data, error } = await supabase.from("quotations").select(quoteSelect).order("created_at", { ascending: false })
 
   let rows = (data ?? []) as QuoteRow[]
-  if (error && /deleted_at/i.test(error.message)) {
+  if (error && /cover_image_path/i.test(error.message)) {
+    const retry = await supabase
+      .from("quotations")
+      .select(
+        "id, reference, client_id, title, status, department_ids, created_by, notes, comments, terms, tax_rate, isr_retention_rate, client_response, client_sent_at, supplier_sent_at, supplier_id, deleted_at, created_at, updated_at",
+      )
+      .order("created_at", { ascending: false })
+    if (retry.error && /deleted_at/i.test(retry.error.message)) {
+      const legacy = await supabase
+        .from("quotations")
+        .select(
+          "id, reference, client_id, title, status, department_ids, created_by, notes, comments, terms, tax_rate, isr_retention_rate, client_response, client_sent_at, supplier_sent_at, supplier_id, created_at, updated_at",
+        )
+        .order("created_at", { ascending: false })
+      if (legacy.error) return { ok: false, error: legacy.error.message }
+      rows = (legacy.data ?? []) as QuoteRow[]
+    } else if (retry.error) {
+      return { ok: false, error: retry.error.message }
+    } else {
+      rows = (retry.data ?? []) as QuoteRow[]
+    }
+  } else if (error && /deleted_at/i.test(error.message)) {
     const retry = await supabase
       .from("quotations")
       .select(
@@ -285,7 +278,7 @@ export async function loadQuotations(users: User[]): Promise<
       title: row.title,
       description: row.description ?? "",
       unitPrice: num(row.unit_price),
-      imageUrl: row.image_path ? storagePublicUrl(row.image_path, "quote-images") : undefined,
+      imageUrl: row.image_path ? storagePublicUrl(row.image_path) : undefined,
     })
     publicByQuote.set(row.quotation_id, list)
   }
@@ -300,6 +293,9 @@ export async function loadQuotations(users: User[]): Promise<
       action: row.action,
     })
     eventsByQuote.set(row.quotation_id, list)
+  }
+  for (const [id, list] of eventsByQuote) {
+    eventsByQuote.set(id, dedupeActivityHistory(list))
   }
 
   const photosByQuote = new Map<string, VisitPhoto[]>()
@@ -389,10 +385,12 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
     .eq("quotation_id", q.id)
   const seen = new Set(
     ((existingEvents ?? []) as { action: string; created_at: string }[]).map((e) =>
-      eventKey((e.created_at ?? "").slice(0, 16).replace("T", " "), e.action),
+      eventKey(e.created_at ?? "", e.action),
     ),
   )
-  const fresh = (q.history ?? []).filter((h) => !seen.has(eventKey(h.at, h.action)))
+  const fresh = dedupeActivityHistory(q.history ?? [])
+    .filter((h) => !seen.has(eventKey(h.at, h.action)))
+    .slice(-20)
   if (fresh.length > 0) {
     const { error } = await supabase.from("quotation_events").insert(
       fresh.map((h) => {
@@ -405,7 +403,9 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
         }
       }),
     )
-    if (error) return { ok: false as const, error: error.message }
+    if (error) {
+      console.warn("[technik] Historial de cotización no se pudo append", error.message)
+    }
   }
 
   return { ok: true as const }
@@ -451,7 +451,26 @@ export async function persistQuotation(
     deleted_at: q.deletedAt ?? null,
   }
 
+  const coverPath = q.coverImageUrl
+    ? await persistStorageImage(
+        q.coverImageUrl.startsWith("data:")
+          ? coverPathForQuote(q.id, extFromDataUrl(q.coverImageUrl))
+          : coverPathForQuote(q.id),
+        q.coverImageUrl,
+      )
+    : null
+  if (coverPath) row.cover_image_path = coverPath
+  else if (!q.coverImageUrl) row.cover_image_path = null
+  else if (q.coverImageUrl.startsWith("data:")) {
+    return { ok: false, error: "No se pudo subir la foto de portada. Revisa Storage quote-images." }
+  }
+
   let { error } = await supabase.from("quotations").upsert(row)
+  if (error && /cover_image_path/i.test(error.message)) {
+    delete row.cover_image_path
+    const retry = await supabase.from("quotations").upsert(row)
+    error = retry.error
+  }
   if (error && /deleted_at/i.test(error.message)) {
     delete row.deleted_at
     const retry = await supabase.from("quotations").upsert(row)
@@ -465,7 +484,7 @@ export async function persistQuotation(
     if (error.code === "23503") {
       return { ok: false, error: "Falta el cliente o un ítem de catálogo en el servidor." }
     }
-    return { ok: false, error: "No se pudo guardar la cotización." }
+    return { ok: false, error: msg || "No se pudo guardar la cotización." }
   }
 
   const children = await persistChildren(q, ctx.users, ctx.isAdmin)

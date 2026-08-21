@@ -17,6 +17,7 @@ import {
   projectIsOverdue,
   projectTitle,
   quotationHasDepartment,
+  projectCoverUrl,
   type Project,
   type ProjectStage,
   type WorkDepartment,
@@ -407,21 +408,38 @@ function ProjectTile({
   const billing = projectBillingSummary(project, totalDue)
   const cobroVencido =
     billing.status === "vencido" || projectHasOverdueInstallment(project)
+  const cover = projectCoverUrl(project, quote)
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md min-h-[220px] sm:aspect-[5/4] ${
+      className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md min-h-[240px] ${
         deliveryLate ? "ring-1 ring-destructive/35" : ""
       }`}
     >
       <span
-        className={`absolute inset-x-0 top-0 h-1 ${STAGE_ACCENT[project.stage]}`}
+        className={`absolute inset-x-0 top-0 h-1 z-10 ${STAGE_ACCENT[project.stage]}`}
         aria-hidden
       />
 
-      <div className="flex flex-col flex-1 p-4 pt-5 gap-3">
+      <div className="relative h-32 sm:h-36 bg-muted/50 overflow-hidden">
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cover}
+            alt=""
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+          />
+        ) : (
+          <div className="h-full w-full bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center">
+            <FolderKanban className="size-9 text-muted-foreground/35" />
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/35 to-transparent" />
+      </div>
+
+      <div className="flex flex-col flex-1 p-4 gap-3">
         <div className="flex items-start justify-between gap-2">
           <span className="font-mono text-[11px] font-semibold text-primary">{project.id}</span>
           {quote ? (
