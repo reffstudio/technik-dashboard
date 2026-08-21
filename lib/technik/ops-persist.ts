@@ -82,6 +82,13 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       treasurySeparados: TreasurySeparado[]
       apartadoMovements: ApartadoMovement[]
       inboxEvents: InboxEvent[]
+      projectsError?: string
+      paymentEventsError?: string
+      expensesError?: string
+      treasuryMonthsError?: string
+      treasurySeparadosError?: string
+      apartadoMovementsError?: string
+      inboxEventsError?: string
     }
   | { ok: false; error: string }
 > {
@@ -110,7 +117,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
     supabase.from("inbox_events").select("*").order("at", { ascending: false }).limit(80),
   ])
 
-  if (projectsRes.error && /schema cache|does not exist|relation/i.test(projectsRes.error.message)) {
+  if (projectsRes.error) {
     return { ok: false, error: projectsRes.error.message }
   }
 
@@ -289,12 +296,18 @@ export async function loadOpsWorkspace(users: User[]): Promise<
   return {
     ok: true,
     projects,
-    paymentEvents,
-    expenses,
-    treasuryMonths,
-    treasurySeparados,
-    apartadoMovements,
-    inboxEvents,
+    paymentEvents: payRes.error ? [] : paymentEvents,
+    expenses: expensesRes.error ? [] : expenses,
+    treasuryMonths: monthsRes.error ? [] : treasuryMonths,
+    treasurySeparados: sepsRes.error ? [] : treasurySeparados,
+    apartadoMovements: movsRes.error ? [] : apartadoMovements,
+    inboxEvents: inboxRes.error ? [] : inboxEvents,
+    paymentEventsError: payRes.error?.message,
+    expensesError: expensesRes.error?.message,
+    treasuryMonthsError: monthsRes.error?.message,
+    treasurySeparadosError: sepsRes.error?.message,
+    apartadoMovementsError: movsRes.error?.message,
+    inboxEventsError: inboxRes.error?.message,
   }
 }
 
@@ -507,7 +520,7 @@ export async function persistInboxEvent(event: InboxEvent) {
 
 const tails = new Map<string, Promise<unknown>>()
 
-function enqueue(key: string, run: () => Promise<unknown>) {
+function enqueue<T>(key: string, run: () => Promise<T>): Promise<T> {
   const prev = tails.get(key) ?? Promise.resolve()
   const next = prev.catch(() => undefined).then(run)
   tails.set(key, next)

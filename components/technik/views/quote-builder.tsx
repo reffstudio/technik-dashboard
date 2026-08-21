@@ -48,6 +48,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     addCatalogItem,
     deleteDraftQuotation,
     user,
+    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const existing = id ? quotations.find((q) => q.id === id) : undefined
@@ -74,7 +75,6 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   const [extraModal, setExtraModal] = useState(false)
   const [newClient, setNewClient] = useState(EMPTY_CLIENT)
   const [newExtra, setNewExtra] = useState({ name: "", unit: "ud", unitCost: 0 })
-  const [saveHint, setSaveHint] = useState<"idle" | "saving" | "saved">("idle")
   const [draftId, setDraftId] = useState<string | undefined>(existing?.id)
   const [formError, setFormError] = useState("")
 
@@ -160,8 +160,8 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     })
     if (sig === lastSavedSig.current && draftId) return
 
+    markSaving()
     const handle = window.setTimeout(() => {
-      setSaveHint("saving")
       if (!draftId) {
         if (creatingRef.current) return
         creatingRef.current = true
@@ -176,8 +176,6 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
         lastSavedSig.current = sig
         setDraftId(newId)
         creatingRef.current = false
-        setSaveHint("saved")
-        // No navegar aquí: remount saltaba a materiales al elegir cliente.
         return
       }
       updateQuotation(draftId, {
@@ -188,7 +186,6 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
         notes,
       })
       lastSavedSig.current = sig
-      setSaveHint("saved")
     }, 700)
 
     return () => window.clearTimeout(handle)
@@ -203,12 +200,8 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     draftId,
     createQuotation,
     updateQuotation,
+    markSaving,
   ])
-  useEffect(() => {
-    if (saveHint !== "saved") return
-    const t = window.setTimeout(() => setSaveHint("idle"), 1600)
-    return () => window.clearTimeout(t)
-  }, [saveHint])
 
   if (sentLocked && existing) {
     return (
@@ -408,9 +401,6 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
         }
       >
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {saveHint === "saving" ? "Guardando…" : saveHint === "saved" ? "Borrador guardado" : draftId ? "Autosave" : ""}
-          </span>
           {draftId && existing?.status === "draft" && (
             <button
               type="button"

@@ -83,6 +83,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     archiveQuotation,
     user,
     projectByQuotationId,
+    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const q = quotations.find((x) => x.id === id)
@@ -92,6 +93,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [draftLines, setDraftLines] = useState<QuoteLine[]>([])
   const skipLinesAutoSave = useRef(true)
+  const skipCommentsAutoSave = useRef(true)
   const [toast, setToast] = useState<{
     icon: React.ElementType
     title: string
@@ -137,6 +139,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     setQuantities(qtySeed)
     setDraftLines(q.lines.map((l) => ({ ...l })))
     skipLinesAutoSave.current = true
+    skipCommentsAutoSave.current = true
     setComments(q.comments ?? "")
     setPublicItems(q.publicItems ?? [])
     setTerms(q.terms ?? DEFAULT_QUOTE_TERMS)
@@ -203,6 +206,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       })
     if (same) return
 
+    markSaving()
     const t = window.setTimeout(() => {
       const result = updateQuotation(q.id, { lines }, "Actualizó materiales / horas")
       if (!result.ok) {
@@ -210,7 +214,21 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       }
     }, 350)
     return () => window.clearTimeout(t)
-  }, [draftLines, quantities, prices, q, isAdmin, sentLocked, updateQuotation])
+  }, [draftLines, quantities, prices, q, isAdmin, sentLocked, updateQuotation, markSaving])
+
+  useEffect(() => {
+    if (!q) return
+    if (skipCommentsAutoSave.current) {
+      skipCommentsAutoSave.current = false
+      return
+    }
+    if ((comments ?? "") === (q.comments ?? "")) return
+    markSaving()
+    const t = window.setTimeout(() => {
+      updateQuotation(q.id, { comments }, "Actualizó comentarios")
+    }, 700)
+    return () => window.clearTimeout(t)
+  }, [comments, q, updateQuotation, markSaving])
 
   useEffect(() => {
     if (!toast) return
@@ -731,15 +749,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     })
   }
 
-  function saveComments() {
-    updateQuotation(q!.id, { comments }, "Actualizó comentarios")
-    setToast({
-      icon: MessageCircle,
-      title: "Comentarios guardados",
-      msg: "Nota operativa actualizada.",
-    })
-  }
-
   /** Altura del nav superior del AppShell (h-16). */
   const NAV_OFFSET = 64
   const pinnedTop = NAV_OFFSET
@@ -874,14 +883,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                       className="mt-1 w-full rounded-lg bg-input/60 border border-border px-3 py-1.5 text-xs outline-none focus:border-primary/60"
                     />
                   </label>
-                  <button
-                    type="button"
-                    onClick={saveComments}
-                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold hover:bg-accent shrink-0"
-                  >
-                    <MessageCircle className="size-3" />
-                    Guardar
-                  </button>
                 </div>
               </div>
             )}

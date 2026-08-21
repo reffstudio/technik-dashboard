@@ -8,7 +8,7 @@ import type {
   Supplier,
   SupplierChannel,
 } from "./data"
-import { normalizeDepartmentColorId, SEED_DEPARTMENTS } from "./data"
+import { normalizeDepartmentColorId } from "./data"
 
 type DeptRow = {
   id: string
@@ -115,6 +115,10 @@ export async function loadCoreWorkspace(): Promise<{
   clients: Client[]
   suppliers: Supplier[]
   catalog: CatalogItem[]
+  catalogError?: string
+  clientsError?: string
+  suppliersError?: string
+  departmentsError?: string
 }> {
   const supabase = getSupabaseBrowser()
   const [depts, clients, suppliers, catalog] = await Promise.all([
@@ -124,16 +128,34 @@ export async function loadCoreWorkspace(): Promise<{
     supabase.from("catalog_items").select("id, kind, name, sku, category, unit, unit_cost, supplier_id, active").order("name"),
   ])
 
+  if (catalog.error) {
+    console.warn("[technik] No se pudo leer el catálogo", catalog.error.message)
+  }
+  if (clients.error) {
+    console.warn("[technik] No se pudo leer clientes", clients.error.message)
+  }
+  if (suppliers.error) {
+    console.warn("[technik] No se pudo leer proveedores", suppliers.error.message)
+  }
+  if (depts.error) {
+    console.warn("[technik] No se pudo leer departamentos", depts.error.message)
+  }
+
   return {
-    departments:
-      depts.data && depts.data.length > 0
-        ? (depts.data as DeptRow[]).map(deptFromRow)
-        : SEED_DEPARTMENTS.map((d) => ({ ...d })),
-    clients: ((clients.data ?? []) as ClientRow[]).map(clientFromRow),
-    suppliers: ((suppliers.data ?? []) as SupplierRow[]).map(supplierFromRow),
-    catalog: ((catalog.data ?? []) as CatalogRow[])
-      .filter((row) => row.active !== false)
-      .map(catalogFromRow),
+    departments: depts.error
+      ? []
+      : ((depts.data ?? []) as DeptRow[]).map(deptFromRow),
+    clients: clients.error ? [] : ((clients.data ?? []) as ClientRow[]).map(clientFromRow),
+    suppliers: suppliers.error ? [] : ((suppliers.data ?? []) as SupplierRow[]).map(supplierFromRow),
+    catalog: catalog.error
+      ? []
+      : ((catalog.data ?? []) as CatalogRow[])
+          .filter((row) => row.active !== false)
+          .map(catalogFromRow),
+    catalogError: catalog.error?.message,
+    clientsError: clients.error?.message,
+    suppliersError: suppliers.error?.message,
+    departmentsError: depts.error?.message,
   }
 }
 
@@ -173,7 +195,7 @@ export async function persistClient(client: Client) {
     if (error.message.includes("clients_rfc_format")) {
       return { ok: false as const, error: "RFC inválido. Déjalo vacío o usa el formato SAT." }
     }
-    return { ok: false as const, error: "No se pudo guardar el cliente." }
+    return { ok: false as const, error: error.message || "No se pudo guardar el cliente." }
   }
   return { ok: true as const }
 }
@@ -203,7 +225,7 @@ export async function persistSupplier(supplier: Supplier) {
     specialty: supplier.specialty ?? "",
     location: supplier.location ?? "",
   })
-  if (error) return { ok: false as const, error: "No se pudo guardar el proveedor." }
+  if (error) return { ok: false as const, error: error.message || "No se pudo guardar el proveedor." }
   return { ok: true as const }
 }
 
@@ -238,7 +260,7 @@ export async function persistCatalogItem(item: CatalogItem) {
             : "Solo administración puede crear materiales o mano de obra.",
       }
     }
-    return { ok: false as const, error: "No se pudo guardar el ítem de catálogo." }
+    return { ok: false as const, error: msg || "No se pudo guardar el ítem de catálogo." }
   }
   return { ok: true as const }
 }

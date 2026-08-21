@@ -106,6 +106,41 @@ function isUuid(id: string) {
   )
 }
 
+async function persistQuoteImage(
+  quotationId: string,
+  itemId: string,
+  imageUrl: string | undefined,
+): Promise<string | null> {
+  if (!imageUrl) return null
+  if (imageUrl.startsWith("data:")) {
+    const match = imageUrl.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,(.+)$/i)
+    if (!match) return null
+    const mime = match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase()
+    const raw = match[2]
+    const binary = atob(raw)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    const ext = mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : "jpg"
+    const safeId = itemId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "item"
+    const path = `${quotationId}/${safeId}.${ext}`
+    const supabase = getSupabaseBrowser()
+    const { error } = await supabase.storage.from("quote-images").upload(path, bytes, {
+      contentType: mime,
+      upsert: true,
+    })
+    if (error) {
+      console.warn("[technik] No se pudo subir imagen de cotización", error.message)
+      return null
+    }
+    return path
+  }
+  const publicMarker = "/object/public/quote-images/"
+  const idx = imageUrl.indexOf(publicMarker)
+  if (idx >= 0) return decodeURIComponent(imageUrl.slice(idx + publicMarker.length).split("?")[0])
+  if (imageUrl.startsWith("http") || imageUrl.startsWith("/")) return imageUrl
+  return imageUrl
+}
+
 function storagePublicUrl(path: string | null | undefined, bucket: string) {
   if (!path) return ""
   if (path.startsWith("http") || path.startsWith("data:") || path.startsWith("/")) return path
@@ -327,9 +362,9 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
 
   if (isAdmin) {
     await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
-    const publicRows = (q.publicItems ?? []).map((item, i) => {
-      const image =
-        item.imageUrl && !item.imageUrl.startsWith("data:") ? item.imageUrl : null
+    const publicRows: Record<string, unknown>[] = []
+    for (const [i, item] of (q.publicItems ?? []).entries()) {
+      const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
       const row: Record<string, unknown> = {
         quotation_id: q.id,
         quantity: item.quantity,
@@ -340,8 +375,8 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
         sort_order: i,
       }
       if (isUuid(item.id)) row.id = item.id
-      return row
-    })
+      publicRows.push(row)
+    }
     if (publicRows.length > 0) {
       const { error } = await supabase.from("quotation_public_items").insert(publicRows)
       if (error) return { ok: false as const, error: error.message }

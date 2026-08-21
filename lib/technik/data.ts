@@ -1,4 +1,4 @@
-// ─── Technik Solutions — Modelo de dominio y datos semilla ───────
+// ─── Technik Solutions — Modelo de dominio ──────────────────────
 
 import {
   LABOR_BURDEN_RATE,
@@ -393,41 +393,6 @@ export interface Quotation {
   deletedAt?: string
   history: QuoteEvent[]
 }
-
-// ─── Seed: Users ────────────────────────────────────────────────
-
-export const SEED_USERS: User[] = []
-
-// ─── Seed: Clients ──────────────────────────────────────────────
-
-export const SEED_CLIENTS: Client[] = []
-
-// ─── Seed: Suppliers ────────────────────────────────────────────
-
-export const SEED_SUPPLIERS: Supplier[] = []
-
-// ─── Seed: Catalog ──────────────────────────────────────────────
-
-export const SEED_CATALOG: CatalogItem[] = []
-
-// ─── Seed: Quotations ───────────────────────────────────────────
-
-export const SEED_QUOTATIONS: Quotation[] = []
-
-/**
- * Proyectos semilla — fechas alineadas a ago 2026 para el Home (flujo / agenda).
- * Totales PDF ≈ publicItems × (1 + IVA 8% − ISR 1.25%).
- */
-export const SEED_PROJECTS: Project[] = []
-
-/** Egresos de ejemplo (mes agosto 2026) para el libro de tesorería. */
-export const SEED_EXPENSES: ExpenseEntry[] = []
-
-/** Aperturas del mes para que “Disponible” no arranque en cero. */
-export const SEED_TREASURY_MONTHS: TreasuryMonth[] = []
-
-/** Separados de ejemplo (reservas que el admin puede editar o borrar). */
-export const SEED_TREASURY_SEPARADOS: TreasurySeparado[] = []
 
 // ─── Helpers ────────────────────────────────────────────────────
 

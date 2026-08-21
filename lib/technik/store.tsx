@@ -16,18 +16,9 @@ import {
   nextProjectCode,
   nextQuotationCode,
   nextVendorCode,
+  catalogRpcKind,
 } from "./codes"
 import {
-  SEED_CLIENTS,
-  SEED_CATALOG,
-  SEED_DEPARTMENTS,
-  SEED_EXPENSES,
-  SEED_PROJECTS,
-  SEED_QUOTATIONS,
-  SEED_SUPPLIERS,
-  SEED_TREASURY_MONTHS,
-  SEED_TREASURY_SEPARADOS,
-  SEED_USERS,
   PROJECT_STAGE_META,
   defaultPaymentComplement,
   normalizeDepartmentColorId,
@@ -125,6 +116,7 @@ import {
   deleteSupplier,
   deleteCatalogItem,
   loadCoreWorkspace,
+  nextServerCode,
   persistCatalogItem,
   persistClient,
   persistDepartment,
@@ -151,6 +143,12 @@ import {
   persistSeparado,
   persistTreasuryMonth,
 } from "./ops-persist"
+import {
+  persistFailedOffline,
+  runWithRetries,
+  type PersistResult,
+  type SaveStatus,
+} from "./save-queue"
 
 interface TechnikState {
   authed: boolean
@@ -172,8 +170,12 @@ interface TechnikState {
   /** Última notificación en vivo (texto minimalista en header). */
   liveNotice: LiveNotice | null
   dismissLiveNotice: () => void
-  /** Hub compartido del prototipo (API en memoria). */
+  /** Hub de avisos en vivo (no es fuente de datos). */
   syncStatus: "connecting" | "live" | "offline"
+  saveStatus: SaveStatus
+  saveError?: string
+  markSaving: () => void
+  retrySave: () => void
   updateSettings: (patch: Partial<WorkspaceSettings>) => void
   /** false mientras se restaura la sesión de Supabase */
   authReady: boolean
@@ -387,30 +389,24 @@ export function TechnikProvider({
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [mustSetPassword, setMustSetPassword] = useState(false)
-  const [users, setUsers] = useState<User[]>(SEED_USERS)
-  const [clients, setClients] = useState<Client[]>(SEED_CLIENTS)
-  const [suppliers, setSuppliers] = useState<Supplier[]>(SEED_SUPPLIERS)
-  const [catalog, setCatalog] = useState<CatalogItem[]>(SEED_CATALOG)
-  const [quotations, setQuotations] = useState<Quotation[]>(SEED_QUOTATIONS)
-  const [projects, setProjects] = useState<Project[]>(() =>
-    SEED_PROJECTS.map((p) => normalizeProject(p)),
-  )
-  const [departments, setDepartments] = useState<DepartmentConfig[]>(SEED_DEPARTMENTS)
+  const [users, setUsers] = useState<User[]>([])
+  const [clients, setClients] = useState<Client[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [catalog, setCatalog] = useState<CatalogItem[]>([])
+  const [quotations, setQuotations] = useState<Quotation[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [departments, setDepartments] = useState<DepartmentConfig[]>([])
   const [paymentEvents, setPaymentEvents] = useState<PaymentEvent[]>([])
   const [inboxEvents, setInboxEvents] = useState<InboxEvent[]>([])
-  const [expenses, setExpenses] = useState<ExpenseEntry[]>(() =>
-    SEED_EXPENSES.map((e) => ({ ...e })),
-  )
-  const [treasuryMonths, setTreasuryMonths] = useState<TreasuryMonth[]>(() =>
-    SEED_TREASURY_MONTHS.map((m) => ({ ...m })),
-  )
-  const [treasurySeparados, setTreasurySeparados] = useState<TreasurySeparado[]>(() =>
-    SEED_TREASURY_SEPARADOS.map((s) => normalizeTreasurySeparado(s)),
-  )
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([])
+  const [treasuryMonths, setTreasuryMonths] = useState<TreasuryMonth[]>([])
+  const [treasurySeparados, setTreasurySeparados] = useState<TreasurySeparado[]>([])
   const [apartadoMovements, setApartadoMovements] = useState<ApartadoMovement[]>([])
   const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_SETTINGS)
   const [liveNotice, setLiveNotice] = useState<LiveNotice | null>(null)
   const [syncStatus, setSyncStatus] = useState<"connecting" | "live" | "offline">("connecting")
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle")
+  const [saveError, setSaveError] = useState<string | undefined>()
 
   const originIdRef = useRef(createOriginId())
   const revRef = useRef(0)
@@ -435,6 +431,12 @@ export function TechnikProvider({
   const logoutIntentRef = useRef(false)
   const hydrateInFlight = useRef<Promise<{ ok: true } | { ok: false; error: string }> | null>(null)
   const hydrateInFlightId = useRef<string | null>(null)
+  const saveJobsRef = useRef(new Map<string, () => Promise<PersistResult>>())
+  const savePendingRef = useRef(0)
+  const saveDirtyRef = useRef(false)
+  const trackPersistRef = useRef<
+    (key: string, job: () => Promise<PersistResult>) => Promise<PersistResult>
+  >(async () => ({ ok: true }))
 
   const workspaceRef = useRef({
     users,
@@ -468,6 +470,102 @@ export function TechnikProvider({
     apartadoMovements,
     settings,
   }
+
+  const markSaving = useCallback(() => {
+    saveDirtyRef.current = true
+    setSaveStatus((prev) => (prev === "error" || prev === "offline" ? prev : "saving"))
+  }, [])
+
+  const trackPersist = useCallback((key: string, job: () => Promise<PersistResult>) => {
+    if (!isSupabaseConfigured()) return Promise.resolve({ ok: true as const })
+    saveJobsRef.current.set(key, job)
+    saveDirtyRef.current = true
+    savePendingRef.current += 1
+    setSaveStatus(typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "saving")
+    setSaveError(undefined)
+    return (async () => {
+      const res = await runWithRetries(job)
+      savePendingRef.current = Math.max(0, savePendingRef.current - 1)
+      if (res.ok) {
+        if (saveJobsRef.current.get(key) === job) saveJobsRef.current.delete(key)
+        if (savePendingRef.current === 0 && saveJobsRef.current.size === 0) {
+          saveDirtyRef.current = false
+          setSaveStatus("saved")
+        } else if (savePendingRef.current > 0) {
+          setSaveStatus("saving")
+        }
+        return res
+      }
+      if (persistFailedOffline(res)) {
+        setSaveStatus("offline")
+        return res
+      }
+      setSaveError(res.error || "No se pudo guardar.")
+      setSaveStatus("error")
+      return res
+    })()
+  }, [])
+  trackPersistRef.current = trackPersist
+
+  const retrySave = useCallback(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSaveStatus("offline")
+      return
+    }
+    const entries = [...saveJobsRef.current.entries()]
+    if (entries.length === 0) {
+      if (savePendingRef.current === 0) {
+        saveDirtyRef.current = false
+        setSaveStatus("saved")
+      }
+      return
+    }
+    for (const [key, job] of entries) {
+      void trackPersist(key, job)
+    }
+  }, [trackPersist])
+
+  useEffect(() => {
+    if (saveStatus !== "saved") return
+    const t = window.setTimeout(() => {
+      setSaveStatus((prev) => (prev === "saved" ? "idle" : prev))
+    }, 2800)
+    return () => window.clearTimeout(t)
+  }, [saveStatus])
+
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (
+        saveDirtyRef.current ||
+        savePendingRef.current > 0 ||
+        saveJobsRef.current.size > 0
+      ) {
+        e.preventDefault()
+        e.returnValue = ""
+      }
+    }
+    const onOffline = () => {
+      if (saveDirtyRef.current || savePendingRef.current > 0 || saveJobsRef.current.size > 0) {
+        setSaveStatus("offline")
+      }
+    }
+    const onOnline = () => {
+      if (saveJobsRef.current.size > 0) retrySave()
+    }
+    const onVis = () => {
+      if (document.visibilityState === "visible" && saveJobsRef.current.size > 0) retrySave()
+    }
+    window.addEventListener("beforeunload", onLeave)
+    window.addEventListener("offline", onOffline)
+    window.addEventListener("online", onOnline)
+    document.addEventListener("visibilitychange", onVis)
+    return () => {
+      window.removeEventListener("beforeunload", onLeave)
+      window.removeEventListener("offline", onOffline)
+      window.removeEventListener("online", onOnline)
+      document.removeEventListener("visibilitychange", onVis)
+    }
+  }, [retrySave])
 
   const showNotice = useCallback((text: string) => {
     const notice: LiveNotice = {
@@ -524,7 +622,11 @@ export function TechnikProvider({
           at: inbox.at ?? new Date().toISOString(),
           href: inbox.href,
         }
-        if (isSupabaseConfigured()) void persistInboxEvent(pendingInboxRef.current)
+        if (isSupabaseConfigured()) {
+          void trackPersist(`inbox:${pendingInboxRef.current.id}`, () =>
+            persistInboxEvent(pendingInboxRef.current!),
+          )
+        }
       } else {
         pendingInboxRef.current = undefined
       }
@@ -532,82 +634,118 @@ export function TechnikProvider({
         showNotice(message)
       }
     },
-    [showNotice],
+    [showNotice, trackPersist],
   )
 
   const persistQuoteNow = useCallback((q: Quotation) => {
     if (!isSupabaseConfigured()) return
-    void enqueuePersistQuotation(q, {
-      actorAuthId: userAuthIdRef.current,
-      users: workspaceRef.current.users,
-      isAdmin: userRoleRef.current === "admin",
-    })
-  }, [])
+    void trackPersist(`quote:${q.id}`, () =>
+      enqueuePersistQuotation(q, {
+        actorAuthId: userAuthIdRef.current,
+        users: workspaceRef.current.users,
+        isAdmin: userRoleRef.current === "admin",
+      }),
+    )
+  }, [trackPersist])
 
   const persistProjectNow = useCallback((project: Project) => {
     if (!isSupabaseConfigured()) return
-    void enqueuePersistProject(project, {
-      actorAuthId: userAuthIdRef.current,
-      users: workspaceRef.current.users,
-    })
-  }, [])
+    void trackPersist(`project:${project.id}`, () =>
+      enqueuePersistProject(project, {
+        actorAuthId: userAuthIdRef.current,
+        users: workspaceRef.current.users,
+      }),
+    )
+  }, [trackPersist])
 
   const applyLoadedOps = useCallback(
     (ops: Extract<Awaited<ReturnType<typeof loadOpsWorkspace>>, { ok: true }>) => {
-      setProjects((prev) => adoptProjects(prev, ops.projects))
-      setPaymentEvents((prev) =>
-        adoptById(prev, ops.paymentEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
-      )
-      setInboxEvents((prev) =>
-        adoptById(prev, ops.inboxEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
-      )
-      setExpenses((prev) =>
-        adoptById(prev, ops.expenses, (a, b) =>
-          (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
-        ),
-      )
-      setTreasuryMonths((prev) =>
-        adoptByKey(prev, ops.treasuryMonths, (m) => m.yearMonth, (_a, b) => b),
-      )
-      setTreasurySeparados((prev) =>
-        adoptById(
-          prev,
-          ops.treasurySeparados.filter(isManualReserve),
-          (a, b) => ((a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b),
-        ),
-      )
-      setApartadoMovements((prev) =>
-        adoptById(prev, ops.apartadoMovements, (a, b) =>
-          (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
-        ),
-      )
+      if (!ops.projectsError) {
+        setProjects((prev) => adoptProjects(prev, ops.projects))
+      }
+      if (!ops.paymentEventsError) {
+        setPaymentEvents((prev) =>
+          adoptById(prev, ops.paymentEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
+        )
+      }
+      if (!ops.inboxEventsError) {
+        setInboxEvents((prev) =>
+          adoptById(prev, ops.inboxEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
+        )
+      }
+      if (!ops.expensesError) {
+        setExpenses((prev) =>
+          adoptById(prev, ops.expenses, (a, b) =>
+            (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
+          ),
+        )
+      }
+      if (!ops.treasuryMonthsError) {
+        setTreasuryMonths((prev) =>
+          adoptByKey(prev, ops.treasuryMonths, (m) => m.yearMonth, (_a, b) => b),
+        )
+      }
+      if (!ops.treasurySeparadosError) {
+        setTreasurySeparados((prev) =>
+          adoptById(
+            prev,
+            ops.treasurySeparados.filter(isManualReserve),
+            (a, b) => ((a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b),
+          ),
+        )
+      }
+      if (!ops.apartadoMovementsError) {
+        setApartadoMovements((prev) =>
+          adoptById(prev, ops.apartadoMovements, (a, b) =>
+            (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
+          ),
+        )
+      }
+    },
+    [],
+  )
+
+  const applyLoadedCore = useCallback(
+    (core: Awaited<ReturnType<typeof loadCoreWorkspace>>) => {
+      if (!core.departmentsError && core.departments.length > 0) {
+        setDepartments((prev) => adoptById(prev, core.departments, (_a, b) => b))
+      }
+      if (!core.clientsError) {
+        setClients((prev) => adoptById(prev, core.clients, (_a, b) => b))
+      }
+      if (!core.suppliersError) {
+        setSuppliers((prev) => adoptById(prev, core.suppliers, (_a, b) => b))
+      }
+      if (!core.catalogError) {
+        setCatalog((prev) => adoptById(prev, core.catalog, (_a, b) => b))
+      }
     },
     [],
   )
 
   const applySnapshot = useCallback((snapshot: WorkspaceSnapshot) => {
     skipBroadcastRef.current = true
-    // Solo el rev canónico del servidor cuenta para el poll (nunca adelantar en buildSnapshot).
     revRef.current = snapshot.rev
-    if (!isSupabaseConfigured()) {
-      setUsers(snapshot.users)
-      setClients(
-        snapshot.clients.map((c) => ({
-          ...c,
-          rfc: (c as Client).rfc ?? "",
+    // Con Supabase el hub en RAM no es fuente de verdad: un deploy lo deja
+    // vacío y no puede borrar usuarios, catálogo, cotizaciones ni cobros.
+    if (isSupabaseConfigured()) return
+    setUsers(snapshot.users)
+    setClients(
+      snapshot.clients.map((c) => ({
+        ...c,
+        rfc: (c as Client).rfc ?? "",
+      })),
+    )
+    setSuppliers(snapshot.suppliers)
+    setCatalog(snapshot.catalog)
+    setDepartments(
+      snapshot.departments
+        .filter((d) => d.id !== "soldadura_maquinados")
+        .map((d) => ({
+          ...d,
+          colorId: normalizeDepartmentColorId(d.colorId),
         })),
-      )
-      setSuppliers(snapshot.suppliers)
-      setCatalog(snapshot.catalog)
-      setDepartments(
-        snapshot.departments
-          .filter((d) => d.id !== "soldadura_maquinados")
-          .map((d) => ({
-            ...d,
-            colorId: normalizeDepartmentColorId(d.colorId),
-          })),
-      )
-    }
+    )
     setQuotations((prev) =>
       adoptQuotations(
         prev,
@@ -805,7 +943,7 @@ export function TechnikProvider({
   )
   flushPublishRef.current = flushPublish
 
-  // Hidratar desde el hub del servidor + poll (simula multi-usuario real).
+  // Hidratar desde Supabase; el hub solo sirve avisos en vivo.
   useEffect(() => {
     let cancelled = false
 
@@ -846,11 +984,13 @@ export function TechnikProvider({
             )
             const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
             if (mine) {
-              void enqueuePersistQuotation(q, {
-                actorAuthId: authId,
-                users: workspaceRef.current.users,
-                isAdmin: role === "admin",
-              })
+              void trackPersist(`quote:${q.id}`, () =>
+                enqueuePersistQuotation(q, {
+                  actorAuthId: authId,
+                  users: workspaceRef.current.users,
+                  isAdmin: role === "admin",
+                }),
+              )
             }
           }
           if (quotesSignature(prev) !== quotesSignature(next)) {
@@ -860,6 +1000,9 @@ export function TechnikProvider({
         const ops = await loadOpsWorkspace(workspaceRef.current.users)
         if (cancelled) return
         if (ops.ok) applyLoadedOps(ops)
+        const core = await loadCoreWorkspace()
+        if (cancelled) return
+        applyLoadedCore(core)
       }
 
       if (isBoot) suppressPublishRef.current = false
@@ -880,7 +1023,7 @@ export function TechnikProvider({
       window.removeEventListener("focus", onFocus)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps])
+  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore])
 
   useEffect(() => {
     const backup = readOpsBackup()
@@ -942,9 +1085,11 @@ export function TechnikProvider({
       createdAt: new Date().toISOString(),
     }
     setExpenses((prev) => [entry, ...prev])
-    if (isSupabaseConfigured()) void persistExpense(entry, userAuthIdRef.current)
+    if (isSupabaseConfigured()) {
+      void trackPersist(`expense:${entry.id}`, () => persistExpense(entry, userAuthIdRef.current))
+    }
     return id
-  }, [])
+  }, [trackPersist])
 
   const updateExpense = useCallback(
     (id: string, patch: Partial<Omit<ExpenseEntry, "id" | "createdAt">>) => {
@@ -957,18 +1102,22 @@ export function TechnikProvider({
             description:
               patch.description !== undefined ? patch.description.trim() : e.description,
           }
-          if (isSupabaseConfigured()) void persistExpense(next, userAuthIdRef.current)
+          if (isSupabaseConfigured()) {
+            void trackPersist(`expense:${next.id}`, () => persistExpense(next, userAuthIdRef.current))
+          }
           return next
         }),
       )
     },
-    [],
+    [trackPersist],
   )
 
   const removeExpense = useCallback((id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id))
-    if (isSupabaseConfigured()) void deleteExpenseRow(id)
-  }, [])
+    if (isSupabaseConfigured()) {
+      void trackPersist(`expense-del:${id}`, () => deleteExpenseRow(id))
+    }
+  }, [trackPersist])
 
   const setTreasuryMonth = useCallback(
     (yearMonth: string, patch: Partial<Omit<TreasuryMonth, "yearMonth">>) => {
@@ -985,11 +1134,13 @@ export function TechnikProvider({
               ...prev,
             ]
         const saved = next.find((m) => m.yearMonth === yearMonth)
-        if (saved && isSupabaseConfigured()) void persistTreasuryMonth(saved)
+        if (saved && isSupabaseConfigured()) {
+          void trackPersist(`treasury-month:${saved.yearMonth}`, () => persistTreasuryMonth(saved))
+        }
         return next
       })
     },
-    [],
+    [trackPersist],
   )
 
   const addTreasurySeparado = useCallback(
@@ -1009,10 +1160,12 @@ export function TechnikProvider({
         createdAt: new Date().toISOString(),
       })
       setTreasurySeparados((prev) => [entry, ...prev])
-      if (isSupabaseConfigured()) void persistSeparado(entry)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`separado:${entry.id}`, () => persistSeparado(entry))
+      }
       return id
     },
-    [],
+    [trackPersist],
   )
 
   const updateTreasurySeparado = useCallback(
@@ -1025,19 +1178,23 @@ export function TechnikProvider({
             ...patch,
             name: patch.name !== undefined ? patch.name.trim() : s.name,
           }
-          if (isSupabaseConfigured()) void persistSeparado(next)
+          if (isSupabaseConfigured()) {
+            void trackPersist(`separado:${next.id}`, () => persistSeparado(next))
+          }
           return next
         }),
       )
     },
-    [],
+    [trackPersist],
   )
 
   const removeTreasurySeparado = useCallback((id: string) => {
     setTreasurySeparados((prev) => prev.filter((s) => s.id !== id))
     setApartadoMovements((prev) => prev.filter((m) => m.apartadoId !== id))
-    if (isSupabaseConfigured()) void deleteSeparadoRow(id)
-  }, [])
+    if (isSupabaseConfigured()) {
+      void trackPersist(`separado-del:${id}`, () => deleteSeparadoRow(id))
+    }
+  }, [trackPersist])
 
   const addApartadoMovement = useCallback(
     (input: {
@@ -1071,7 +1228,9 @@ export function TechnikProvider({
           createdAt: new Date().toISOString(),
         }
         setExpenses((prev) => [entry, ...prev])
-        if (isSupabaseConfigured()) void persistExpense(entry, userAuthIdRef.current)
+        if (isSupabaseConfigured()) {
+          void trackPersist(`expense:${entry.id}`, () => persistExpense(entry, userAuthIdRef.current))
+        }
       }
       const movement = normalizeApartadoMovement({
         id,
@@ -1085,10 +1244,14 @@ export function TechnikProvider({
         createdById: user?.id,
       })
       setApartadoMovements((prev) => [movement, ...prev])
-      if (isSupabaseConfigured()) void persistApartadoMovement(movement, userAuthIdRef.current)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`apartado-mov:${movement.id}`, () =>
+          persistApartadoMovement(movement, userAuthIdRef.current),
+        )
+      }
       return id
     },
-    [user?.id],
+    [user?.id, trackPersist],
   )
 
   const removeApartadoMovement = useCallback((id: string) => {
@@ -1097,9 +1260,13 @@ export function TechnikProvider({
       if (target?.expenseId) {
         const expenseId = target.expenseId
         setExpenses((exps) => exps.filter((e) => e.id !== expenseId))
-        if (isSupabaseConfigured()) void deleteExpenseRow(expenseId)
+        if (isSupabaseConfigured()) {
+          void trackPersist(`expense-del:${expenseId}`, () => deleteExpenseRow(expenseId))
+        }
       }
-      if (isSupabaseConfigured()) void deleteApartadoMovementRow(id)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`apartado-mov-del:${id}`, () => deleteApartadoMovementRow(id))
+      }
       return prev.filter((m) => m.id !== id)
     })
   }, [])
@@ -1173,15 +1340,21 @@ export function TechnikProvider({
       const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
       if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
       if (rosterRes.ok) {
-        setUsers(dedupeUsers(rosterRes.users.length > 0 ? rosterRes.users : [next]))
+        setUsers((prev) =>
+          dedupeUsers(
+            adoptByKey(
+              prev.length > 0 ? prev : [next],
+              rosterRes.users.length > 0 ? rosterRes.users : [next],
+              (u) => u.authId || u.id,
+              (_a, b) => b,
+            ),
+          ),
+        )
         rosterReadyForAuthId.current = authUserId
       } else {
         setUsers((prev) => (prev.length > 0 ? prev : [next]))
       }
-      if (core.departments.length > 0) setDepartments(core.departments)
-      if (core.clients.length > 0) setClients(core.clients)
-      if (core.suppliers.length > 0) setSuppliers(core.suppliers)
-      if (core.catalog.length > 0) setCatalog(core.catalog)
+      applyLoadedCore(core)
       const roster = rosterRes.ok
         ? rosterRes.users.length > 0
           ? rosterRes.users
@@ -1213,7 +1386,7 @@ export function TechnikProvider({
         hydrateInFlightId.current = null
       }
     }
-  }, [])
+  }, [applyLoadedOps, applyLoadedCore])
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -1423,7 +1596,13 @@ export function TechnikProvider({
         }
         setUsers((prev) => dedupeUsers([...prev, invited]))
         const roster = await loadProfiles()
-        if (roster.ok && roster.users.length > 0) setUsers(dedupeUsers(roster.users))
+        if (roster.ok && roster.users.length > 0) {
+          setUsers((prev) =>
+            dedupeUsers(
+              adoptByKey(prev, roster.users, (u) => u.authId || u.id, (_a, b) => b),
+            ),
+          )
+        }
         return {
           ok: true as const,
           emailed: json.emailed,
@@ -1447,7 +1626,9 @@ export function TechnikProvider({
     if (!isSupabaseConfigured()) return
     const roster = await loadProfiles()
     if (roster.ok && roster.users.length > 0) {
-      setUsers(dedupeUsers(roster.users))
+      setUsers((prev) =>
+        dedupeUsers(adoptByKey(prev, roster.users, (u) => u.authId || u.id, (_a, b) => b)),
+      )
       if (user?.authId) rosterReadyForAuthId.current = user.authId
     }
   }, [user?.authId])
@@ -1513,12 +1694,18 @@ export function TechnikProvider({
       if (!isSupabaseConfigured()) {
         return { ok: false as const, error: "Supabase no está configurado." }
       }
-      const result = await persistProfile(authId, patch)
-      if (!result.ok) return result
-      applyPersistedUser(result.user)
+      let saved: User | undefined
+      const result = await trackPersist(`profile:${authId}`, async () => {
+        const r = await persistProfile(authId, patch)
+        if (!r.ok) return r
+        saved = r.user
+        return { ok: true as const }
+      })
+      if (!result.ok) return { ok: false as const, error: result.error || "No se pudo guardar el perfil." }
+      if (saved) applyPersistedUser(saved)
       return { ok: true as const }
     },
-    [applyPersistedUser],
+    [applyPersistedUser, trackPersist],
   )
 
   const updateProfile = useCallback(
@@ -1548,12 +1735,18 @@ export function TechnikProvider({
       if (!id || !isSupabaseConfigured()) {
         return { ok: false as const, error: "No se puede guardar la foto sin sesión en Supabase." }
       }
-      const result = await persistAvatar(id, file)
-      if (!result.ok) return result
-      applyPersistedUser(result.user)
+      let saved: User | undefined
+      const result = await trackPersist(`avatar:${id}`, async () => {
+        const r = await persistAvatar(id, file)
+        if (!r.ok) return r
+        saved = r.user
+        return { ok: true as const }
+      })
+      if (!result.ok) return { ok: false as const, error: result.error || "No se pudo guardar la foto." }
+      if (saved) applyPersistedUser(saved)
       return { ok: true as const }
     },
-    [user?.authId, applyPersistedUser],
+    [user?.authId, applyPersistedUser, trackPersist],
   )
 
   const removeProfilePhoto = useCallback(
@@ -1562,12 +1755,18 @@ export function TechnikProvider({
       if (!id || !isSupabaseConfigured()) {
         return { ok: false as const, error: "No se puede quitar la foto sin sesión en Supabase." }
       }
-      const result = await clearAvatar(id)
-      if (!result.ok) return result
-      applyPersistedUser(result.user)
+      let saved: User | undefined
+      const result = await trackPersist(`avatar-clear:${id}`, async () => {
+        const r = await clearAvatar(id)
+        if (!r.ok) return r
+        saved = r.user
+        return { ok: true as const }
+      })
+      if (!result.ok) return { ok: false as const, error: result.error || "No se pudo quitar la foto." }
+      if (saved) applyPersistedUser(saved)
       return { ok: true as const }
     },
-    [user?.authId, applyPersistedUser],
+    [user?.authId, applyPersistedUser, trackPersist],
   )
 
   const addClient = useCallback(
@@ -1575,13 +1774,13 @@ export function TechnikProvider({
       const id = nextClientCode(clients.map((c) => c.id))
       const client: Client = { ...input, id, since: new Date().getFullYear().toString() }
       if (isSupabaseConfigured()) {
-        const res = await persistClient(client)
-        if (!res.ok) return res
+        const res = await trackPersist(`client:${client.id}`, () => persistClient(client))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el cliente." }
       }
       setClients((prev) => [client, ...prev])
       return { ok: true as const, id }
     },
-    [clients],
+    [clients, trackPersist],
   )
 
   const updateClient = useCallback(
@@ -1590,13 +1789,13 @@ export function TechnikProvider({
       if (!current) return { ok: false as const, error: "Cliente no encontrado." }
       const next = { ...current, ...patch }
       if (isSupabaseConfigured()) {
-        const res = await persistClient(next)
-        if (!res.ok) return res
+        const res = await trackPersist(`client:${next.id}`, () => persistClient(next))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el cliente." }
       }
       setClients((prev) => prev.map((c) => (c.id === id ? next : c)))
       return { ok: true as const }
     },
-    [clients],
+    [clients, trackPersist],
   )
 
   const removeClient = useCallback(
@@ -1608,13 +1807,13 @@ export function TechnikProvider({
         }
       }
       if (isSupabaseConfigured()) {
-        const res = await deleteClient(id)
-        if (!res.ok) return res
+        const res = await trackPersist(`client-del:${id}`, () => deleteClient(id))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo eliminar el cliente." }
       }
       setClients((prev) => prev.filter((c) => c.id !== id))
       return { ok: true as const }
     },
-    [quotations, projects],
+    [quotations, projects, trackPersist],
   )
 
   const addSupplier = useCallback(
@@ -1622,13 +1821,13 @@ export function TechnikProvider({
       const id = nextVendorCode(suppliers.map((s) => s.id))
       const supplier: Supplier = { ...input, id }
       if (isSupabaseConfigured()) {
-        const res = await persistSupplier(supplier)
-        if (!res.ok) return res
+        const res = await trackPersist(`supplier:${supplier.id}`, () => persistSupplier(supplier))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el proveedor." }
       }
       setSuppliers((prev) => [supplier, ...prev])
       return { ok: true as const, id }
     },
-    [suppliers],
+    [suppliers, trackPersist],
   )
 
   const updateSupplier = useCallback(
@@ -1637,26 +1836,26 @@ export function TechnikProvider({
       if (!current) return { ok: false as const, error: "Proveedor no encontrado." }
       const next = { ...current, ...patch }
       if (isSupabaseConfigured()) {
-        const res = await persistSupplier(next)
-        if (!res.ok) return res
+        const res = await trackPersist(`supplier:${next.id}`, () => persistSupplier(next))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el proveedor." }
       }
       setSuppliers((prev) => prev.map((s) => (s.id === id ? next : s)))
       return { ok: true as const }
     },
-    [suppliers],
+    [suppliers, trackPersist],
   )
 
   const removeSupplier = useCallback(async (id: string) => {
     if (isSupabaseConfigured()) {
-      const res = await deleteSupplier(id)
-      if (!res.ok) return res
+      const res = await trackPersist(`supplier-del:${id}`, () => deleteSupplier(id))
+      if (!res.ok) return { ok: false as const, error: res.error || "No se pudo eliminar el proveedor." }
     }
     setCatalog((prev) =>
       prev.map((item) => (item.supplierId === id ? { ...item, supplierId: undefined } : item)),
     )
     setSuppliers((prev) => prev.filter((s) => s.id !== id))
     return { ok: true as const }
-  }, [])
+  }, [trackPersist])
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
     (input) => {
@@ -1941,7 +2140,9 @@ export function TechnikProvider({
       if (next.length === prev.length) return prev
       for (const q of expired) {
         void deleteAllVisitPhotosRequest(q.id)
-        if (isSupabaseConfigured()) void deleteQuotationRow(q.id)
+        if (isSupabaseConfigured()) {
+          void trackPersist(`quote-del:${q.id}`, () => deleteQuotationRow(q.id))
+        }
       }
       queueMicrotask(() => flushPublishRef.current({ quotations: next }))
       return next
@@ -2480,7 +2681,9 @@ export function TechnikProvider({
         by: actor,
       }
       setPaymentEvents((prev) => [event, ...prev])
-      if (isSupabaseConfigured()) void persistPaymentEvent(event, userAuthIdRef.current)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`pay:${event.id}`, () => persistPaymentEvent(event, userAuthIdRef.current))
+      }
       setProjects((prev) =>
         prev.map((p) => {
           if (p.id !== projectId) return p
@@ -2538,7 +2741,9 @@ export function TechnikProvider({
         by: actor,
       }
       setPaymentEvents((prev) => [event, ...prev])
-      if (isSupabaseConfigured()) void persistPaymentEvent(event, userAuthIdRef.current)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`pay:${event.id}`, () => persistPaymentEvent(event, userAuthIdRef.current))
+      }
       setProjects((prev) =>
         prev.map((p) => {
           if (p.id !== projectId) return p
@@ -2578,17 +2783,22 @@ export function TechnikProvider({
           error: "Solo administración puede crear materiales o mano de obra.",
         }
       }
+      const fallbackId = nextCatalogCode(
+        catalog.map((c) => c.id),
+        item.kind,
+        item.category,
+      )
       const id =
         item.id ??
-        nextCatalogCode(
-          catalog.map((c) => c.id),
-          item.kind,
-          item.category,
-        )
+        (isSupabaseConfigured()
+          ? ((await nextServerCode(catalogRpcKind(item.kind, item.category))) ?? fallbackId)
+          : fallbackId)
       const next: CatalogItem = {
         ...item,
         id,
+        sku: item.sku?.trim() ?? "",
         unitCost: user?.role === "empleado" ? 0 : item.unitCost,
+        supplierId: item.kind === "material" ? item.supplierId || undefined : undefined,
       }
       if (catalog.some((c) => c.id === id)) {
         return { ok: false as const, error: "Ese código de catálogo ya existe." }
@@ -2598,7 +2808,8 @@ export function TechnikProvider({
           const supabase = getSupabaseBrowser()
           const token = (await supabase.auth.getSession()).data.session?.access_token
           if (!token) return { ok: false as const, error: "Sesión inválida. Cierra sesión y vuelve a entrar." }
-          try {
+          let saved: CatalogItem | undefined
+          const extraRes = await trackPersist(`catalog:${next.id}`, async () => {
             const res = await fetch("/api/catalog/extras", {
               method: "POST",
               headers: {
@@ -2622,20 +2833,23 @@ export function TechnikProvider({
             if (!json || !json.ok) {
               return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo crear el extra." }
             }
-            const saved = json.item ?? { ...next, id: json.id }
-            setCatalog((prev) => [saved, ...prev])
-            return { ok: true as const, id: saved.id }
-          } catch {
-            return { ok: false as const, error: "No se pudo crear el extra." }
+            saved = json.item ?? { ...next, id: json.id }
+            return { ok: true as const }
+          })
+          if (!extraRes.ok) {
+            return { ok: false as const, error: extraRes.error || "No se pudo crear el extra." }
           }
+          const item = saved ?? next
+          setCatalog((prev) => [item, ...prev])
+          return { ok: true as const, id: item.id }
         }
-        const res = await persistCatalogItem(next)
-        if (!res.ok) return res
+        const res = await trackPersist(`catalog:${next.id}`, () => persistCatalogItem(next))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el catálogo." }
       }
       setCatalog((prev) => [next, ...prev])
       return { ok: true as const, id }
     },
-    [catalog, user?.role],
+    [catalog, user?.role, trackPersist],
   )
 
   const updateCatalogItem = useCallback(
@@ -2644,23 +2858,23 @@ export function TechnikProvider({
       if (!current) return { ok: false as const, error: "Ítem no encontrado." }
       const next = { ...current, ...patch, id: current.id }
       if (isSupabaseConfigured()) {
-        const res = await persistCatalogItem(next)
-        if (!res.ok) return res
+        const res = await trackPersist(`catalog:${next.id}`, () => persistCatalogItem(next))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el catálogo." }
       }
       setCatalog((prev) => prev.map((c) => (c.id !== id ? c : next)))
       return { ok: true as const }
     },
-    [catalog],
+    [catalog, trackPersist],
   )
 
   const removeCatalogItem = useCallback(async (id: string) => {
     if (isSupabaseConfigured()) {
-      const res = await deleteCatalogItem(id)
-      if (!res.ok) return res
+      const res = await trackPersist(`catalog-del:${id}`, () => deleteCatalogItem(id))
+      if (!res.ok) return { ok: false as const, error: res.error || "No se pudo eliminar del catálogo." }
     }
     setCatalog((prev) => prev.filter((c) => c.id !== id))
     return { ok: true as const }
-  }, [])
+  }, [trackPersist])
 
   const addDepartment = useCallback(
     async (input: { label: string; short?: string; colorId?: DepartmentColorId }) => {
@@ -2677,13 +2891,13 @@ export function TechnikProvider({
         colorId: normalizeDepartmentColorId(input.colorId ?? "azul"),
       }
       if (isSupabaseConfigured()) {
-        const res = await persistDepartment(dept)
-        if (!res.ok) return res
+        const res = await trackPersist(`dept:${dept.id}`, () => persistDepartment(dept))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el departamento." }
       }
       setDepartments((prev) => [...prev, dept])
       return { ok: true as const, id }
     },
-    [departments],
+    [departments, trackPersist],
   )
 
   const updateDepartment = useCallback(
@@ -2698,13 +2912,13 @@ export function TechnikProvider({
         next.colorId = normalizeDepartmentColorId(patch.colorId)
       }
       if (isSupabaseConfigured()) {
-        const res = await persistDepartment(next)
-        if (!res.ok) return res
+        const res = await trackPersist(`dept:${next.id}`, () => persistDepartment(next))
+        if (!res.ok) return { ok: false as const, error: res.error || "No se pudo guardar el departamento." }
       }
       setDepartments((prev) => prev.map((d) => (d.id === id ? next : d)))
       return { ok: true as const }
     },
-    [departments],
+    [departments, trackPersist],
   )
 
   const removeDepartment = useCallback(
@@ -2725,10 +2939,12 @@ export function TechnikProvider({
         return { ok: false as const, error: "Debe existir al menos un departamento." }
       }
       setDepartments((prev) => prev.filter((d) => d.id !== id))
-      if (isSupabaseConfigured()) void deleteDepartment(id)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`dept-del:${id}`, () => deleteDepartment(id))
+      }
       return { ok: true as const }
     },
-    [quotations, users, departments.length],
+    [quotations, users, departments.length, trackPersist],
   )
 
   const value = useMemo(
@@ -2754,6 +2970,10 @@ export function TechnikProvider({
       liveNotice,
       dismissLiveNotice,
       syncStatus,
+      saveStatus,
+      saveError,
+      markSaving,
+      retrySave,
       updateSettings,
       login,
       logout,
@@ -2834,6 +3054,10 @@ export function TechnikProvider({
       liveNotice,
       dismissLiveNotice,
       syncStatus,
+      saveStatus,
+      saveError,
+      markSaving,
+      retrySave,
       updateSettings,
       login,
       logout,

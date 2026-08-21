@@ -27,6 +27,7 @@ import { formatUsername } from "@/lib/technik/codes"
 import { roleLabel, useTechnik } from "@/lib/technik/store"
 import { buildAppNotifications, loadSeenNotificationIds, persistSeenNotificationIds } from "@/lib/technik/notifications"
 import { BrandLogo } from "./brand-logo"
+import { SaveStatusChip } from "./save-status-chip"
 import { UserAvatar } from "./ui"
 
 import { DashboardHome } from "./views/dashboard-home"
@@ -378,6 +379,7 @@ export function AppShell() {
                   )}
                 </div>
               )}
+              <SaveStatusChip />
               <div className="shrink-0">
                 <ProfileMenu navigate={navigate} />
               </div>

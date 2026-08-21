@@ -15,7 +15,7 @@ async function parseJson(res: Response): Promise<RemoteWorkspaceResponse> {
   }
 }
 
-/** Lee el workspace compartido del servidor de prototipo. */
+/** Lee el snapshot del hub (avisos en vivo). */
 export async function fetchRemoteWorkspace(): Promise<RemoteWorkspaceResponse> {
   try {
     const res = await fetch("/api/workspace", {

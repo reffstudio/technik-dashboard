@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -11,7 +11,6 @@ import {
   FileText,
   Plus,
   Receipt,
-  Save,
   Trash2,
 } from "lucide-react"
 import {
@@ -69,6 +68,7 @@ export function ProjectDetail({
     removeProjectInstallment,
     markInstallmentPaid,
     addPaymentCorrectionNote,
+    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const project = projects.find((p) => p.id === id)
@@ -104,15 +104,18 @@ export function ProjectDetail({
   const [historyOpen, setHistoryOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
+  const skipProjectSave = useRef(true)
+
   // Sync local fields when navigating between projects
-  React.useEffect(() => {
+  useEffect(() => {
     setNotes(project?.notes ?? "")
     setDueDate(project?.dueDate ?? "")
     setDeliveredAt(project?.deliveredAt ?? "")
     setCollectId(null)
     setEditId(null)
     setHistoryOpen(false)
-  }, [project?.id, project?.notes, project?.dueDate, project?.deliveredAt])
+    skipProjectSave.current = true
+  }, [project?.id])
 
   const materialLines = useMemo(() => {
     if (!quote) return []
@@ -140,6 +143,40 @@ export function ProjectDetail({
   const totalDue = clientTotals?.total ?? project?.totalDue ?? 0
   const billing = project ? projectBillingSummary(project, totalDue) : null
 
+  useEffect(() => {
+    if (!isAdmin || !project) return
+    if (skipProjectSave.current) {
+      skipProjectSave.current = false
+      return
+    }
+    const same =
+      (notes.trim() || undefined) === (project.notes || undefined) &&
+      (dueDate || undefined) === (project.dueDate || undefined) &&
+      (deliveredAt || undefined) === (project.deliveredAt || undefined)
+    if (same) return
+    markSaving()
+    const t = window.setTimeout(() => {
+      updateProject(
+        project.id,
+        {
+          dueDate: dueDate || undefined,
+          deliveredAt: deliveredAt || undefined,
+          notes: notes.trim() || undefined,
+        },
+        "Actualizó fechas / notas del proyecto",
+      )
+    }, 700)
+    return () => window.clearTimeout(t)
+  }, [
+    notes,
+    dueDate,
+    deliveredAt,
+    isAdmin,
+    project,
+    markSaving,
+    updateProject,
+  ])
+
   if (!project) {
     return (
       <div className="text-center py-20 text-muted-foreground">
@@ -157,20 +194,6 @@ export function ProjectDetail({
 
   const overdue = projectIsOverdue(project)
   const displayTitle = projectTitle(project, quote?.title)
-
-  function saveDatesAndNotes() {
-    updateProject(
-      project!.id,
-      {
-        dueDate: dueDate || undefined,
-        deliveredAt: deliveredAt || undefined,
-        notes: notes.trim() || undefined,
-      },
-      "Actualizó fechas / notas del proyecto",
-    )
-    setToast("Cambios guardados")
-    window.setTimeout(() => setToast(null), 2200)
-  }
 
   function choosePaymentMode(mode: PaymentMode) {
     setProjectPaymentMode(project!.id, mode)
@@ -1209,16 +1232,6 @@ export function ProjectDetail({
                 placeholder="Notas de seguimiento…"
               />
             </label>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={saveDatesAndNotes}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
-              >
-                <Save className="size-4" />
-                Guardar
-              </button>
-            )}
           </section>
         </aside>
       </div>

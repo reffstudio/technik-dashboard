@@ -1,6 +1,6 @@
 /**
- * Almacén de bytes de fotos de visita (prototipo).
- * En Supabase: bucket `visit-photos` + tabla `quotation_visit_photos`.
+ * Cache de bytes de fotos de visita en el proceso Node (API).
+ * La persistencia real es el bucket `visit-photos` + `quotation_visit_photos`.
  * El workspace solo lleva metadatos (sin data URLs) para no inflar cache/poll.
  */
 
