@@ -89,7 +89,7 @@ export function CatalogView() {
     const name = editDraft.name.trim()
     const sku = editDraft.sku.trim()
     const unit = editDraft.unit.trim()
-    if (!name || !sku || !unit || !Number.isFinite(editDraft.unitCost) || editDraft.unitCost < 0) return
+    if (!name || !unit || !Number.isFinite(editDraft.unitCost) || editDraft.unitCost < 0) return
     setSaving(true)
     setError("")
     const res = await updateCatalogItem(id, {
@@ -266,7 +266,7 @@ export function CatalogView() {
                           aria-label="SKU"
                         />
                       ) : (
-                        <span className="font-mono text-xs text-muted-foreground">{item.sku}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{item.sku || "—"}</span>
                       )}
                     </td>
                     <td className="px-4 py-3.5">
@@ -456,7 +456,7 @@ function AddRow({
     }
   }
 
-  const valid = Boolean(name.trim() && sku.trim() && Number.isFinite(unitCost) && unitCost >= 0)
+  const valid = Boolean(name.trim() && Number.isFinite(unitCost) && unitCost >= 0)
 
   return (
     <div className="rounded-2xl surface-elevated p-5 mb-4">
@@ -486,8 +486,13 @@ function AddRow({
         <Field label="Nombre">
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
         </Field>
-        <Field label="SKU">
-          <input value={sku} onChange={(e) => setSku(e.target.value)} className={inputCls} />
+        <Field label="SKU (opcional)">
+          <input
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
+            placeholder="Si el fabricante lo tiene"
+            className={inputCls}
+          />
         </Field>
         <Field label="Unidad">
           <input value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} />
@@ -522,7 +527,7 @@ function AddRow({
             void onAdd({
               kind,
               name,
-              sku,
+              sku: sku.trim(),
               category: defaultCategory(kind),
               unit,
               unitCost,

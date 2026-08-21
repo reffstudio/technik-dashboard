@@ -42,6 +42,7 @@ export function UsersView() {
     department: "",
     active: true,
   })
+  const [usernameDirty, setUsernameDirty] = useState(false)
 
   useEffect(() => {
     const first = departments[0]?.id ?? ""
@@ -69,12 +70,19 @@ export function UsersView() {
     }
   }, [users, query, departments])
 
+  function suggestedUsername(name: string) {
+    return uniqueUsername(
+      usernameFromName(name),
+      users.map((u) => u.username),
+    )
+  }
+
   function onNameChange(name: string) {
-    const suggested = usernameFromName(name)
+    const suggested = suggestedUsername(name)
     setForm((f) => ({
       ...f,
       name,
-      username: f.username === "" || f.username === usernameFromName(f.name) ? suggested : f.username,
+      username: usernameDirty ? f.username : suggested,
     }))
   }
 
@@ -85,6 +93,7 @@ export function UsersView() {
     setInviteLink("")
     setEmailed(false)
     setMailError("")
+    setUsernameDirty(false)
     setForm({
       name: "",
       username: "",
@@ -116,7 +125,10 @@ export function UsersView() {
     const name = form.name.trim()
     const email = form.email.trim()
     const department = form.department.trim() || departments[0]?.id || ""
-    const username = uniqueUsername(form.username || usernameFromName(name), users.map((u) => u.username))
+    const username = uniqueUsername(
+      usernameDirty ? form.username : usernameFromName(name),
+      users.map((u) => u.username),
+    )
     if (!name || !email) {
       setError("Nombre y correo son obligatorios.")
       return
@@ -439,8 +451,11 @@ export function UsersView() {
               <input
                 className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
                 value={form.username}
-                onChange={(e) => setForm({ ...form, username: sanitizeUsername(e.target.value) })}
-                placeholder="iochoa"
+                onChange={(e) => {
+                  setUsernameDirty(true)
+                  setForm({ ...form, username: sanitizeUsername(e.target.value) })
+                }}
+                placeholder="se arma con el nombre"
               />
             </div>
           </Field>

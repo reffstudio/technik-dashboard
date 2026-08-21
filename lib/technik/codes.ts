@@ -44,8 +44,8 @@ export function usernameFromName(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
 
-  if (parts.length === 0) return `user${pad(Math.floor(Math.random() * 999), 3)}`
-  if (parts.length === 1) return parts[0].slice(0, 12)
+  if (parts.length === 0) return ""
+  if (parts.length === 1) return parts[0].slice(0, 16)
 
   const first = parts[0][0] ?? "u"
   const last = parts[parts.length - 1] ?? "user"

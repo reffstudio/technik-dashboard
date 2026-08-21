@@ -1,7 +1,7 @@
 import { sendTechnikMail } from "@/lib/mail/send"
 import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
 import { generateAuthActionLink } from "@/lib/supabase/auth-link"
-import { isValidUsername, sanitizeUsername } from "@/lib/technik/codes"
+import { isValidUsername, sanitizeUsername, usernameFromName } from "@/lib/technik/codes"
 import { passwordSetupRedirect } from "@/lib/technik/password-setup"
 
 export const runtime = "nodejs"
@@ -123,7 +123,8 @@ export async function POST(req: Request) {
   const body = (await req.json()) as Body
   const name = body.name?.trim() ?? ""
   const email = body.email?.trim().toLowerCase() ?? ""
-  const username = sanitizeUsername(body.username ?? "")
+  const username =
+    sanitizeUsername(body.username ?? "") || sanitizeUsername(usernameFromName(name))
   const role = body.role === "admin" ? "admin" : "empleado"
   const department = body.department?.trim() ?? ""
   const location = body.location?.trim() ?? ""

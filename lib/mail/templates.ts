@@ -16,13 +16,24 @@ function escapeHtml(value: string) {
 function layout(opts: { preheader: string; heading: string; bodyHtml: string; ctaLabel: string; actionUrl: string }) {
   const url = escapeHtml(opts.actionUrl)
   return `<!doctype html>
-<html lang="es">
-  <body style="margin:0;padding:0;background:${NAVY};font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;">
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml" style="background:${NAVY};">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="supported-color-schemes" content="dark" />
+    <title>Technik Solutions</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0 !important; padding: 0 !important; background-color: ${NAVY} !important; }
+    </style>
+  </head>
+  <body bgcolor="${NAVY}" style="margin:0;padding:0;background-color:${NAVY};font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:#ffffff;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(opts.preheader)}</div>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${NAVY};padding:32px 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${NAVY}" style="background-color:${NAVY};padding:32px 16px;">
       <tr>
-        <td align="center">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+        <td align="center" bgcolor="${NAVY}" style="background-color:${NAVY};">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" bgcolor="${NAVY}" style="max-width:560px;width:100%;background-color:${NAVY};">
             <tr>
               <td style="padding:0 8px 20px;">
                 <p style="margin:0;color:${CYAN};font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;">Technik Solutions</p>
@@ -30,12 +41,12 @@ function layout(opts: { preheader: string; heading: string; bodyHtml: string; ct
               </td>
             </tr>
             <tr>
-              <td style="background:${CARD};border-radius:16px;padding:32px 28px;">
+              <td bgcolor="${CARD}" style="background-color:${CARD};border-radius:16px;padding:32px 28px;">
                 <h1 style="margin:0 0 16px;color:#ffffff;font-size:22px;line-height:1.3;">${escapeHtml(opts.heading)}</h1>
                 ${opts.bodyHtml}
                 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px 0 8px;">
                   <tr>
-                    <td style="background:${CYAN};border-radius:10px;">
+                    <td bgcolor="${CYAN}" style="background-color:${CYAN};border-radius:10px;">
                       <a href="${url}" style="display:inline-block;padding:12px 22px;color:${NAVY};font-size:14px;font-weight:700;text-decoration:none;">
                         ${escapeHtml(opts.ctaLabel)}
                       </a>
