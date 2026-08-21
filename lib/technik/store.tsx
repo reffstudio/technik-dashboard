@@ -1366,53 +1366,60 @@ export function TechnikProvider({
       setUser(next)
       const rosterAlreadyLoaded =
         rosterReadyForAuthId.current === authUserId && workspaceRef.current.users.length > 0
-      if (rosterAlreadyLoaded) {
-        return { ok: true as const }
-      }
-      const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
-      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-      if (rosterRes.ok) {
-        const pendingIds =
-          row.role === "admin" ? await fetchPendingInviteIds() : new Set<string>()
-        const incoming = withPendingInvites(
-          rosterRes.users.length > 0 ? rosterRes.users : [next],
-          pendingIds,
-        )
-        setUsers((prev) =>
-          dedupeUsers(
-            adoptByKey(
-              prev.length > 0 ? prev : [next],
-              incoming,
-              (u) => u.authId || u.id,
-              (_a, b) => b,
-            ),
-          ),
-        )
-        rosterReadyForAuthId.current = authUserId
-      } else {
-        setUsers((prev) => (prev.length > 0 ? prev : [next]))
-      }
-      applyLoadedCore(core)
-      const roster = rosterRes.ok
-        ? rosterRes.users.length > 0
-          ? rosterRes.users
-          : [next]
-        : workspaceRef.current.users.length > 0
-          ? workspaceRef.current.users
-          : [next]
-      const quotesRes = await loadQuotations(roster)
-      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-      if (quotesRes.ok) {
-        setQuotations((prev) => {
-          const adopted = adoptQuotations(prev, quotesRes.quotations).filter(
-            (q) => !quotationTrashExpired(q),
-          )
-          return quotesSignature(prev) === quotesSignature(adopted) ? prev : adopted
-        })
-      }
-      const ops = await loadOpsWorkspace(roster)
-      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-      if (ops.ok) applyLoadedOps(ops)
+      if (rosterAlreadyLoaded) return { ok: true as const }
+
+      void (async () => {
+        try {
+          const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
+          if (rosterRes.ok) {
+            setUsers((prev) =>
+              dedupeUsers(
+                adoptByKey(
+                  prev.length > 0 ? prev : [next],
+                  rosterRes.users.length > 0 ? rosterRes.users : [next],
+                  (u) => u.authId || u.id,
+                  (_a, b) => b,
+                ),
+              ),
+            )
+            rosterReadyForAuthId.current = authUserId
+          } else {
+            setUsers((prev) => (prev.length > 0 ? prev : [next]))
+          }
+          applyLoadedCore(core)
+          const roster = rosterRes.ok
+            ? rosterRes.users.length > 0
+              ? rosterRes.users
+              : [next]
+            : workspaceRef.current.users.length > 0
+              ? workspaceRef.current.users
+              : [next]
+          const quotesRes = await loadQuotations(roster)
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
+          if (quotesRes.ok) {
+            setQuotations((prev) => {
+              const adopted = adoptQuotations(prev, quotesRes.quotations).filter(
+                (q) => !quotationTrashExpired(q),
+              )
+              return quotesSignature(prev) === quotesSignature(adopted) ? prev : adopted
+            })
+          }
+          const ops = await loadOpsWorkspace(roster)
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
+          if (ops.ok) applyLoadedOps(ops)
+          if (row.role === "admin") {
+            const pendingIds = await fetchPendingInviteIds()
+            if (logoutIntentRef.current || gen !== authHydrateGen.current) return
+            if (pendingIds.size > 0) {
+              setUsers((prev) => dedupeUsers(withPendingInvites(prev, pendingIds)))
+            }
+          }
+        } catch (err) {
+          console.error("[technik] No se pudo hidratar el workspace", err)
+        }
+      })()
+
       return { ok: true as const }
     })()
     hydrateInFlight.current = run
@@ -1443,20 +1450,19 @@ export function TechnikProvider({
     }
 
     void supabase.auth.getSession().then(async ({ data }) => {
-      if (cancelled || logoutIntentRef.current) {
-        if (!cancelled) setAuthReady(true)
-        return
-      }
-      const authUser = data.session?.user
-      if (authUser && gatePassword(undefined, authUser)) {
-        if (!cancelled) {
+      try {
+        if (cancelled || logoutIntentRef.current) return
+        const authUser = data.session?.user
+        if (authUser && gatePassword(undefined, authUser)) {
           setMustSetPassword(true)
-          setAuthReady(true)
+          return
         }
-        return
+        if (authUser) await applyAuthUser(authUser.id, authUser.email)
+      } catch (err) {
+        console.error("[technik] Sesión inicial", err)
+      } finally {
+        if (!cancelled) setAuthReady(true)
       }
-      if (authUser && !cancelled) await applyAuthUser(authUser.id, authUser.email)
-      if (!cancelled) setAuthReady(true)
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {

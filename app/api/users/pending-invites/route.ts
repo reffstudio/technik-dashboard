@@ -32,18 +32,5 @@ export async function GET(req: Request) {
     if ((row as { invite_pending?: boolean }).invite_pending === true) pending.add(row.id)
   }
 
-  let page = 1
-  for (;;) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 })
-    if (error || !data?.users?.length) break
-    for (const u of data.users) {
-      const must = (u.user_metadata as { must_set_password?: boolean } | undefined)?.must_set_password
-      if (must === true) pending.add(u.id)
-    }
-    if (data.users.length < 200) break
-    page += 1
-    if (page > 10) break
-  }
-
   return Response.json({ ok: true, ids: [...pending] })
 }
