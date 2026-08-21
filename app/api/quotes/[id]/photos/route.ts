@@ -7,12 +7,30 @@ import {
   putVisitPhoto,
 } from "@/lib/technik/visit-photos-hub"
 import { VISIT_PHOTO_MAX, VISIT_PHOTO_MAX_BYTES } from "@/lib/technik/visit-photos"
+import type { VisitPhoto } from "@/lib/technik/data"
+import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
+import {
+  deleteAllVisitPhotosFromSupabase,
+  listVisitPhotosFromSupabase,
+  persistVisitPhotoToSupabase,
+} from "@/lib/technik/visit-photos-supabase"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
-function quoteExists(id: string) {
-  return readWorkspaceHub().quotations.some((q) => q.id === id)
+async function quoteExists(id: string) {
+  if (readWorkspaceHub().quotations.some((q) => q.id === id)) return true
+  if (!isSupabaseAdminConfigured()) return false
+  try {
+    const { data } = await getSupabaseAdmin()
+      .from("quotations")
+      .select("id")
+      .eq("id", id)
+      .maybeSingle()
+    return Boolean(data)
+  } catch {
+    return false
+  }
 }
 
 function patchQuoteHistory(
@@ -52,10 +70,17 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params
-  if (!quoteExists(id)) {
+  if (!(await quoteExists(id))) {
     return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 })
   }
-  return NextResponse.json({ ok: true, photos: listVisitPhotoMeta(id) })
+  const mem = listVisitPhotoMeta(id)
+  const db = await listVisitPhotosFromSupabase(id)
+  const byId = new Map<string, VisitPhoto>()
+  for (const p of [...db, ...mem]) byId.set(p.id, p)
+  return NextResponse.json({
+    ok: true,
+    photos: Array.from(byId.values()).sort((a, b) => a.takenAt.localeCompare(b.takenAt)),
+  })
 }
 
 /** POST /api/quotes/:id/photos — recibe JPEG/WebP ya comprimido + miniatura. */
@@ -64,7 +89,7 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params
-  if (!quoteExists(id)) {
+  if (!(await quoteExists(id))) {
     return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 })
   }
 
@@ -115,6 +140,15 @@ export async function POST(
     return NextResponse.json({ ok: false, error: stored.error }, { status: stored.status })
   }
 
+  const persisted = await persistVisitPhotoToSupabase({
+    photo: stored.photo,
+    bytes,
+    thumbBytes,
+  })
+  if (!persisted.ok) {
+    return NextResponse.json({ ok: false, error: persisted.error }, { status: 500 })
+  }
+
   patchQuoteHistory(id, uploadedBy, "Agregó foto de visita")
   return NextResponse.json({ ok: true, photo: stored.photo, max: VISIT_PHOTO_MAX })
 }
@@ -126,5 +160,6 @@ export async function DELETE(
 ) {
   const { id } = await ctx.params
   const n = deleteStoredVisitPhotosForQuote(id)
+  await deleteAllVisitPhotosFromSupabase(id)
   return NextResponse.json({ ok: true, deleted: n })
 }

@@ -76,10 +76,17 @@ export function writeWorkspaceHub(input: {
       ...d,
       colorId: normalizeDepartmentColorId(d.colorId),
     })),
-    quotations: (input.snapshot.quotations ?? []).map((q) => ({
-      ...q,
-      departments: quotationDepartments(q),
-    })),
+    quotations:
+      (input.snapshot.quotations ?? []).length === 0 && hub.snapshot.quotations.length > 0
+        ? hub.snapshot.quotations
+        : (input.snapshot.quotations ?? []).map((q) => ({
+            ...q,
+            departments: quotationDepartments(q),
+          })),
+    projects:
+      (input.snapshot.projects ?? []).length === 0 && hub.snapshot.projects.length > 0
+        ? hub.snapshot.projects
+        : (input.snapshot.projects ?? []),
   }
   const merged = mergeWorkspaces(hub.snapshot, incoming)
   const rev = Math.max(merged.rev, incoming.rev, Date.now())

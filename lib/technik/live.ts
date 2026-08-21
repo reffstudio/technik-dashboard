@@ -284,6 +284,48 @@ export function mergeWorkspaces(
   }
 }
 
+export function adoptByKey<T>(
+  local: T[],
+  incoming: T[],
+  keyOf: (item: T) => string,
+  prefer: (a: T, b: T) => T,
+): T[] {
+  if (!incoming.length) return local
+  if (!local.length) return incoming
+  const map = new Map<string, T>()
+  for (const item of local) map.set(keyOf(item), item)
+  for (const item of incoming) {
+    const key = keyOf(item)
+    const prev = map.get(key)
+    map.set(key, prev ? prefer(prev, item) : item)
+  }
+  return Array.from(map.values())
+}
+
+/**
+ * Une listas por id. Una lista vacía nunca borra la otra: un deploy
+ * reinicia el hub en memoria y no puede vaciar cotizaciones locales/DB.
+ */
+export function adoptById<T extends { id: string }>(
+  local: T[],
+  incoming: T[],
+  prefer: (a: T, b: T) => T,
+): T[] {
+  return adoptByKey(local, incoming, (item) => item.id, prefer)
+}
+
+export function adoptQuotations(
+  local: Quotation[],
+  incoming: Quotation[],
+  inboxEvents?: InboxEvent[],
+): Quotation[] {
+  return promoteInboxQueuedDrafts(adoptById(local, incoming, preferQuote), inboxEvents)
+}
+
+export function adoptProjects(local: Project[], incoming: Project[]): Project[] {
+  return adoptById(local, incoming, preferByUpdatedAt)
+}
+
 function mergeTreasuryMonths(
   stored: TreasuryMonth[] | undefined,
   incoming: TreasuryMonth[] | undefined,

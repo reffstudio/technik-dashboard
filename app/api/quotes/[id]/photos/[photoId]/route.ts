@@ -5,6 +5,10 @@ import {
   deleteStoredVisitPhoto,
   getStoredVisitPhoto,
 } from "@/lib/technik/visit-photos-hub"
+import {
+  deleteVisitPhotoFromSupabase,
+  readVisitPhotoFromSupabase,
+} from "@/lib/technik/visit-photos-supabase"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -45,17 +49,29 @@ export async function GET(
 ) {
   const { id, photoId } = await ctx.params
   const row = getStoredVisitPhoto(id, photoId)
-  if (!row) {
-    return NextResponse.json({ ok: false, error: "Foto no encontrada" }, { status: 404 })
+  if (row) {
+    const thumb = new URL(req.url).searchParams.get("thumb") === "1"
+    const body = thumb ? row.thumbBytes : row.bytes
+    const mime = thumb ? "image/jpeg" : row.meta.mime
+    return new NextResponse(new Uint8Array(body), {
+      status: 200,
+      headers: {
+        "Content-Type": mime,
+        "Content-Length": String(body.length),
+        "Cache-Control": CACHE,
+      },
+    })
   }
   const thumb = new URL(req.url).searchParams.get("thumb") === "1"
-  const body = thumb ? row.thumbBytes : row.bytes
-  const mime = thumb ? "image/jpeg" : row.meta.mime
-  return new NextResponse(new Uint8Array(body), {
+  const stored = await readVisitPhotoFromSupabase(id, photoId, thumb)
+  if (!stored) {
+    return NextResponse.json({ ok: false, error: "Foto no encontrada" }, { status: 404 })
+  }
+  return new NextResponse(new Uint8Array(stored.bytes), {
     status: 200,
     headers: {
-      "Content-Type": mime,
-      "Content-Length": String(body.length),
+      "Content-Type": stored.mime,
+      "Content-Length": String(stored.bytes.length),
       "Cache-Control": CACHE,
     },
   })
@@ -67,10 +83,11 @@ export async function DELETE(
 ) {
   const { id, photoId } = await ctx.params
   const row = getStoredVisitPhoto(id, photoId)
-  if (!row) {
-    return NextResponse.json({ ok: false, error: "Foto no encontrada" }, { status: 404 })
-  }
   deleteStoredVisitPhoto(id, photoId)
+  await deleteVisitPhotoFromSupabase(id, photoId)
+  if (!row) {
+    return NextResponse.json({ ok: true })
+  }
   patchQuoteHistory(id, row.meta.uploadedBy || "Usuario", "Eliminó foto de visita")
   return NextResponse.json({ ok: true })
 }

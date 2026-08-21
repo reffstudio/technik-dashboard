@@ -78,7 +78,10 @@ export function putVisitPhoto(input: {
     }
   }
 
-  const id = `vp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `vp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
   const takenAt = new Date().toISOString()
   const meta: VisitPhoto = {
     id,
