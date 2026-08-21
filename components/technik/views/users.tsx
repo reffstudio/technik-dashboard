@@ -24,7 +24,7 @@ function matchesQuery(u: User, q: string, deptLabel: string) {
 }
 
 export function UsersView() {
-  const { users, departments, user: current, inviteUser, updateUser, upsertUser, deleteUser } = useTechnik()
+  const { users, departments, user: current, inviteUser, updateUser, upsertUser, deleteUser, refreshUsers } = useTechnik()
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
@@ -51,6 +51,11 @@ export function UsersView() {
       return { ...f, department: first }
     })
   }, [departments])
+
+  useEffect(() => {
+    if (users.length > 0) return
+    void refreshUsers()
+  }, [users.length, refreshUsers])
 
   const { activeUsers, pendingInvites } = useMemo(() => {
     const q = query.trim().toLowerCase()

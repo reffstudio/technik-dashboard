@@ -162,6 +162,7 @@ interface TechnikState {
   logout: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ ok: true } | { ok: false; error: string }>
   completePasswordSetup: (password: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  refreshUsers: () => Promise<void>
   // users
   inviteUser: (input: {
     name: string
@@ -403,6 +404,8 @@ export function TechnikProvider({
   const authHydrateGen = useRef(0)
   const rosterReadyForAuthId = useRef<string | null>(null)
   const logoutIntentRef = useRef(false)
+  const hydrateInFlight = useRef<Promise<{ ok: true } | { ok: false; error: string }> | null>(null)
+  const hydrateInFlightId = useRef<string | null>(null)
 
   const workspaceRef = useRef({
     users,
@@ -928,70 +931,93 @@ export function TechnikProvider({
 
   const applyAuthUser = useCallback(async (authUserId: string, authEmail?: string | null) => {
     if (logoutIntentRef.current) return { ok: false as const, error: "Sesión cerrada." }
+    if (hydrateInFlight.current && hydrateInFlightId.current === authUserId) {
+      return hydrateInFlight.current
+    }
     const gen = ++authHydrateGen.current
-    const supabase = getSupabaseBrowser()
-    let { data, error } = await supabase
-      .from("profiles")
-      .select(PROFILE_COLUMNS)
-      .eq("id", authUserId)
-      .maybeSingle()
-    if (error && /invite_pending/i.test(error.message)) {
-      const retry = await supabase
+    hydrateInFlightId.current = authUserId
+    const run = (async () => {
+      await Promise.resolve()
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+      const supabase = getSupabaseBrowser()
+      let { data, error } = await supabase
         .from("profiles")
-        .select(PROFILE_COLUMNS_LEGACY)
-        .eq("id", authUserId)
-        .maybeSingle()
-      data = retry.data
-      error = retry.error
-    }
-    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-    if (error || !data) {
-      return {
-        ok: false as const,
-        error: "Tu usuario no tiene perfil en Technik. Pide a un admin que lo cree.",
-      }
-    }
-    let row = data as ProfileRow
-    if (!row.active) {
-      return { ok: false as const, error: "Esta cuenta está desactivada." }
-    }
-    const email = authEmail?.trim()
-    if (email && email !== row.email) {
-      const { data: synced, error: syncError } = await supabase
-        .from("profiles")
-        .update({ email })
-        .eq("id", authUserId)
         .select(PROFILE_COLUMNS)
+        .eq("id", authUserId)
         .maybeSingle()
-      if (syncError && /invite_pending/i.test(syncError.message)) {
+      if (error && /invite_pending/i.test(error.message)) {
         const retry = await supabase
+          .from("profiles")
+          .select(PROFILE_COLUMNS_LEGACY)
+          .eq("id", authUserId)
+          .maybeSingle()
+        data = retry.data
+        error = retry.error
+      }
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+      if (error || !data) {
+        return {
+          ok: false as const,
+          error: "Tu usuario no tiene perfil en Technik. Pide a un admin que lo cree.",
+        }
+      }
+      let row = data as ProfileRow
+      if (!row.active) {
+        return { ok: false as const, error: "Esta cuenta está desactivada." }
+      }
+      const email = authEmail?.trim()
+      if (email && email !== row.email) {
+        const { data: synced, error: syncError } = await supabase
           .from("profiles")
           .update({ email })
           .eq("id", authUserId)
-          .select(PROFILE_COLUMNS_LEGACY)
+          .select(PROFILE_COLUMNS)
           .maybeSingle()
-        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-        row = (retry.data as ProfileRow | null) ?? { ...row, email }
+        if (syncError && /invite_pending/i.test(syncError.message)) {
+          const retry = await supabase
+            .from("profiles")
+            .update({ email })
+            .eq("id", authUserId)
+            .select(PROFILE_COLUMNS_LEGACY)
+            .maybeSingle()
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+          row = (retry.data as ProfileRow | null) ?? { ...row, email }
+        } else {
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+          row = (synced as ProfileRow | null) ?? { ...row, email }
+        }
+      }
+      const next = userFromProfile(row)
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+      setUser(next)
+      const rosterAlreadyLoaded =
+        rosterReadyForAuthId.current === authUserId && workspaceRef.current.users.length > 0
+      if (rosterAlreadyLoaded) {
+        return { ok: true as const }
+      }
+      const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+      if (rosterRes.ok) {
+        setUsers(dedupeUsers(rosterRes.users.length > 0 ? rosterRes.users : [next]))
+        rosterReadyForAuthId.current = authUserId
       } else {
-        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-        row = (synced as ProfileRow | null) ?? { ...row, email }
+        setUsers((prev) => (prev.length > 0 ? prev : [next]))
+      }
+      if (core.departments.length > 0) setDepartments(core.departments)
+      if (core.clients.length > 0) setClients(core.clients)
+      if (core.suppliers.length > 0) setSuppliers(core.suppliers)
+      if (core.catalog.length > 0) setCatalog(core.catalog)
+      return { ok: true as const }
+    })()
+    hydrateInFlight.current = run
+    try {
+      return await run
+    } finally {
+      if (hydrateInFlightId.current === authUserId) {
+        hydrateInFlight.current = null
+        hydrateInFlightId.current = null
       }
     }
-    const next = userFromProfile(row)
-    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-    setUser(next)
-    if (rosterReadyForAuthId.current === authUserId) {
-      return { ok: true as const }
-    }
-    const [roster, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
-    if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-    rosterReadyForAuthId.current = authUserId
-    setUsers(dedupeUsers(roster.length > 0 ? roster : [next]))
-    setDepartments(core.departments)
-    setClients(core.clients)
-    setSuppliers(core.suppliers)
-    setCatalog(core.catalog)
-    return { ok: true as const }
   }, [])
 
   useEffect(() => {
@@ -1032,6 +1058,8 @@ export function TechnikProvider({
         setUser(null)
         if (!capturePasswordSetupHintFromLocation()) setMustSetPassword(false)
         rosterReadyForAuthId.current = null
+        hydrateInFlight.current = null
+        hydrateInFlightId.current = null
         return
       }
       if (logoutIntentRef.current) return
@@ -1086,6 +1114,8 @@ export function TechnikProvider({
     setMustSetPassword(false)
     rosterReadyForAuthId.current = null
     authHydrateGen.current += 1
+    hydrateInFlight.current = null
+    hydrateInFlightId.current = null
     clearPasswordSetupHint()
     if (!isSupabaseConfigured()) return
     const supabase = getSupabaseBrowser()
@@ -1182,7 +1212,6 @@ export function TechnikProvider({
         if (!json || !json.ok) {
           return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo invitar." }
         }
-        authHydrateGen.current += 1
         const invited: User = {
           id: input.username,
           authId: json.id,
@@ -1199,7 +1228,7 @@ export function TechnikProvider({
         }
         setUsers((prev) => dedupeUsers([...prev, invited]))
         const roster = await loadProfiles()
-        if (roster.length > 0) setUsers(dedupeUsers(roster))
+        if (roster.ok && roster.users.length > 0) setUsers(dedupeUsers(roster.users))
         return {
           ok: true as const,
           emailed: json.emailed,
@@ -1218,6 +1247,15 @@ export function TechnikProvider({
     },
     [],
   )
+
+  const refreshUsers = useCallback(async () => {
+    if (!isSupabaseConfigured()) return
+    const roster = await loadProfiles()
+    if (roster.ok && roster.users.length > 0) {
+      setUsers(dedupeUsers(roster.users))
+      if (user?.authId) rosterReadyForAuthId.current = user.authId
+    }
+  }, [user?.authId])
 
   const deleteUser = useCallback(async (authId: string) => {
     const supabase = getSupabaseBrowser()
@@ -2486,6 +2524,7 @@ export function TechnikProvider({
       logout,
       requestPasswordReset,
       completePasswordSetup,
+      refreshUsers,
       inviteUser,
       deleteUser,
       upsertUser,
@@ -2565,6 +2604,7 @@ export function TechnikProvider({
       logout,
       requestPasswordReset,
       completePasswordSetup,
+      refreshUsers,
       inviteUser,
       deleteUser,
       upsertUser,

@@ -18,7 +18,7 @@ function profileError(error: { code?: string; message?: string } | null): string
   return "No se pudieron guardar los cambios."
 }
 
-export async function loadProfiles(): Promise<User[]> {
+export async function loadProfiles(): Promise<{ ok: true; users: User[] } | { ok: false }> {
   const supabase = getSupabaseBrowser()
   let { data, error } = await supabase.from("profiles").select(PROFILE_COLUMNS).order("name")
   if (error && /invite_pending/i.test(error.message)) {
@@ -26,8 +26,8 @@ export async function loadProfiles(): Promise<User[]> {
     data = retry.data
     error = retry.error
   }
-  if (error || !data) return []
-  return (data as ProfileRow[]).map(userFromProfile)
+  if (error || !data) return { ok: false }
+  return { ok: true, users: (data as ProfileRow[]).map(userFromProfile) }
 }
 
 async function updateProfileAndRead(authId: string, body: Record<string, unknown>) {
