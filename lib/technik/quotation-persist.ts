@@ -99,6 +99,17 @@ function authorOf(createdBy: string, users: User[]) {
   return { createdBy: "Colaborador", createdById: createdBy }
 }
 
+function persistErrorMessage(error: { code?: string; message?: string }) {
+  const msg = error.message ?? ""
+  if (error.code === "42501" || /row-level security/i.test(msg)) {
+    return "No tienes permiso para guardar esta cotización."
+  }
+  if (error.code === "23503") {
+    return "Falta el cliente o un ítem de catálogo en el servidor."
+  }
+  return msg || "No se pudo guardar la cotización."
+}
+
 function eventKey(at: string, action: string) {
   return activityEventKey(at, action)
 }
@@ -339,43 +350,47 @@ export async function loadQuotations(users: User[]): Promise<
 
 async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
   const supabase = getSupabaseBrowser()
+  const linesLocked =
+    q.status === "approved" || q.status === "closed" || Boolean(q.clientSentAt)
 
-  const { error: delLines } = await supabase.from("quotation_lines").delete().eq("quotation_id", q.id)
-  if (delLines) return { ok: false as const, error: delLines.message }
-  const lineRows = q.lines
-    .filter((l) => l.itemId && l.quantity > 0)
-    .map((l, i) => ({
-      quotation_id: q.id,
-      catalog_item_id: l.itemId,
-      quantity: l.quantity,
-      unit_price: l.unitPrice ?? null,
-      sort_order: i,
-    }))
-  if (lineRows.length > 0) {
-    const { error } = await supabase.from("quotation_lines").insert(lineRows)
-    if (error) return { ok: false as const, error: error.message }
-  }
-
-  if (isAdmin) {
-    await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
-    const publicRows: Record<string, unknown>[] = []
-    for (const [i, item] of (q.publicItems ?? []).entries()) {
-      const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
-      const row: Record<string, unknown> = {
+  if (!linesLocked) {
+    const { error: delLines } = await supabase.from("quotation_lines").delete().eq("quotation_id", q.id)
+    if (delLines) return { ok: false as const, error: persistErrorMessage(delLines) }
+    const lineRows = q.lines
+      .filter((l) => l.itemId && l.quantity > 0)
+      .map((l, i) => ({
         quotation_id: q.id,
-        quantity: item.quantity,
-        title: item.title,
-        description: item.description ?? "",
-        unit_price: item.unitPrice ?? 0,
-        image_path: image,
+        catalog_item_id: l.itemId,
+        quantity: l.quantity,
+        unit_price: l.unitPrice ?? null,
         sort_order: i,
-      }
-      if (isUuid(item.id)) row.id = item.id
-      publicRows.push(row)
+      }))
+    if (lineRows.length > 0) {
+      const { error } = await supabase.from("quotation_lines").insert(lineRows)
+      if (error) return { ok: false as const, error: persistErrorMessage(error) }
     }
-    if (publicRows.length > 0) {
-      const { error } = await supabase.from("quotation_public_items").insert(publicRows)
-      if (error) return { ok: false as const, error: error.message }
+
+    if (isAdmin) {
+      await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
+      const publicRows: Record<string, unknown>[] = []
+      for (const [i, item] of (q.publicItems ?? []).entries()) {
+        const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
+        const row: Record<string, unknown> = {
+          quotation_id: q.id,
+          quantity: item.quantity,
+          title: item.title,
+          description: item.description ?? "",
+          unit_price: item.unitPrice ?? 0,
+          image_path: image,
+          sort_order: i,
+        }
+        if (isUuid(item.id)) row.id = item.id
+        publicRows.push(row)
+      }
+      if (publicRows.length > 0) {
+        const { error } = await supabase.from("quotation_public_items").insert(publicRows)
+        if (error) return { ok: false as const, error: persistErrorMessage(error) }
+      }
     }
   }
 
@@ -465,26 +480,27 @@ export async function persistQuotation(
     return { ok: false, error: "No se pudo subir la foto de portada. Revisa Storage quote-images." }
   }
 
-  let { error } = await supabase.from("quotations").upsert(row)
+  const writeQuote = (payload: Record<string, unknown>) => {
+    if (existing) {
+      const { id: _id, created_by: _createdBy, ...updates } = payload
+      return supabase.from("quotations").update(updates).eq("id", q.id)
+    }
+    return supabase.from("quotations").insert(payload)
+  }
+
+  let { error } = await writeQuote(row)
   if (error && /cover_image_path/i.test(error.message)) {
     delete row.cover_image_path
-    const retry = await supabase.from("quotations").upsert(row)
+    const retry = await writeQuote(row)
     error = retry.error
   }
   if (error && /deleted_at/i.test(error.message)) {
     delete row.deleted_at
-    const retry = await supabase.from("quotations").upsert(row)
+    const retry = await writeQuote(row)
     error = retry.error
   }
   if (error) {
-    const msg = error.message ?? ""
-    if (error.code === "42501" || /row-level security/i.test(msg)) {
-      return { ok: false, error: "No tienes permiso para guardar esta cotización." }
-    }
-    if (error.code === "23503") {
-      return { ok: false, error: "Falta el cliente o un ítem de catálogo en el servidor." }
-    }
-    return { ok: false, error: msg || "No se pudo guardar la cotización." }
+    return { ok: false, error: persistErrorMessage(error) }
   }
 
   const children = await persistChildren(q, ctx.users, ctx.isAdmin)

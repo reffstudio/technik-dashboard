@@ -403,11 +403,14 @@ export function quotationCoverUrl(q: Pick<Quotation, "coverImageUrl">) {
   return q.coverImageUrl
 }
 
+/** Foto de fondo del pill de resumen — portada por defecto si no hay imagen. */
+export const DEFAULT_COVER_IMAGE = "/brand/overview-hero.png"
+
 export function projectCoverUrl(
   project: Pick<Project, "coverImageUrl">,
   quote?: Pick<Quotation, "coverImageUrl">,
 ) {
-  return project.coverImageUrl || quote?.coverImageUrl
+  return project.coverImageUrl || quote?.coverImageUrl || DEFAULT_COVER_IMAGE
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -650,13 +653,37 @@ export const STATUS_META: Record<QuoteStatus, { label: string; tone: string; ico
   closed: { label: "Rechazada", tone: "loss", icon: "rejected" },
 }
 
-/** Orden del pipeline único de cotización. */
-export const QUOTE_PIPELINE_STATUSES: QuoteStatus[] = [
+/** Pasos visibles del pipeline (incluye envío al cliente, derivado de `clientSentAt`). */
+export type QuotePipelineStatus = QuoteStatus | "sent_client"
+
+export const PIPELINE_STATUS_META: Record<
+  QuotePipelineStatus,
+  { label: string; tone: string; icon: StatusIconId }
+> = {
+  draft: STATUS_META.draft,
+  pending_review: STATUS_META.pending_review,
+  sent_client: { label: "Enviada al cliente", tone: "gain", icon: "sent" },
+  approved: STATUS_META.approved,
+  closed: STATUS_META.closed,
+}
+
+export const QUOTE_PIPELINE_STATUSES: QuotePipelineStatus[] = [
   "draft",
   "pending_review",
+  "sent_client",
   "approved",
   "closed",
 ]
+
+export function quotePipelineStatus(
+  q: Pick<Quotation, "status" | "clientSentAt">,
+): QuotePipelineStatus {
+  if (q.status === "draft") return "draft"
+  if (q.status === "approved") return "approved"
+  if (q.status === "closed") return "closed"
+  if (q.clientSentAt) return "sent_client"
+  return "pending_review"
+}
 
 export function isQuotationCreator(
   user: Pick<User, "id" | "authId"> | null | undefined,

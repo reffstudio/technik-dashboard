@@ -2415,17 +2415,10 @@ export function TechnikProvider({
       const nextDelivered =
         patch.deliveredAt !== undefined ? patch.deliveredAt : current.deliveredAt
       const nextNotes = patch.notes !== undefined ? patch.notes : current.notes
-      const changed =
-        (patch.dueDate !== undefined &&
-          (patch.dueDate || undefined) !== (current.dueDate || undefined)) ||
-        (patch.deliveredAt !== undefined &&
-          (patch.deliveredAt || undefined) !== (current.deliveredAt || undefined)) ||
-        (patch.notes !== undefined &&
-          (patch.notes || undefined) !== (current.notes || undefined)) ||
-        (patch.stage !== undefined && patch.stage !== current.stage) ||
-        (patch.paymentMode !== undefined && patch.paymentMode !== current.paymentMode) ||
-        (patch.title !== undefined && patch.title !== current.title) ||
-        (patch.totalDue !== undefined && patch.totalDue !== current.totalDue)
+      const changed = (Object.keys(patch) as (keyof Project)[]).some((key) => {
+        if (key === "history" || key === "updatedAt") return false
+        return patch[key] !== current[key]
+      })
 
       if (!changed) return
 

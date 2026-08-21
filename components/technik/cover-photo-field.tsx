@@ -37,13 +37,13 @@ export function CoverPhotoField({
         {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
       </div>
       {imageUrl ? (
-        <div className="relative overflow-hidden rounded-xl border border-border bg-muted/30">
+        <div className="overflow-hidden rounded-xl border border-border bg-muted/30">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageUrl} alt="" className="h-36 w-full object-cover sm:h-44" />
           {!disabled && (
-            <div className="absolute inset-x-0 bottom-0 flex gap-2 p-2 bg-gradient-to-t from-black/55 to-transparent">
-              <label className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-foreground cursor-pointer">
-                <ImagePlus className="size-3.5" />
+            <div className="flex gap-2 border-t border-border bg-card p-2">
+              <label className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground cursor-pointer hover:bg-accent hover:border-primary/40 transition-colors">
+                <ImagePlus className="size-3.5 text-primary" />
                 Cambiar
                 <input
                   type="file"
@@ -55,7 +55,7 @@ export function CoverPhotoField({
               <button
                 type="button"
                 onClick={() => onChange(undefined)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-destructive"
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-destructive/25 bg-background px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <Trash2 className="size-3.5" />
                 Quitar

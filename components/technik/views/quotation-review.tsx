@@ -36,7 +36,7 @@ import {
   type PublicQuoteItem,
   type Quotation,
   type QuoteLine,
-  type QuoteStatus,
+  type QuotePipelineStatus,
   type Supplier,
   type SupplierChannel,
 } from "@/lib/technik/data"
@@ -674,14 +674,25 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     })
   }
 
-  function onPipelineApplied(status: QuoteStatus, extra?: { projectId?: string; error?: string; projectCreated?: boolean }) {
+  function onPipelineApplied(
+    status: QuotePipelineStatus,
+    extra?: { projectId?: string; error?: string; projectCreated?: boolean },
+  ) {
     if (extra?.error) {
       setToast({ icon: XCircle, title: "No permitido", msg: extra.error })
       return
     }
+    if (status === "sent_client") {
+      setToast({
+        icon: CheckCircle2,
+        title: "Enviada al cliente",
+        msg: "La cotización quedó marcada como enviada.",
+      })
+      return
+    }
     if (status === "approved") {
       const projectId = extra?.projectId
-          if (projectId && extra?.projectCreated) {
+      if (projectId && extra?.projectCreated) {
         setToast({
           icon: CheckCircle2,
           title: "Proyecto creado",
@@ -738,31 +749,35 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
             <ArrowLeft className="size-3.5" />
             Volver
           </button>
-          <div className="rounded-2xl border border-border/80 bg-card/90 px-3.5 py-3 flex flex-col gap-3">
-            <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+          <div className="rounded-2xl border border-border/70 bg-card/90 px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-mono text-primary truncate">{q.reference}</p>
                 <h1 className="text-lg lg:text-xl font-bold text-foreground tracking-tight font-display truncate">
                   {q.title}
                 </h1>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                  <span className="font-mono text-[11px] font-semibold text-primary">{q.reference}</span>
                   {client?.company && (
-                    <p className="text-xs text-muted-foreground truncate">{client.company}</p>
+                    <>
+                      <span className="text-border">·</span>
+                      <span className="truncate text-foreground/75">{client.company}</span>
+                    </>
                   )}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <DepartmentBadges quotation={q} />
+                  <QuoteAuthor quotation={q} layout="inline" />
                 </div>
               </div>
-              <div className="hidden lg:block w-px self-stretch bg-border/80" />
-              <QuoteAuthor quotation={q} layout="hero" className="shrink-0" />
-              <div className="hidden lg:block w-px self-stretch bg-border/80" />
               <QuotePipelineControls
                 quotation={q}
-                className="shrink-0 lg:max-w-[22rem]"
+                align="end"
+                className="shrink-0 lg:max-w-[26rem]"
                 onApplied={onPipelineApplied}
               />
             </div>
             {isAdmin && (
-              <label className="block min-w-0">
+              <label className="mt-3 block min-w-0">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Notas internas
                 </span>

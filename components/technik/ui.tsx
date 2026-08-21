@@ -30,12 +30,15 @@ import {
   isQuotationCreator,
   quotationDepartments,
   outboundSendStatus,
+  PIPELINE_STATUS_META,
   QUOTE_PIPELINE_STATUSES,
+  quotePipelineStatus,
   STATUS_META,
   type BillingStatus,
   type ClientResponse,
   type ProjectStage,
   type Quotation,
+  type QuotePipelineStatus,
   type QuoteStatus,
   type StatusIconId,
   type User,
@@ -164,10 +167,12 @@ export function ClientResponseBadge({
 const pipelineSelectCls =
   "w-full rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:border-primary/60"
 
-const PIPELINE_CHIP: Record<QuoteStatus, string> = {
+const PIPELINE_CHIP: Record<QuotePipelineStatus, string> = {
   draft: "data-[on=true]:bg-muted data-[on=true]:text-foreground data-[on=true]:border-border",
   pending_review:
     "data-[on=true]:bg-chart-3/15 data-[on=true]:text-chart-3 data-[on=true]:border-chart-3/35",
+  sent_client:
+    "data-[on=true]:bg-fin-gain/15 data-[on=true]:text-fin-gain data-[on=true]:border-fin-gain/35",
   approved:
     "data-[on=true]:bg-chart-2/15 data-[on=true]:text-chart-2 data-[on=true]:border-chart-2/35",
   closed:
@@ -175,7 +180,7 @@ const PIPELINE_CHIP: Record<QuoteStatus, string> = {
 }
 
 function pipelineCanPick(
-  status: QuoteStatus,
+  status: QuotePipelineStatus,
   user: User | null | undefined,
   quotation: Quotation,
 ): boolean {
@@ -186,30 +191,44 @@ function pipelineCanPick(
   return admin
 }
 
-function pipelineVisibleStatuses(user: User | null | undefined, quotation: Quotation): QuoteStatus[] {
+function pipelineVisibleStatuses(
+  user: User | null | undefined,
+  quotation: Quotation,
+): QuotePipelineStatus[] {
+  const current = quotePipelineStatus(quotation)
   return QUOTE_PIPELINE_STATUSES.filter(
-    (status) => status === quotation.status || pipelineCanPick(status, user, quotation),
+    (status) => status === current || pipelineCanPick(status, user, quotation),
   )
 }
 
-/** Una sola lista de estado: Borrador / En revisión / Aprobada / Rechazada. */
+function todayStamp() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Una sola lista: Borrador / En revisión / Enviada al cliente / Aprobada / Rechazada. */
 export function QuotePipelineControls({
   quotation,
   compact = false,
+  align = "start",
   className = "",
   onApplied,
 }: {
   quotation: Quotation
   compact?: boolean
+  align?: "start" | "end"
   className?: string
-  onApplied?: (status: QuoteStatus, extra?: { projectId?: string; error?: string; projectCreated?: boolean }) => void
+  onApplied?: (
+    status: QuotePipelineStatus,
+    extra?: { projectId?: string; error?: string; projectCreated?: boolean },
+  ) => void
 }) {
-  const { user, setStatus, setClientResponse, updateQuotation, projectByQuotationId, submitForReview } = useTechnik()
+  const { user, updateQuotation, setClientResponse, projectByQuotationId } = useTechnik()
+  const current = quotePipelineStatus(quotation)
   const options = pipelineVisibleStatuses(user, quotation)
-  const canChange = options.some((status) => status !== quotation.status && pipelineCanPick(status, user, quotation))
+  const canChange = options.some((status) => status !== current && pipelineCanPick(status, user, quotation))
 
-  function apply(next: QuoteStatus) {
-    if (next === quotation.status) return
+  function apply(next: QuotePipelineStatus) {
+    if (next === current) return
     if (!pipelineCanPick(next, user, quotation)) return
     if (next === "approved") {
       const existed = Boolean(projectByQuotationId(quotation.id))
@@ -234,17 +253,37 @@ export function QuotePipelineControls({
       onApplied?.("closed")
       return
     }
+    if (next === "sent_client") {
+      updateQuotation(
+        quotation.id,
+        {
+          status: "pending_review",
+          clientSentAt: quotation.clientSentAt || todayStamp(),
+        },
+        "Marcó enviada al cliente",
+      )
+      onApplied?.("sent_client")
+      return
+    }
     if (next === "pending_review") {
-      submitForReview(quotation.id)
+      updateQuotation(
+        quotation.id,
+        { status: "pending_review", clientSentAt: undefined },
+        "Envió a revisión",
+      )
       onApplied?.(next)
       return
     }
-    setStatus(quotation.id, next, `Estado → ${STATUS_META[next].label}`)
+    updateQuotation(
+      quotation.id,
+      { status: "draft", clientSentAt: undefined },
+      `Estado → ${PIPELINE_STATUS_META.draft.label}`,
+    )
     onApplied?.(next)
   }
 
   if (!canChange) {
-    const meta = STATUS_META[quotation.status]
+    const meta = PIPELINE_STATUS_META[current]
     return (
       <div className={className} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
         <ToneBadge label={meta.label} tone={meta.tone} icon={meta.icon} />
@@ -255,19 +294,23 @@ export function QuotePipelineControls({
   if (compact) {
     return (
       <div
-        className={`min-w-[9.5rem] ${className}`}
+        className={`min-w-[11rem] ${className}`}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <select
           aria-label="Estado de la cotización"
           className={pipelineSelectCls}
-          value={quotation.status}
-          onChange={(e) => apply(e.target.value as QuoteStatus)}
+          value={current}
+          onChange={(e) => apply(e.target.value as QuotePipelineStatus)}
         >
           {options.map((status) => (
-            <option key={status} value={status} disabled={!pipelineCanPick(status, user, quotation) && status !== quotation.status}>
-              {STATUS_META[status].label}
+            <option
+              key={status}
+              value={status}
+              disabled={!pipelineCanPick(status, user, quotation) && status !== current}
+            >
+              {PIPELINE_STATUS_META[status].label}
             </option>
           ))}
         </select>
@@ -277,16 +320,20 @@ export function QuotePipelineControls({
 
   return (
     <div
-      className={`flex flex-col gap-1 min-w-0 ${className}`}
+      className={`flex flex-col gap-1 min-w-0 ${align === "end" ? "lg:items-end" : ""} ${className}`}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         Estado
       </span>
-      <div className="flex flex-wrap gap-0.5 rounded-full border border-border/70 bg-muted/40 p-0.5">
+      <div
+        className={`flex flex-wrap gap-0.5 rounded-2xl border border-border/70 bg-muted/35 p-1 ${
+          align === "end" ? "lg:justify-end" : ""
+        }`}
+      >
         {options.map((status) => {
-          const on = quotation.status === status
+          const on = current === status
           const allowed = on || pipelineCanPick(status, user, quotation)
           return (
             <button
@@ -295,11 +342,11 @@ export function QuotePipelineControls({
               disabled={!allowed}
               data-on={on}
               onClick={() => apply(status)}
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-40 ${PIPELINE_CHIP[status]} ${
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap transition-colors disabled:opacity-40 ${PIPELINE_CHIP[status]} ${
                 on ? "" : "border-transparent bg-transparent text-muted-foreground hover:bg-background/80 hover:text-foreground"
               }`}
             >
-              {STATUS_META[status].label}
+              {PIPELINE_STATUS_META[status].label}
             </button>
           )
         })}
@@ -565,7 +612,7 @@ export function QuoteAuthor({
   className = "",
 }: {
   quotation: Pick<Quotation, "createdBy" | "createdById">
-  layout?: "pill" | "row" | "hero" | "avatar" | "name"
+  layout?: "pill" | "row" | "hero" | "avatar" | "name" | "inline"
   className?: string
 }) {
   const { users, user: viewer } = useTechnik()
@@ -593,6 +640,16 @@ export function QuoteAuthor({
           <p className="text-sm font-bold text-foreground truncate">{name}</p>
         </div>
       </div>
+    )
+  }
+
+  if (layout === "inline") {
+    return (
+      <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}>
+        <UserAvatar user={author} size="xs" />
+        <span className="text-xs font-semibold text-foreground truncate">{name}</span>
+        <span className="text-[10px] text-muted-foreground truncate">· {caption}</span>
+      </span>
     )
   }
 

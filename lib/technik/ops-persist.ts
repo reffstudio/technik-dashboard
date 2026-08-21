@@ -13,6 +13,7 @@ import type {
 } from "./data"
 import { normalizeApartadoMovement, normalizeProject, normalizeTreasurySeparado } from "./data"
 import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl } from "./cover-image"
+import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
 
 function num(value: number | string | null | undefined, fallback = 0) {
