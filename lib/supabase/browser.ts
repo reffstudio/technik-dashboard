@@ -62,9 +62,6 @@ export async function establishAuthSessionFromUrl(): Promise<boolean> {
   if (establishing) return establishing
   establishing = (async () => {
     const supabase = getSupabaseBrowser()
-    const existing = (await supabase.auth.getSession()).data.session
-    if (existing?.user) return true
-
     const { search, hash } = readCapturedAuthCallback()
     const query = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search)
     const hashQuery = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash)
@@ -83,6 +80,9 @@ export async function establishAuthSessionFromUrl(): Promise<boolean> {
         return true
       }
     }
+
+    const existing = (await supabase.auth.getSession()).data.session
+    if (existing?.user && !tokenHash && !code && !accessToken) return true
 
     if (accessToken && refreshToken) {
       const { error } = await supabase.auth.setSession({

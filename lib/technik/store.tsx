@@ -169,7 +169,6 @@ interface TechnikState {
     username: string
     role: Role
     department: string
-    location: string
   }) => Promise<
     { ok: true; emailed?: boolean; inviteLink?: string; mailError?: string } | { ok: false; error: string }
   >
@@ -1005,11 +1004,10 @@ export function TechnikProvider({
     if (capturePasswordSetupHintFromLocation()) setMustSetPassword(true)
 
     function gatePassword(event: string | undefined, authUser: { user_metadata?: Record<string, unknown> } | null | undefined) {
-      return (
-        event === "PASSWORD_RECOVERY" ||
-        userMustSetPassword(authUser) ||
-        capturePasswordSetupHintFromLocation()
-      )
+      if (userMustSetPassword(authUser)) return true
+      if (event === "PASSWORD_RECOVERY") return true
+      if (authUser) return false
+      return capturePasswordSetupHintFromLocation()
     }
 
     void supabase.auth.getSession().then(async ({ data }) => {
@@ -1133,20 +1131,22 @@ export function TechnikProvider({
       }
       const { error } = await supabase.auth.updateUser({
         password,
-        data: { must_set_password: false },
+        data: { ...(session.user.user_metadata ?? {}), must_set_password: false },
       })
       if (error) {
         return { ok: false as const, error: error.message || "No se pudo guardar la contraseña." }
       }
+      await supabase.auth.refreshSession().catch(() => null)
       await supabase.from("profiles").update({ invite_pending: false }).eq("id", session.user.id)
+      authHydrateGen.current += 1
       clearPasswordSetupHint()
       setMustSetPassword(false)
-      const applied = await applyAuthUser(session.user.id, session.user.email)
-      if (!applied.ok) return applied
-      if (typeof window !== "undefined") window.location.replace("/")
+      if (typeof window !== "undefined") {
+        window.location.replace("/")
+      }
       return { ok: true as const }
     },
-    [applyAuthUser],
+    [],
   )
 
   const inviteUser = useCallback(
@@ -1156,7 +1156,6 @@ export function TechnikProvider({
       username: string
       role: Role
       department: string
-      location: string
     }) => {
       const supabase = getSupabaseBrowser()
       let { data } = await supabase.auth.getSession()
@@ -1193,7 +1192,7 @@ export function TechnikProvider({
           role: input.role,
           password: "",
           department: input.department,
-          location: input.location,
+          location: "",
           since: new Date().getFullYear().toString(),
           active: true,
           invitePending: true,
@@ -2300,6 +2299,12 @@ export function TechnikProvider({
 
   const addCatalogItem = useCallback(
     async (item: Omit<CatalogItem, "id"> & { id?: string }) => {
+      if (user?.role === "empleado" && item.kind !== "extra") {
+        return {
+          ok: false as const,
+          error: "Solo administración puede crear materiales o mano de obra.",
+        }
+      }
       const id =
         item.id ??
         nextCatalogCode(
@@ -2307,18 +2312,57 @@ export function TechnikProvider({
           item.kind,
           item.category,
         )
-      const next = { ...item, id }
+      const next: CatalogItem = {
+        ...item,
+        id,
+        unitCost: user?.role === "empleado" ? 0 : item.unitCost,
+      }
       if (catalog.some((c) => c.id === id)) {
         return { ok: false as const, error: "Ese código de catálogo ya existe." }
       }
       if (isSupabaseConfigured()) {
+        if (next.kind === "extra" && user?.role !== "admin") {
+          const supabase = getSupabaseBrowser()
+          const token = (await supabase.auth.getSession()).data.session?.access_token
+          if (!token) return { ok: false as const, error: "Sesión inválida. Cierra sesión y vuelve a entrar." }
+          try {
+            const res = await fetch("/api/catalog/extras", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                id: next.id,
+                name: next.name,
+                unit: next.unit,
+                sku: next.sku,
+                category: next.category,
+                unitCost: next.unitCost,
+              }),
+              signal: AbortSignal.timeout(20_000),
+            })
+            const json = (await res.json().catch(() => null)) as
+              | { ok: true; id: string; item?: CatalogItem }
+              | { ok: false; error: string }
+              | null
+            if (!json || !json.ok) {
+              return { ok: false as const, error: json && "error" in json ? json.error : "No se pudo crear el extra." }
+            }
+            const saved = json.item ?? { ...next, id: json.id }
+            setCatalog((prev) => [saved, ...prev])
+            return { ok: true as const, id: saved.id }
+          } catch {
+            return { ok: false as const, error: "No se pudo crear el extra." }
+          }
+        }
         const res = await persistCatalogItem(next)
         if (!res.ok) return res
       }
       setCatalog((prev) => [next, ...prev])
       return { ok: true as const, id }
     },
-    [catalog],
+    [catalog, user?.role],
   )
 
   const updateCatalogItem = useCallback(

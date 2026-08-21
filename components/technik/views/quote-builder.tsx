@@ -14,6 +14,7 @@ import {
   Check,
   StickyNote,
   ChevronDown,
+  Camera,
   X,
   Trash2,
 } from "lucide-react"
@@ -68,7 +69,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   const [lines, setLines] = useState<QuoteLine[]>(existing?.lines ?? [])
   const [clientSearch, setClientSearch] = useState("")
   const [itemSearch, setItemSearch] = useState("")
-  const [notesOpen, setNotesOpen] = useState(!!existing?.notes)
+  const [attachOpen, setAttachOpen] = useState(!!existing?.notes)
   const [clientModal, setClientModal] = useState(false)
   const [extraModal, setExtraModal] = useState(false)
   const [newClient, setNewClient] = useState(EMPTY_CLIENT)
@@ -254,6 +255,31 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
       }
       return [...prev, deptId]
     })
+  }
+
+  function ensureDraftId(): string | null {
+    if (draftId) return draftId
+    if (!canContinueClient) return null
+    if (creatingRef.current) return null
+    creatingRef.current = true
+    const newId = createQuotation({
+      clientId,
+      title: title.trim(),
+      departments: selectedDepartments,
+      lines,
+      notes,
+      submit: false,
+    })
+    lastSavedSig.current = JSON.stringify({
+      clientId,
+      title: title.trim(),
+      selectedDepartments,
+      lines,
+      notes,
+    })
+    setDraftId(newId)
+    creatingRef.current = false
+    return newId
   }
 
   async function createAndSelectClient() {
@@ -605,105 +631,84 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
         </div>
       )}
 
-      <div className="mt-4">
-        <VisitPhotosSection
-          quotationId={draftId}
-          photos={liveQuote?.visitPhotos}
-          canEdit={!sentLocked}
-          onNeedDraft={() => {
-            if (draftId) return draftId
-            if (!canContinueClient) return null
-            if (creatingRef.current) return null
-            creatingRef.current = true
-            const newId = createQuotation({
-              clientId,
-              title: title.trim(),
-              departments: selectedDepartments,
-              lines,
-              notes,
-              submit: false,
-            })
-            lastSavedSig.current = JSON.stringify({
-              clientId,
-              title: title.trim(),
-              selectedDepartments,
-              lines,
-              notes,
-            })
-            setDraftId(newId)
-            creatingRef.current = false
-            return newId
-          }}
-        />
-      </div>
-
-      {/* Sticky notes + footer */}
+      {/* Sticky: nota / fotos + siguiente */}
       <div className="fixed inset-x-0 bottom-16 sm:bottom-0 z-30 border-t border-border bg-background/95 backdrop-blur-xl">
-        <div className="mx-auto max-w-3xl px-4 pt-2">
-          <button
-            type="button"
-            onClick={() => setNotesOpen((v) => !v)}
-            className="flex w-full items-center justify-between gap-2 py-1.5 text-left"
-          >
-            <span className="inline-flex items-center gap-2 text-xs font-semibold text-foreground">
-              <StickyNote className="size-3.5 text-primary" />
-              Notas de campo
-              {notes.trim() ? (
-                <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[10px] font-bold">
-                  Con texto
-                </span>
-              ) : null}
-              {(liveQuote?.visitPhotos?.length ?? 0) > 0 ? (
-                <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[10px] font-bold">
-                  {liveQuote!.visitPhotos!.length} foto
-                  {liveQuote!.visitPhotos!.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </span>
-            <ChevronDown
-              className={`size-4 text-muted-foreground transition-transform ${notesOpen ? "rotate-180" : ""}`}
-            />
-          </button>
-          {notesOpen && (
+        {attachOpen && !sentLocked && (
+          <div className="mx-auto max-w-3xl px-4 pt-3 max-h-[46vh] overflow-y-auto border-b border-border/70">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              Agregar nota
+            </p>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              className={`${inputCls} resize-none mb-2 text-sm`}
+              className={`${inputCls} resize-none text-sm`}
               placeholder="Medidas, acuerdos con el cliente, acceso al sitio, urgencias…"
             />
-          )}
-        </div>
-        <div className="mx-auto max-w-3xl px-4 pb-3 pt-1 flex items-center gap-2.5 safe-bottom">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-3 mb-1.5">
+              Agregar fotos
+            </p>
+            <div className="pb-3">
+              <VisitPhotosSection
+                compact
+                quotationId={draftId}
+                photos={liveQuote?.visitPhotos}
+                canEdit={!sentLocked}
+                onNeedDraft={ensureDraftId}
+              />
+            </div>
+          </div>
+        )}
+        <div className="mx-auto max-w-3xl px-4 py-3 flex items-center gap-2 safe-bottom">
+          <button
+            type="button"
+            onClick={() => setAttachOpen((v) => !v)}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-3 text-xs font-semibold text-foreground hover:border-primary/40"
+            aria-expanded={attachOpen}
+            aria-label="Agregar nota o fotos"
+          >
+            <StickyNote className="size-4 text-primary" />
+            <Camera className="size-4 text-primary" />
+            <span className="hidden sm:inline">Nota / fotos</span>
+            {notes.trim() ? (
+              <span className="rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-bold">N</span>
+            ) : null}
+            {(liveQuote?.visitPhotos?.length ?? 0) > 0 ? (
+              <span className="rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-bold">
+                {liveQuote!.visitPhotos!.length}
+              </span>
+            ) : null}
+            <ChevronDown
+              className={`size-3.5 text-muted-foreground transition-transform ${attachOpen ? "rotate-180" : ""}`}
+            />
+          </button>
           {canGoBack ? (
             <button
               type="button"
               onClick={goBack}
-              className="rounded-xl border border-border px-4 py-3 text-sm font-semibold shrink-0"
+              className="rounded-xl border border-border px-3 py-3 text-sm font-semibold shrink-0"
             >
-              Regresar
+              Atrás
             </button>
-          ) : (
-            <div className="w-0 sm:w-24 shrink-0" aria-hidden />
-          )}
+          ) : null}
           {step === "review" ? (
             <button
               type="button"
               disabled={continueDisabled}
               onClick={handleSubmit}
-              className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
+              className="flex-1 min-w-0 flex items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
-              <Send className="size-4" />
-              {continueLabel}
+              <Send className="size-4 shrink-0" />
+              <span className="truncate">{continueLabel}</span>
             </button>
           ) : (
             <button
               type="button"
               disabled={continueDisabled}
               onClick={goNext}
-              className="flex-1 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
+              className="flex-1 min-w-0 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-40"
             >
-              {continueLabel}
+              <span className="truncate">{continueLabel}</span>
             </button>
           )}
         </div>

@@ -12,7 +12,6 @@ export function isPasswordSetupPath(pathname = typeof window !== "undefined" ? w
 
 export function urlAsksPasswordSetup() {
   if (typeof window === "undefined") return false
-  if (isPasswordSetupPath()) return true
   const blob = `${window.location.hash}${window.location.search}`
   return /access_token=|refresh_token=|[?&#]code=|token_hash=|type=invite|type=recovery|type=signup|type=magiclink|setup=password/.test(
     blob,
@@ -39,9 +38,9 @@ export function capturePasswordSetupHintFromLocation() {
 export function readStoredPasswordSetupHint() {
   if (typeof window === "undefined") return false
   try {
-    return sessionStorage.getItem(STORAGE_KEY) === "1" || isPasswordSetupPath()
+    return sessionStorage.getItem(STORAGE_KEY) === "1"
   } catch {
-    return isPasswordSetupPath()
+    return false
   }
 }
 

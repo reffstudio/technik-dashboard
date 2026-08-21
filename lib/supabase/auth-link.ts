@@ -14,6 +14,14 @@ export function withRedirect(actionLink: string | undefined, redirectTo: string)
   }
 }
 
+/** Enlace directo al dashboard (verifyOtp). Evita el verify PKCE de action_link de Supabase. */
+export function appAuthCallbackUrl(redirectTo: string, hashedToken: string, type: string) {
+  const url = new URL(redirectTo)
+  url.searchParams.set("token_hash", hashedToken)
+  url.searchParams.set("type", type)
+  return url.toString()
+}
+
 export async function generateAuthActionLink(input: {
   type: LinkType
   email: string
@@ -26,9 +34,14 @@ export async function generateAuthActionLink(input: {
     email: input.email,
     options: { data: input.data, redirectTo: input.redirectTo },
   })
+  const hashed = data.properties?.hashed_token
+  const verifyType = data.properties?.verification_type || input.type
+  const actionLink = hashed
+    ? appAuthCallbackUrl(input.redirectTo, hashed, verifyType)
+    : withRedirect(data.properties?.action_link, input.redirectTo)
   return {
     user: data.user ?? undefined,
-    actionLink: withRedirect(data.properties?.action_link, input.redirectTo),
+    actionLink,
     error: error?.message,
   }
 }

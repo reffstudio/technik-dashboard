@@ -20,9 +20,9 @@ function Gate({ forcePasswordSetup = false }: { forcePasswordSetup?: boolean }) 
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => setHydrated(true), [])
 
-  if (forcePasswordSetup) return <SetPasswordScreen />
-  if (!hydrated) return <Loading />
   if (mustSetPassword) return <SetPasswordScreen />
+  if (forcePasswordSetup && !authed && !authReady) return <SetPasswordScreen />
+  if (!hydrated) return forcePasswordSetup ? <SetPasswordScreen /> : <Loading />
   if (!authReady) return <Loading />
   return authed ? <AppShell /> : <LoginScreen />
 }

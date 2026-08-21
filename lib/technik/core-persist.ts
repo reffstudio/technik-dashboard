@@ -227,7 +227,19 @@ export async function persistCatalogItem(item: CatalogItem) {
     supplier_id: item.supplierId || null,
     active: true,
   })
-  if (error) return { ok: false as const, error: "No se pudo guardar el ítem de catálogo." }
+  if (error) {
+    const msg = error.message ?? ""
+    if (error.code === "42501" || /row-level security|permission denied/i.test(msg)) {
+      return {
+        ok: false as const,
+        error:
+          item.kind === "extra"
+            ? "No se pudo crear el extra. Pide a administración que active extras de campo."
+            : "Solo administración puede crear materiales o mano de obra.",
+      }
+    }
+    return { ok: false as const, error: "No se pudo guardar el ítem de catálogo." }
+  }
   return { ok: true as const }
 }
 

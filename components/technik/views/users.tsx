@@ -11,6 +11,18 @@ function rowKey(u: User) {
   return u.authId || u.id
 }
 
+function matchesQuery(u: User, q: string, deptLabel: string) {
+  if (!q) return true
+  return (
+    u.name.toLowerCase().includes(q) ||
+    u.username.toLowerCase().includes(q) ||
+    u.email.toLowerCase().includes(q) ||
+    u.id.toLowerCase().includes(q) ||
+    deptLabel.toLowerCase().includes(q) ||
+    roleLabel(u.role).toLowerCase().includes(q)
+  )
+}
+
 export function UsersView() {
   const { users, departments, user: current, inviteUser, updateUser, upsertUser, deleteUser } = useTechnik()
   const [adding, setAdding] = useState(false)
@@ -28,7 +40,6 @@ export function UsersView() {
     email: "",
     role: "empleado" as Role,
     department: "",
-    location: "",
     active: true,
   })
 
@@ -41,21 +52,16 @@ export function UsersView() {
     })
   }, [departments])
 
-  const filtered = useMemo(() => {
+  const { activeUsers, pendingInvites } = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return users
-    return users.filter((u) => {
-      const dept = (departments.find((d) => d.id === u.department)?.label ?? u.department).toLowerCase()
-      return (
-        u.name.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.id.toLowerCase().includes(q) ||
-        dept.includes(q) ||
-        (u.location ?? "").toLowerCase().includes(q) ||
-        roleLabel(u.role).toLowerCase().includes(q)
-      )
+    const visible = users.filter((u) => {
+      const dept = departments.find((d) => d.id === u.department)?.label ?? u.department
+      return matchesQuery(u, q, dept)
     })
+    return {
+      activeUsers: visible.filter((u) => !u.invitePending),
+      pendingInvites: visible.filter((u) => u.invitePending),
+    }
   }, [users, query, departments])
 
   function onNameChange(name: string) {
@@ -80,7 +86,6 @@ export function UsersView() {
       email: "",
       role: "empleado",
       department: departments[0]?.id ?? "",
-      location: "",
       active: true,
     })
     setAdding(true)
@@ -98,7 +103,6 @@ export function UsersView() {
       email: u.email,
       role: u.role,
       department: u.department || departments[0]?.id || "",
-      location: u.location,
       active: u.active,
     })
   }
@@ -132,7 +136,6 @@ export function UsersView() {
         username,
         role: form.role,
         department,
-        location: form.location.trim(),
       })
       if (!res.ok) {
         setError(res.error)
@@ -175,7 +178,6 @@ export function UsersView() {
           name,
           username,
           department,
-          location: form.location.trim(),
           active: form.active,
         })
         if (!res.ok) {
@@ -189,7 +191,6 @@ export function UsersView() {
           username,
           id: username || target.id,
           department,
-          location: form.location.trim(),
           active: form.active,
         })
       }
@@ -218,6 +219,193 @@ export function UsersView() {
   function deptLabel(id: string) {
     return departments.find((d) => d.id === id)?.label ?? id
   }
+
+  function renderUserCard(u: User) {
+    const key = rowKey(u)
+    const editing = editingId === key
+    const pending = !!u.invitePending
+    return (
+      <div key={key} className="rounded-2xl surface-card p-4">
+        <div className="flex items-center gap-4">
+          <UserAvatar user={u} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-bold">{u.name}</p>
+              <span className="font-mono text-[11px] text-primary">{formatUsername(u.username)}</span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                  u.role === "admin" ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {u.role === "admin" ? <ShieldCheck className="size-3" /> : <HardHat className="size-3" />}
+                {roleLabel(u.role)}
+              </span>
+              <DepartmentBadge department={u.department} />
+              {u.authId === current?.authId && (
+                <span className="text-[10px] font-semibold text-muted-foreground">Tú</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground truncate">
+              {u.email} · {deptLabel(u.department)}
+            </p>
+          </div>
+          <span
+            className={`shrink-0 text-right text-[11px] font-semibold ${
+              pending ? "text-chart-3" : u.active ? "text-fin-gain" : "text-muted-foreground"
+            }`}
+          >
+            {pending ? (
+              <span className="inline-flex items-center gap-1">
+                <Hourglass className="size-3" />
+                Pendiente
+              </span>
+            ) : u.active ? (
+              "Activo"
+            ) : (
+              "Inactivo"
+            )}
+            {pending && (
+              <span className="block text-[10px] font-medium text-muted-foreground">
+                Esperando contraseña
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => (editing ? setEditingId(null) : openEdit(u))}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold hover:border-primary/40"
+          >
+            {editing ? <X className="size-3.5" /> : <Pencil className="size-3.5" />}
+            {editing ? "Cerrar" : "Editar"}
+          </button>
+          {current?.role === "admin" && u.authId && u.authId !== current.authId && (
+            <button
+              type="button"
+              onClick={() => {
+                setError("")
+                setConfirmDeleteId(confirmDeleteId === u.authId ? null : u.authId ?? null)
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-3.5" />
+              {pending ? "Cancelar" : "Eliminar"}
+            </button>
+          )}
+        </div>
+
+        {editing && (
+          <div className="grid sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
+            <Field label="Nombre">
+              <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </Field>
+            <Field label="Username">
+              <div className="flex items-center gap-0 rounded-xl bg-input/60 border border-border focus-within:border-primary/60">
+                <span className="pl-3 text-sm text-muted-foreground font-mono">@</span>
+                <input
+                  className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: sanitizeUsername(e.target.value) })}
+                />
+              </div>
+            </Field>
+            <Field label="Departamento">
+              <select
+                className={inputCls}
+                value={form.department}
+                onChange={(e) => setForm({ ...form, department: e.target.value })}
+              >
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {pending ? (
+              <p className="sm:col-span-2 text-xs text-muted-foreground">
+                Esta cuenta se marcará como activa cuando la persona cree su contraseña.
+              </p>
+            ) : (
+              <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={form.active}
+                  onChange={(e) => setForm({ ...form, active: e.target.checked })}
+                />
+                Cuenta activa
+              </label>
+            )}
+            {error && (
+              <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+                {error}
+              </p>
+            )}
+            <div className="sm:col-span-2 flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitEdit()}
+                className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50"
+              >
+                <Check className="size-4" />
+                {busy ? "Guardando…" : "Guardar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingId(null)}
+                className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {confirmDeleteId && confirmDeleteId === u.authId && (
+          <div className="mt-4 pt-4 border-t border-destructive/20">
+            <p className="text-sm text-foreground mb-3">
+              {pending ? (
+                <>
+                  ¿Cancelar la invitación de <span className="font-semibold">{u.name}</span>? Se borra la cuenta
+                  pendiente y el enlace deja de servir.
+                </>
+              ) : (
+                <>
+                  ¿Eliminar definitivamente a <span className="font-semibold">{u.name}</span>? Se borra su cuenta y
+                  no podrá entrar. Las cotizaciones o proyectos que haya creado quedan a tu nombre.
+                </>
+              )}
+            </p>
+            {error && (
+              <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 mb-3">
+                {error}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitDelete(u.authId!)}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground disabled:opacity-50"
+              >
+                <Trash2 className="size-4" />
+                {busy ? "Eliminando…" : pending ? "Sí, cancelar invitación" : "Sí, eliminar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const noneMatch = activeUsers.length === 0 && pendingInvites.length === 0
 
   return (
     <div>
@@ -281,9 +469,6 @@ export function UsersView() {
               )}
             </select>
           </Field>
-          <Field label="Ubicación / equipo">
-            <input className={inputCls} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-          </Field>
           {error && adding && (
             <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
               {error}
@@ -340,199 +525,55 @@ export function UsersView() {
         className="max-w-lg mb-6"
       />
 
-      <div className="flex flex-col gap-2.5">
-        {filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center">
-            Ningún usuario coincide con la búsqueda.
-          </p>
-        ) : (
-          filtered.map((u) => {
-            const key = rowKey(u)
-            const editing = editingId === key
-            return (
-              <div key={key} className="rounded-2xl surface-card p-4">
-                <div className="flex items-center gap-4">
-                  <UserAvatar user={u} size="md" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-bold">{u.name}</p>
-                      <span className="font-mono text-[11px] text-primary">{formatUsername(u.username)}</span>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          u.role === "admin" ? "bg-primary/12 text-primary" : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {u.role === "admin" ? <ShieldCheck className="size-3" /> : <HardHat className="size-3" />}
-                        {roleLabel(u.role)}
-                      </span>
-                      <DepartmentBadge department={u.department} />
-                      {u.authId === current?.authId && (
-                        <span className="text-[10px] font-semibold text-muted-foreground">Tú</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {u.email} · {deptLabel(u.department)} · {u.location}
-                    </p>
-                  </div>
-                  <span
-                    className={`shrink-0 text-right text-[11px] font-semibold ${
-                      u.invitePending
-                        ? "text-chart-3"
-                        : u.active
-                          ? "text-fin-gain"
-                          : "text-muted-foreground"
-                    }`}
-                  >
-                    {u.invitePending ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Hourglass className="size-3" />
-                        Invitado
-                      </span>
-                    ) : u.active ? (
-                      "Activo"
-                    ) : (
-                      "Inactivo"
-                    )}
-                    {u.invitePending && (
-                      <span className="block text-[10px] font-medium text-muted-foreground">
-                        Esperando confirmación
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => (editing ? setEditingId(null) : openEdit(u))}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold hover:border-primary/40"
-                  >
-                    {editing ? <X className="size-3.5" /> : <Pencil className="size-3.5" />}
-                    {editing ? "Cerrar" : "Editar"}
-                  </button>
-                  {current?.role === "admin" && u.authId && u.authId !== current.authId && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setError("")
-                        setConfirmDeleteId(confirmDeleteId === u.authId ? null : u.authId ?? null)
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="size-3.5" />
-                      Eliminar
-                    </button>
-                  )}
-                </div>
+      {noneMatch ? (
+        <p className="text-sm text-muted-foreground py-8 text-center">
+          Ningún usuario coincide con la búsqueda.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-8">
+          <section>
+            <SectionTitle
+              title="Usuarios activos"
+              count={activeUsers.length}
+              hint="Ya crearon contraseña y pueden entrar."
+            />
+            {activeUsers.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">
+                {query.trim() ? "Ningún usuario activo coincide." : "Todavía no hay usuarios activos."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2.5">{activeUsers.map(renderUserCard)}</div>
+            )}
+          </section>
 
-                {editing && (
-                  <div className="grid sm:grid-cols-2 gap-3 mt-4 pt-4 border-t border-border">
-                    <Field label="Nombre">
-                      <input className={inputCls} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                    </Field>
-                    <Field label="Username">
-                      <div className="flex items-center gap-0 rounded-xl bg-input/60 border border-border focus-within:border-primary/60">
-                        <span className="pl-3 text-sm text-muted-foreground font-mono">@</span>
-                        <input
-                          className="w-full bg-transparent px-1 py-2 text-sm font-mono text-foreground outline-none"
-                          value={form.username}
-                          onChange={(e) => setForm({ ...form, username: sanitizeUsername(e.target.value) })}
-                        />
-                      </div>
-                    </Field>
-                    <Field label="Departamento">
-                      <select
-                        className={inputCls}
-                        value={form.department}
-                        onChange={(e) => setForm({ ...form, department: e.target.value })}
-                      >
-                        {departments.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.label}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Ubicación">
-                      <input
-                        className={inputCls}
-                        value={form.location}
-                        onChange={(e) => setForm({ ...form, location: e.target.value })}
-                      />
-                    </Field>
-                    {u.invitePending ? (
-                      <p className="sm:col-span-2 text-xs text-muted-foreground">
-                        Esta cuenta se marcará como activa cuando la persona cree su contraseña.
-                      </p>
-                    ) : (
-                      <label className="flex items-center gap-2 text-sm text-foreground sm:col-span-2">
-                        <input
-                          type="checkbox"
-                          checked={form.active}
-                          onChange={(e) => setForm({ ...form, active: e.target.checked })}
-                        />
-                        Cuenta activa
-                      </label>
-                    )}
-                    {error && (
-                      <p className="sm:col-span-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
-                        {error}
-                      </p>
-                    )}
-                    <div className="sm:col-span-2 flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void submitEdit()}
-                        className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50"
-                      >
-                        <Check className="size-4" />
-                        {busy ? "Guardando…" : "Guardar"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
-                )}
+          <section>
+            <SectionTitle
+              title="Invitaciones enviadas"
+              count={pendingInvites.length}
+              hint="Correo enviado. Esperan crear su contraseña."
+            />
+            {pendingInvites.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">
+                {query.trim() ? "Ninguna invitación coincide." : "No hay invitaciones pendientes."}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2.5">{pendingInvites.map(renderUserCard)}</div>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  )
+}
 
-                {confirmDeleteId && confirmDeleteId === u.authId && (
-                  <div className="mt-4 pt-4 border-t border-destructive/20">
-                    <p className="text-sm text-foreground mb-3">
-                      ¿Eliminar definitivamente a <span className="font-semibold">{u.name}</span>? Se borra su cuenta y
-                      no podrá entrar. Las cotizaciones o proyectos que haya creado quedan a tu nombre.
-                    </p>
-                    {error && (
-                      <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 mb-3">
-                        {error}
-                      </p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void submitDelete(u.authId!)}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground disabled:opacity-50"
-                      >
-                        <Trash2 className="size-4" />
-                        {busy ? "Eliminando…" : "Sí, eliminar"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="rounded-xl border border-border px-4 py-2 text-sm font-semibold"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })
-        )}
+function SectionTitle({ title, count, hint }: { title: string; count: number; hint: string }) {
+  return (
+    <div className="mb-3 flex items-end justify-between gap-3">
+      <div>
+        <h2 className="text-sm font-bold font-display text-foreground">{title}</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
       </div>
+      <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">{count}</span>
     </div>
   )
 }
