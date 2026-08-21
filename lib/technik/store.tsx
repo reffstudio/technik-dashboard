@@ -106,7 +106,6 @@ import { PROFILE_COLUMNS, PROFILE_COLUMNS_LEGACY, dedupeUsers, userFromProfile, 
 import {
   capturePasswordSetupHintFromLocation,
   clearPasswordSetupHint,
-  passwordSetupRedirect,
   userMustSetPassword,
 } from "./password-setup"
 import {
@@ -1097,15 +1096,21 @@ export function TechnikProvider({
   }, [])
 
   const requestPasswordReset = useCallback(async (email: string) => {
-    if (!isSupabaseConfigured()) {
-      return { ok: false as const, error: "Supabase no está configurado." }
+    try {
+      const res = await fetch("/api/auth/recover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+        signal: AbortSignal.timeout(20_000),
+      })
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+      if (!json?.ok) {
+        return { ok: false as const, error: json?.error || "No se pudo enviar el correo de recuperación." }
+      }
+      return { ok: true as const }
+    } catch {
+      return { ok: false as const, error: "No se pudo enviar el correo de recuperación." }
     }
-    const origin = typeof window !== "undefined" ? window.location.origin : ""
-    const { error } = await getSupabaseBrowser().auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: passwordSetupRedirect(origin),
-    })
-    if (error) return { ok: false as const, error: "No se pudo enviar el correo de recuperación." }
-    return { ok: true as const }
   }, [])
 
   const completePasswordSetup = useCallback(
@@ -1296,7 +1301,6 @@ export function TechnikProvider({
       const allowed: ProfilePatch = {
         name: patch.name,
         department: patch.department,
-        location: patch.location,
       }
       if (current.role === "admin" && patch.username !== undefined) {
         allowed.username = patch.username

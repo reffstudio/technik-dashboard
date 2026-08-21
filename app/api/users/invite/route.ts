@@ -1,4 +1,6 @@
+import { sendTechnikMail } from "@/lib/mail/send"
 import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
+import { generateAuthActionLink } from "@/lib/supabase/auth-link"
 import { isValidUsername, sanitizeUsername } from "@/lib/technik/codes"
 import { passwordSetupRedirect } from "@/lib/technik/password-setup"
 
@@ -7,6 +9,9 @@ export const dynamic = "force-dynamic"
 
 void process.env.SUPABASE_SERVICE_ROLE_KEY
 void process.env.SUPABASE_SECRET_KEY
+void process.env.RESEND_API_KEY
+void process.env.RESEND_FROM
+void process.env.RESEND_REPLY_TO
 
 function explainInviteError(msg: string) {
   const m = msg.toLowerCase()
@@ -21,9 +26,6 @@ function explainInviteError(msg: string) {
   }
   if (m.includes("sign up") || m.includes("signup") || m.includes("disabled")) {
     return "Activa el proveedor Email en Authentication → Sign in / Providers (Allow new users to sign up)."
-  }
-  if (m.includes("rate")) {
-    return "Supabase limitó el envío de correos. Espera un minuto e inténtalo de nuevo."
   }
   return msg.trim() || "No se pudo crear la invitación."
 }
@@ -144,31 +146,33 @@ export async function POST(req: Request) {
 
   let userId: string | undefined
   let inviteLink: string | undefined
-  let emailed = false
   let lastError = ""
 
   try {
-    const invited = await admin.auth.admin.inviteUserByEmail(email, { data: meta, redirectTo })
-    if (invited.error) {
-      lastError = invited.error.message
-    } else if (invited.data?.user?.id) {
-      userId = invited.data.user.id
-      emailed = true
-    }
+    const invited = await generateAuthActionLink({
+      type: "invite",
+      email,
+      redirectTo,
+      data: meta,
+    })
+    if (invited.error) lastError = invited.error
+    userId = invited.user?.id
+    inviteLink = invited.actionLink
   } catch (err) {
-    lastError = err instanceof Error ? err.message : "Error al enviar la invitación."
+    lastError = err instanceof Error ? err.message : "Error al generar la invitación."
   }
 
   const alreadyRegistered = /already|registered|exists/i.test(lastError)
 
-  if (!emailed && alreadyRegistered) {
+  if (!userId && alreadyRegistered) {
     try {
-      const { data: linkData } = await admin.auth.admin.generateLink({
+      const existing = await generateAuthActionLink({
         type: "recovery",
         email,
-        options: { data: meta, redirectTo },
+        redirectTo,
+        data: meta,
       })
-      userId = userId ?? linkData?.user?.id
+      userId = existing.user?.id
       const { data: profile } = userId
         ? await admin.from("profiles").select("id, invite_pending, active").eq("id", userId).maybeSingle()
         : { data: null }
@@ -176,31 +180,41 @@ export async function POST(req: Request) {
       if (leftover && userId) {
         await admin.auth.admin.deleteUser(userId)
         userId = undefined
-        const invited = await admin.auth.admin.inviteUserByEmail(email, { data: meta, redirectTo })
-        if (invited.error) lastError = invited.error.message
-        else if (invited.data?.user?.id) {
-          userId = invited.data.user.id
-          emailed = true
+        inviteLink = undefined
+        const invited = await generateAuthActionLink({
+          type: "invite",
+          email,
+          redirectTo,
+          data: meta,
+        })
+        if (invited.error) lastError = invited.error
+        else {
+          userId = invited.user?.id
+          inviteLink = invited.actionLink
           lastError = ""
         }
+      } else if (userId) {
+        return Response.json({ ok: false, error: "Ese correo ya tiene una cuenta." }, { status: 409 })
       }
     } catch (err) {
       lastError = err instanceof Error ? err.message : lastError
     }
   }
 
-  const linkType = userId || alreadyRegistered ? "recovery" : "invite"
-  try {
-    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-      type: linkType,
-      email,
-      options: { data: meta, redirectTo },
-    })
-    userId = userId ?? linkData?.user?.id
-    inviteLink = linkData?.properties?.action_link
-    if (linkError?.message) lastError = linkError.message
-  } catch (err) {
-    lastError = err instanceof Error ? err.message : lastError || "Error al generar el enlace de invitación."
+  if (!inviteLink && userId) {
+    try {
+      const link = await generateAuthActionLink({
+        type: alreadyRegistered ? "recovery" : "invite",
+        email,
+        redirectTo,
+        data: meta,
+      })
+      userId = userId ?? link.user?.id
+      inviteLink = link.actionLink
+      if (link.error) lastError = link.error
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : lastError || "Error al generar el enlace de invitación."
+    }
   }
 
   if (!userId) {
@@ -208,16 +222,6 @@ export async function POST(req: Request) {
   }
 
   await admin.auth.admin.updateUserById(userId, { user_metadata: meta }).catch(() => null)
-
-  if (inviteLink) {
-    try {
-      const link = new URL(inviteLink)
-      if (link.searchParams.has("redirect_to")) link.searchParams.set("redirect_to", redirectTo)
-      inviteLink = link.toString()
-    } catch {
-      /* keep original */
-    }
-  }
 
   const { data: existingProfile } = await admin
     .from("profiles")
@@ -246,11 +250,26 @@ export async function POST(req: Request) {
     )
   }
 
+  let emailed = false
+  let mailError: string | undefined
+  if (inviteLink) {
+    const mail = await sendTechnikMail({
+      kind: "invite",
+      to: email,
+      name,
+      actionUrl: inviteLink,
+    })
+    emailed = mail.ok
+    mailError = mail.ok ? undefined : mail.error
+  } else {
+    mailError = lastError || "No se pudo generar el enlace de invitación."
+  }
+
   return Response.json({
     ok: true,
     id: userId,
     emailed,
     inviteLink,
-    mailError: emailed ? undefined : lastError || undefined,
+    mailError,
   })
 }

@@ -293,15 +293,11 @@ export function UsersView() {
             <div className="sm:col-span-2 rounded-xl border border-primary/25 bg-primary/[0.06] p-3 text-xs">
               <p className="font-semibold text-foreground mb-1">
                 {emailed
-                  ? "Supabase envió el correo. Si no está en Gmail, revisa spam; el plan gratis deja pasar muy pocos por hora. El enlace de abajo también sirve:"
-                  : "Supabase no mandó el correo. Copia el enlace y envíaselo por WhatsApp o mail:"}
+                  ? "Enviamos el correo de Technik. Si no llega, revisa spam. El enlace de abajo también sirve:"
+                  : "No se pudo enviar el correo. Copia el enlace y envíaselo por WhatsApp o mail:"}
               </p>
               {!emailed && mailError && (
-                <p className="text-destructive mb-2">
-                  {/rate/i.test(mailError)
-                    ? "Supabase limitó el envío. Espera unos minutos o usa el enlace."
-                    : mailError}
-                </p>
+                <p className="text-destructive mb-2">{mailError}</p>
               )}
               <p className="font-mono break-all text-muted-foreground">{inviteLink}</p>
               <button
@@ -314,9 +310,7 @@ export function UsersView() {
             </div>
           )}
           <p className="sm:col-span-2 text-xs text-muted-foreground">
-            El colaborador debe abrir el enlace, crear su contraseña y recién ahí entra al dashboard.
-            En Supabase → Authentication → URL configuration, Redirect URLs debe incluir
-            http://localhost:3000/** y https://dashboard.solutionstechnik.com/**.
+            El colaborador abre el correo de Technik, crea su contraseña y recién ahí entra al dashboard.
           </p>
           <div className="sm:col-span-2 flex gap-2">
             <button

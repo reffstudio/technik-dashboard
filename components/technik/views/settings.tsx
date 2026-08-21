@@ -38,7 +38,6 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
   const [name, setName] = useState(user?.name ?? "")
   const [username, setUsername] = useState(user?.username ?? "")
   const [department, setDepartment] = useState(user?.department ?? "")
-  const [location, setLocation] = useState(user?.location ?? "")
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -66,7 +65,6 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
     const res = await updateProfile({
       name: name.trim() || user!.name,
       department: department.trim() || user!.department,
-      location: location.trim() || user!.location,
       ...(isAdmin ? { username: sanitizeUsername(username) } : {}),
     })
     setBusy(false)
@@ -177,9 +175,6 @@ export function SettingsView({ navigate }: { navigate?: (v: View) => void }) {
                     </option>
                   ))}
                 </select>
-              </Field>
-              <Field label="Ubicación">
-                <input className={inputCls} value={location} onChange={(e) => setLocation(e.target.value)} />
               </Field>
               <div className="sm:col-span-2 flex flex-col gap-2 mt-1">
                 {error && (
