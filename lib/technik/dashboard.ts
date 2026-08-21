@@ -526,7 +526,13 @@ function projectTaxBreakdown(
   if (p.quotationId) {
     const q = quotations.find((x) => x.id === p.quotationId)
     if (q) {
-      return pdfTotals(q.publicItems ?? [], q.taxRate, q.isrRetentionRate)
+      const items = q.publicItems ?? []
+      if (items.length > 0) {
+        return pdfTotals(items, q.taxRate, q.isrRetentionRate)
+      }
+      if ((p.totalDue ?? 0) > 0) {
+        return estimateTaxFromDue(p.totalDue ?? 0, q.taxRate, q.isrRetentionRate)
+      }
     }
   }
   return estimateTaxFromDue(p.totalDue ?? 0)

@@ -350,47 +350,43 @@ export async function loadQuotations(users: User[]): Promise<
 
 async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
   const supabase = getSupabaseBrowser()
-  const linesLocked =
-    q.status === "approved" || q.status === "closed" || Boolean(q.clientSentAt)
 
-  if (!linesLocked) {
-    const { error: delLines } = await supabase.from("quotation_lines").delete().eq("quotation_id", q.id)
-    if (delLines) return { ok: false as const, error: persistErrorMessage(delLines) }
-    const lineRows = q.lines
-      .filter((l) => l.itemId && l.quantity > 0)
-      .map((l, i) => ({
+  const { error: delLines } = await supabase.from("quotation_lines").delete().eq("quotation_id", q.id)
+  if (delLines) return { ok: false as const, error: persistErrorMessage(delLines) }
+  const lineRows = q.lines
+    .filter((l) => l.itemId && l.quantity > 0)
+    .map((l, i) => ({
+      quotation_id: q.id,
+      catalog_item_id: l.itemId,
+      quantity: l.quantity,
+      unit_price: l.unitPrice ?? null,
+      sort_order: i,
+    }))
+  if (lineRows.length > 0) {
+    const { error } = await supabase.from("quotation_lines").insert(lineRows)
+    if (error) return { ok: false as const, error: persistErrorMessage(error) }
+  }
+
+  if (isAdmin) {
+    await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
+    const publicRows: Record<string, unknown>[] = []
+    for (const [i, item] of (q.publicItems ?? []).entries()) {
+      const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
+      const row: Record<string, unknown> = {
         quotation_id: q.id,
-        catalog_item_id: l.itemId,
-        quantity: l.quantity,
-        unit_price: l.unitPrice ?? null,
+        quantity: item.quantity,
+        title: item.title,
+        description: item.description ?? "",
+        unit_price: item.unitPrice ?? 0,
+        image_path: image,
         sort_order: i,
-      }))
-    if (lineRows.length > 0) {
-      const { error } = await supabase.from("quotation_lines").insert(lineRows)
-      if (error) return { ok: false as const, error: persistErrorMessage(error) }
+      }
+      if (isUuid(item.id)) row.id = item.id
+      publicRows.push(row)
     }
-
-    if (isAdmin) {
-      await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
-      const publicRows: Record<string, unknown>[] = []
-      for (const [i, item] of (q.publicItems ?? []).entries()) {
-        const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
-        const row: Record<string, unknown> = {
-          quotation_id: q.id,
-          quantity: item.quantity,
-          title: item.title,
-          description: item.description ?? "",
-          unit_price: item.unitPrice ?? 0,
-          image_path: image,
-          sort_order: i,
-        }
-        if (isUuid(item.id)) row.id = item.id
-        publicRows.push(row)
-      }
-      if (publicRows.length > 0) {
-        const { error } = await supabase.from("quotation_public_items").insert(publicRows)
-        if (error) return { ok: false as const, error: persistErrorMessage(error) }
-      }
+    if (publicRows.length > 0) {
+      const { error } = await supabase.from("quotation_public_items").insert(publicRows)
+      if (error) return { ok: false as const, error: persistErrorMessage(error) }
     }
   }
 

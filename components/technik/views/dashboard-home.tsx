@@ -49,7 +49,7 @@ import {
   yearMonthFromIso,
 } from "@/lib/technik/treasury"
 import { quotationReviewQueuedMs } from "@/lib/technik/notifications"
-import { publicQuoteTotals, useTechnik } from "@/lib/technik/store"
+import { quoteClientDue, useTechnik } from "@/lib/technik/store"
 import {
   ClientResponseBadge,
   DepartmentBadges,
@@ -155,7 +155,7 @@ export function DashboardHome({ navigate }: { navigate: (v: View) => void }) {
 }
 
 function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
-  const { quotations, clients, user, projects, expenses, treasuryMonths, inboxEvents } =
+  const { quotations, clients, catalog, user, projects, expenses, treasuryMonths, inboxEvents } =
     useTechnik()
   const [yearMonth, setYearMonth] = useState(() =>
     yearMonthFromIso(new Date().toISOString().slice(0, 10)),
@@ -204,15 +204,13 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     for (const p of projects) {
       if (p.quotationId) {
         const q = quotations.find((x) => x.id === p.quotationId)
-        map[p.id] = q
-          ? publicQuoteTotals(q.publicItems ?? [], q.taxRate, q.isrRetentionRate).total
-          : p.totalDue ?? 0
+        map[p.id] = q ? quoteClientDue(q, catalog).total : p.totalDue ?? 0
       } else {
         map[p.id] = p.totalDue ?? 0
       }
     }
     return map
-  }, [projects, quotations])
+  }, [projects, quotations, catalog])
 
   const rangeBounds = useMemo(
     () => ({ start: monthStart, end: monthEnd }),

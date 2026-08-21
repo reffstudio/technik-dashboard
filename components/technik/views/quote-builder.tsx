@@ -52,7 +52,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const existing = id ? quotations.find((q) => q.id === id) : undefined
-  const sentLocked = !!existing?.clientSentAt
+  const sentLocked = existing?.status === "approved" || existing?.status === "closed"
 
   const steps: Step[] = ["client", "materials", "labor", "extras", "review"]
 
@@ -206,10 +206,11 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   if (sentLocked && existing) {
     return (
       <div className="text-center py-20 text-muted-foreground max-w-md mx-auto">
-        <p className="text-foreground font-semibold mb-2">Cotización ya enviada</p>
+        <p className="text-foreground font-semibold mb-2">Cotización aprobada</p>
         <p className="text-sm mb-4">
-          No se puede editar el builder. Ábrela en revisión y usa{" "}
-          <span className="font-semibold text-foreground">Duplicar</span> para una nueva versión.
+          El builder queda bloqueado. Ábrela en revisión, pásala a{" "}
+          <span className="font-semibold text-foreground">En revisión</span> para actualizar
+          totales y vuelve a aprobar.
         </p>
         <button
           type="button"

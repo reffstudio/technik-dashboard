@@ -31,7 +31,7 @@ import {
   type PaymentMode,
   type ProjectStage,
 } from "@/lib/technik/data"
-import { publicQuoteTotals, quoteTotals, useTechnik } from "@/lib/technik/store"
+import { clientPublicItemsForQuote, quoteClientDue, quoteTotals, useTechnik } from "@/lib/technik/store"
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import {
   DepartmentBadges,
@@ -135,14 +135,9 @@ export function ProjectDetail({
   }, [quote, catalog])
 
   const totals = quote ? quoteTotals(quote, catalog) : null
-  const clientTotals = quote
-    ? publicQuoteTotals(
-        quote.publicItems ?? [],
-        quote.taxRate,
-        quote.isrRetentionRate,
-      )
-    : null
-  const totalDue = clientTotals?.total ?? project?.totalDue ?? 0
+  const displayPublicItems = quote ? clientPublicItemsForQuote(quote, catalog) : []
+  const clientTotals = quote ? quoteClientDue(quote, catalog) : null
+  const totalDue = clientTotals?.total || project?.totalDue || 0
   const billing = project ? projectBillingSummary(project, totalDue) : null
 
   useEffect(() => {
@@ -432,6 +427,11 @@ export function ProjectDetail({
                 ) : (
                   <p className="font-semibold text-muted-foreground">N/A</p>
                 )}
+                {quote && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Para cambiar totales: En revisión → actualiza → Aprobada.
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -576,11 +576,11 @@ export function ProjectDetail({
                 </span>
               )}
             </div>
-            {(quote.publicItems ?? []).length === 0 ? (
+            {displayPublicItems.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin ítems públicos.</p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {(quote.publicItems ?? []).map((item) => (
+                {displayPublicItems.map((item) => (
                   <li key={item.id} className="border-b border-border/60 pb-3 last:border-0 last:pb-0">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">

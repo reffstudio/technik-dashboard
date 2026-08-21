@@ -38,7 +38,7 @@ import {
   type UpcomingCollection,
 } from "@/lib/technik/dashboard"
 import { formatYearMonthLabel, monthBounds } from "@/lib/technik/treasury"
-import { publicQuoteTotals, useTechnik } from "@/lib/technik/store"
+import { quoteClientDue, useTechnik } from "@/lib/technik/store"
 import { SearchField, Stat } from "../ui"
 import type { View } from "../app-shell"
 
@@ -71,15 +71,13 @@ export function BillingHome({
     for (const p of projects) {
       if (p.quotationId) {
         const q = quotations.find((x) => x.id === p.quotationId)
-        map[p.id] = q
-          ? publicQuoteTotals(q.publicItems ?? [], q.taxRate, q.isrRetentionRate).total
-          : p.totalDue ?? 0
+        map[p.id] = q ? quoteClientDue(q, catalog).total : p.totalDue ?? 0
       } else {
         map[p.id] = p.totalDue ?? 0
       }
     }
     return map
-  }, [projects, quotations])
+  }, [projects, quotations, catalog])
 
   const rangeBounds = useMemo(
     () => ({ start: monthStart, end: monthEnd }),

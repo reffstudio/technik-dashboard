@@ -22,7 +22,7 @@ import {
   type ProjectStage,
   type WorkDepartment,
 } from "@/lib/technik/data"
-import { publicQuoteTotals, useTechnik } from "@/lib/technik/store"
+import { quoteClientDue, useTechnik } from "@/lib/technik/store"
 import {
   BillingStatusBadge,
   DepartmentBadges,
@@ -395,15 +395,14 @@ function ProjectTile({
   project: Project
   onOpen: () => void
 }) {
-  const { quotations, clients } = useTechnik()
+  const { quotations, clients, catalog } = useTechnik()
   const quote = project.quotationId
     ? quotations.find((x) => x.id === project.quotationId)
     : undefined
   const client = clients.find((c) => c.id === (quote?.clientId ?? project.clientId))
   const deliveryLate = projectIsOverdue(project) || project.stage === "atrasado"
   const totalDue = quote
-    ? publicQuoteTotals(quote.publicItems ?? [], quote.taxRate, quote.isrRetentionRate)
-        .total
+    ? quoteClientDue(quote, catalog).total
     : project.totalDue ?? 0
   const billing = projectBillingSummary(project, totalDue)
   const cobroVencido =

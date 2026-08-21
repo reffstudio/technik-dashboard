@@ -212,6 +212,7 @@ export function QuotePipelineControls({
   align = "start",
   className = "",
   onApplied,
+  beforeApply,
 }: {
   quotation: Quotation
   compact?: boolean
@@ -221,6 +222,7 @@ export function QuotePipelineControls({
     status: QuotePipelineStatus,
     extra?: { projectId?: string; error?: string; projectCreated?: boolean },
   ) => void
+  beforeApply?: () => boolean | void
 }) {
   const { user, updateQuotation, setClientResponse, projectByQuotationId } = useTechnik()
   const current = quotePipelineStatus(quotation)
@@ -230,6 +232,7 @@ export function QuotePipelineControls({
   function apply(next: QuotePipelineStatus) {
     if (next === current) return
     if (!pipelineCanPick(next, user, quotation)) return
+    if (beforeApply && beforeApply() === false) return
     if (next === "approved") {
       const existed = Boolean(projectByQuotationId(quotation.id))
       const result = setClientResponse(quotation.id, "aprobada")

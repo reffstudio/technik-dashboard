@@ -306,7 +306,7 @@ interface TechnikState {
   ) => Promise<{ ok: true } | { ok: false; error: string }>
   hydrateVisitPhotos: (quotationId: string, photos: VisitPhoto[]) => void
   // projects
-  createProjectFromQuotation: (quotationId: string) => string | null
+  createProjectFromQuotation: (quotationId: string, quoteSnapshot?: Quotation) => string | null
   createManualProject: (input: {
     title: string
     clientId: string
@@ -397,6 +397,8 @@ export function TechnikProvider({
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
   const [quotations, setQuotations] = useState<Quotation[]>([])
+  const quotationsRef = useRef<Quotation[]>([])
+  quotationsRef.current = quotations
   const [projects, setProjects] = useState<Project[]>([])
   const [departments, setDepartments] = useState<DepartmentConfig[]>([])
   const [paymentEvents, setPaymentEvents] = useState<PaymentEvent[]>([])
@@ -1979,13 +1981,14 @@ export function TechnikProvider({
 
   const updateQuotation = useCallback(
     (id: string, patch: Partial<Quotation>, historyAction?: string) => {
-      const current = quotations.find((q) => q.id === id)
+      const current = quotationsRef.current.find((q) => q.id === id)
       if (!current) return { ok: false as const, error: "Cotización no encontrada." }
 
       let nextPatch = { ...patch }
 
-      // Tras envío al cliente: no alterar montos / alcance comercial
-      if (current.clientSentAt) {
+      // Cotización aprobada o archivada: no alterar montos / alcance comercial.
+      // En revisión o borrador se puede volver a editar (aunque se haya enviado antes).
+      if (current.status === "approved" || current.status === "closed") {
         const blockedKeys = [
           "lines",
           "publicItems",
@@ -2001,7 +2004,7 @@ export function TechnikProvider({
           return {
             ok: false as const,
             error:
-              "Cotización enviada: no se puede editar alcance ni montos. Duplica para una nueva versión.",
+              "Cotización aprobada: pásala a En revisión para actualizar totales y vuelve a aprobar.",
           }
         }
       }
@@ -2058,6 +2061,7 @@ export function TechnikProvider({
         announce(`${actor} · Envió a revisión · ${id}`, "admin", inboxItem)
       }
       setQuotations(nextQuotations)
+      quotationsRef.current = nextQuotations
       const updated = nextQuotations.find((q) => q.id === id)
       if (updated) persistQuoteNow(updated)
       flushPublish({
@@ -2285,26 +2289,56 @@ export function TechnikProvider({
   }, [])
 
   const createProjectFromQuotation = useCallback(
-    (quotationId: string) => {
-      const quote = quotations.find((q) => q.id === quotationId)
+    (quotationId: string, quoteSnapshot?: Quotation) => {
+      const quote = quoteSnapshot ?? quotationsRef.current.find((q) => q.id === quotationId)
       if (!quote) return null
 
+      const due = quoteClientDue(quote, catalog).total
       const existing = projects.find(
-        (p) => p.quotationId === quotationId || p.id === quotationId,
+        (p) => p.quotationId === quotationId || p.id === quotationId || p.id === quote.reference,
       )
-      if (existing) return existing.id
-
-      // Folio único: el proyecto hereda el número de la cotización
-      const id = quote.reference || quote.id
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
+
+      if (existing) {
+        const next: Project = {
+          ...existing,
+          totalDue: due,
+          clientId: existing.clientId ?? quote.clientId,
+          title: existing.title ?? quote.title,
+          departments: existing.departments?.length ? existing.departments : quote.departments,
+          coverImageUrl: existing.coverImageUrl || quotationCoverUrl(quote),
+          updatedAt: d,
+          history:
+            existing.totalDue === due
+              ? existing.history
+              : [
+                  ...existing.history,
+                  {
+                    at: stamp,
+                    by: actor,
+                    action: `Actualizó totales desde cotización · ${due.toLocaleString("es-MX", { style: "currency", currency: "MXN" })}`,
+                  },
+                ],
+        }
+        setProjects((prev) => prev.map((p) => (p.id === existing.id ? next : p)))
+        persistProjectNow(next)
+        return existing.id
+      }
+
+      const id = quote.reference || quote.id
       const project: Project = {
         id,
         quotationId,
+        title: quote.title,
+        clientId: quote.clientId,
+        departments: quote.departments,
+        totalDue: due,
         stage: "procesando_solicitud",
         installments: [],
         coverImageUrl: quotationCoverUrl(quote),
+        createdById: user?.id,
         createdAt: d,
         updatedAt: d,
         history: [
@@ -2329,16 +2363,21 @@ export function TechnikProvider({
       })
       return id
     },
-    [quotations, projects, user, announce, persistProjectNow],
+    [quotations, projects, catalog, user, announce, persistProjectNow],
   )
 
   const setClientResponse = useCallback(
     (id: string, response: ClientResponse) => {
-      const current = quotations.find((q) => q.id === id)
+      const current = quotationsRef.current.find((q) => q.id === id)
+      if (!current) return { ok: false as const, error: "Cotización no encontrada." }
       const patch: Partial<Quotation> = { clientResponse: response }
       if (response === "aprobada") {
-        if (current && current.status !== "closed") patch.status = "approved"
-        if (current && !current.clientSentAt) patch.clientSentAt = today()
+        if (current.status !== "closed") patch.status = "approved"
+        if (!current.clientSentAt) patch.clientSentAt = today()
+        const filled = clientPublicItemsForQuote(current, catalog)
+        if (!(current.publicItems ?? []).length && filled.length > 0) {
+          patch.publicItems = filled
+        }
       }
       const result = updateQuotation(
         id,
@@ -2347,12 +2386,13 @@ export function TechnikProvider({
       )
       if (!result.ok) return result
       if (response === "aprobada") {
-        const projectId = createProjectFromQuotation(id)
+        const latest = quotationsRef.current.find((q) => q.id === id) ?? { ...current, ...patch }
+        const projectId = createProjectFromQuotation(id, latest)
         return { ok: true as const, projectId: projectId ?? undefined }
       }
       return { ok: true as const }
     },
-    [updateQuotation, createProjectFromQuotation],
+    [catalog, updateQuotation, createProjectFromQuotation],
   )
 
   const createManualProject = useCallback(
@@ -3259,6 +3299,40 @@ export function quoteTotals(q: Quotation, catalog: CatalogItem[]) {
     margin,
     marginPct,
   }
+}
+
+/**
+ * Ítems al cliente para cobro / proyecto.
+ * Si no hay ítems públicos, arma Materiales / Mano de obra / Extras con los cargos de la cotización.
+ */
+export function clientPublicItemsForQuote(q: Quotation, catalog: CatalogItem[]): PublicQuoteItem[] {
+  const existing = (q.publicItems ?? []).filter((it) => it.quantity > 0)
+  if (existing.length > 0) return existing
+  const t = quoteTotals(q, catalog)
+  const rows: PublicQuoteItem[] = []
+  const push = (id: string, title: string, amount: number) => {
+    if (!(amount > 0)) return
+    rows.push({
+      id,
+      quantity: 1,
+      title,
+      description: "",
+      unitPrice: roundMxn(amount),
+    })
+  }
+  push("pub-materiales", "Materiales", t.materialCharge)
+  push("pub-mano-obra", "Mano de obra", t.laborCharge)
+  push("pub-extras", "Extras", t.extrasCharge)
+  return rows
+}
+
+/** Total MXN al cliente (ítems públicos o cargos internos + IVA − ISR). */
+export function quoteClientDue(q: Quotation, catalog: CatalogItem[]) {
+  return publicQuoteTotals(
+    clientPublicItemsForQuote(q, catalog),
+    q.taxRate,
+    q.isrRetentionRate,
+  )
 }
 
 /**

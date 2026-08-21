@@ -78,7 +78,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const q = quotations.find((x) => x.id === id)
-  const sentLocked = !!q?.clientSentAt
+  const sentLocked = q?.status === "approved" || q?.status === "closed"
 
   const [prices, setPrices] = useState<Record<string, number>>({})
   const [quantities, setQuantities] = useState<Record<string, number>>({})
@@ -288,8 +288,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if (sentLocked) {
       setToast({
         icon: Lock,
-        title: "Cotización enviada",
-        msg: "No se puede editar alcance ni montos. Usa Duplicar para una nueva versión.",
+        title: "Cotización aprobada",
+        msg: "Pásala a En revisión para actualizar totales y vuelve a aprobar.",
       })
       return false
     }
@@ -322,8 +322,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if (sentLocked) {
       setToast({
         icon: Lock,
-        title: "Cotización enviada",
-        msg: "Duplica la cotización para cambiar materiales o mano de obra.",
+        title: "Cotización aprobada",
+        msg: "Pásala a En revisión para actualizar materiales o mano de obra.",
       })
       return
     }
@@ -344,8 +344,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if (sentLocked) {
       setToast({
         icon: Lock,
-        title: "Cotización enviada",
-        msg: "Duplica la cotización para cambiar materiales o mano de obra.",
+        title: "Cotización aprobada",
+        msg: "Pásala a En revisión para actualizar materiales o mano de obra.",
       })
       return
     }
@@ -383,8 +383,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if (sentLocked) {
       setToast({
         icon: Lock,
-        title: "Cotización enviada",
-        msg: "Duplica la cotización para cambiar ítems al cliente.",
+        title: "Cotización aprobada",
+        msg: "Pásala a En revisión para actualizar ítems al cliente.",
       })
       return
     }
@@ -411,8 +411,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     if (sentLocked) {
       setToast({
         icon: Lock,
-        title: "Cotización enviada",
-        msg: "Duplica la cotización para cambiar ítems al cliente.",
+        title: "Cotización aprobada",
+        msg: "Pásala a En revisión para actualizar ítems al cliente.",
       })
       return
     }
@@ -773,6 +773,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                 quotation={q}
                 align="end"
                 className="shrink-0 lg:max-w-[26rem]"
+                beforeApply={() => {
+                  if (q.status === "approved" || q.status === "closed") return true
+                  persistDocument()
+                  return true
+                }}
                 onApplied={onPipelineApplied}
               />
             </div>
@@ -1661,7 +1666,7 @@ function PublicItemsEditor({
       {locked && (
         <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           <Lock className="size-3.5 shrink-0" />
-          Enviada al cliente: ítems bloqueados. Usa Duplicar para una nueva versión.
+          Cotización aprobada: ítems bloqueados. Pásala a En revisión para actualizar.
         </div>
       )}
       <div className="mb-1">
