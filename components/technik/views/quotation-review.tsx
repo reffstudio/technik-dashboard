@@ -93,7 +93,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     suppliers,
     departments,
     updateQuotation,
-    setStatus,
     user,
     markSaving,
   } = useTechnik()
@@ -465,19 +464,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   }
 
   function lockPricesIfNeeded() {
-    // Ya enviada al cliente: montos bloqueados; solo asegurar status approved
-    if (sentLocked) {
-      if (q!.status === "pending_review") {
-        setStatus(q!.id, "approved", "Aprobó y bloqueó precios")
-      }
-      return true
-    }
-    if (q!.status !== "pending_review") {
-      return persistDocument()
-    }
-    const ok = persistDocument("Actualizó precios e ítems al cliente")
-    if (ok) setStatus(q!.id, "approved", "Aprobó y bloqueó precios")
-    return ok
+    if (sentLocked) return true
+    return persistDocument("Actualizó precios e ítems al cliente")
   }
 
   async function downloadPdf(doc: PdfDocKind, quiet = false) {

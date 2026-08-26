@@ -429,12 +429,13 @@ export async function persistQuotation(
   const supabase = getSupabaseBrowser()
   const { data: existing } = await supabase
     .from("quotations")
-    .select("id, created_by")
+    .select("id, created_by, status")
     .eq("id", q.id)
     .maybeSingle()
 
+  const existingRow = existing as { created_by?: string; status?: QuoteStatus } | null
   const createdBy =
-    (existing as { created_by?: string } | null)?.created_by ||
+    existingRow?.created_by ||
     ctx.actorAuthId ||
     ctx.users.find((u) => u.id === q.createdById || u.authId === q.createdById)?.authId
 
@@ -442,12 +443,20 @@ export async function persistQuotation(
     return { ok: false, error: "No hay sesión para guardar la cotización." }
   }
 
+  const persistedStatus =
+    !ctx.isAdmin &&
+    existingRow?.status &&
+    existingRow.status !== "draft" &&
+    q.status === "draft"
+      ? existingRow.status
+      : q.status
+
   const row: Record<string, unknown> = {
     id: q.id,
     reference: q.reference,
     client_id: q.clientId,
     title: q.title,
-    status: q.status,
+    status: persistedStatus,
     department_ids: q.departments ?? [],
     created_by: createdBy,
     notes: q.notes ?? null,

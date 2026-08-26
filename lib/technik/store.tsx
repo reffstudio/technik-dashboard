@@ -86,6 +86,7 @@ import {
   adoptById,
   adoptByKey,
   loadWorkspace,
+  promoteInboxQueuedDrafts,
   type LiveNotice,
   type LiveNoticeAudience,
   type WorkspaceSettings,
@@ -733,9 +734,32 @@ export function TechnikProvider({
   const applySnapshot = useCallback((snapshot: WorkspaceSnapshot) => {
     skipBroadcastRef.current = true
     revRef.current = snapshot.rev
-    // Con Supabase el hub en RAM no es fuente de verdad: un deploy lo deja
-    // vacío y no puede borrar usuarios, catálogo, cotizaciones ni cobros.
-    if (isSupabaseConfigured()) return
+    // Con Supabase el hub no reemplaza el workspace, pero sí trae avisos y
+    // cotizaciones en vuelo (p. ej. un colaborador acaba de enviar a revisión).
+    if (isSupabaseConfigured()) {
+      if ((snapshot.inboxEvents ?? []).length > 0) {
+        setInboxEvents((prev) =>
+          adoptById(prev, snapshot.inboxEvents ?? [], (a, b) =>
+            (a.at ?? "") >= (b.at ?? "") ? a : b,
+          ),
+        )
+      }
+      if ((snapshot.quotations ?? []).length > 0) {
+        setQuotations((prev) =>
+          adoptQuotations(
+            prev,
+            snapshot.quotations
+              .map((q) => ({
+                ...q,
+                departments: quotationDepartments(q),
+              }))
+              .filter((q) => !quotationTrashExpired(q)),
+            snapshot.inboxEvents ?? workspaceRef.current.inboxEvents,
+          ).filter((q) => !quotationTrashExpired(q)),
+        )
+      }
+      return
+    }
     setUsers(snapshot.users)
     setClients(
       snapshot.clients.map((c) => ({
@@ -979,9 +1003,11 @@ export function TechnikProvider({
         if (cancelled) return
         if (quotesRes.ok) {
           const prev = workspaceRef.current.quotations
-          const next = adoptQuotations(prev, quotesRes.quotations).filter(
-            (q) => !quotationTrashExpired(q),
-          )
+          const next = adoptQuotations(
+            prev,
+            quotesRes.quotations,
+            workspaceRef.current.inboxEvents,
+          ).filter((q) => !quotationTrashExpired(q))
           const remoteIds = new Set(quotesRes.quotations.map((q) => q.id))
           const authId = userAuthIdRef.current
           const role = userRoleRef.current
@@ -1008,6 +1034,18 @@ export function TechnikProvider({
         const ops = await loadOpsWorkspace(workspaceRef.current.users)
         if (cancelled) return
         if (ops.ok) applyLoadedOps(ops)
+        const inbox =
+          ops.ok && !ops.inboxEventsError
+            ? adoptById(
+                workspaceRef.current.inboxEvents,
+                ops.inboxEvents,
+                (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
+              )
+            : workspaceRef.current.inboxEvents
+        setQuotations((prev) => {
+          const promoted = promoteInboxQueuedDrafts(prev, inbox)
+          return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
+        })
         const core = await loadCoreWorkspace()
         if (cancelled) return
         applyLoadedCore(core)
@@ -1403,7 +1441,11 @@ export function TechnikProvider({
           if (logoutIntentRef.current || gen !== authHydrateGen.current) return
           if (quotesRes.ok) {
             setQuotations((prev) => {
-              const adopted = adoptQuotations(prev, quotesRes.quotations).filter(
+              const adopted = adoptQuotations(
+                prev,
+                quotesRes.quotations,
+                workspaceRef.current.inboxEvents,
+              ).filter(
                 (q) => !quotationTrashExpired(q),
               )
               return quotesSignature(prev) === quotesSignature(adopted) ? prev : adopted
@@ -1922,7 +1964,7 @@ export function TechnikProvider({
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
     (input) => {
-      const code = nextQuotationCode(quotations.map((q) => q.reference))
+      const code = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
@@ -1954,7 +1996,7 @@ export function TechnikProvider({
           },
         ],
       }
-      const nextQuotations = [q, ...quotations]
+      const nextQuotations = [q, ...quotationsRef.current]
       if (input.submit) {
         const inboxItem: InboxEvent = {
           id: `review-${code}-${stamp}`,
@@ -2026,7 +2068,7 @@ export function TechnikProvider({
 
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
-      const nextQuotations = quotations.map((q) => {
+      const nextQuotations = quotationsRef.current.map((q) => {
         if (q.id !== id) return q
         return {
           ...q,
@@ -2072,7 +2114,7 @@ export function TechnikProvider({
       })
       return { ok: true as const }
     },
-    [user, announce, quotations, projects, flushPublish, persistQuoteNow],
+    [user, announce, projects, flushPublish, persistQuoteNow],
   )
 
   const setStatus = useCallback(

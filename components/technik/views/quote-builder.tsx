@@ -151,6 +151,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   useEffect(() => {
     if (sentLocked) return
     if (!canContinueClient) return
+    if (liveQuote && liveQuote.status !== "draft") return
 
     const sig = JSON.stringify({
       clientId,
@@ -199,6 +200,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     lines,
     notes,
     draftId,
+    liveQuote?.status,
     createQuotation,
     updateQuotation,
     markSaving,
