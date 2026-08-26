@@ -18,6 +18,7 @@ import {
   projectTitle,
   quotationHasDepartment,
   projectCoverUrl,
+  isQuotationCreator,
   type Project,
   type ProjectStage,
   type WorkDepartment,
@@ -69,12 +70,12 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
   const scoped = useMemo(() => {
     if (isAdmin) return projects
     return projects.filter((p) => {
-      if (p.createdById === user?.id) return true
+      if (user && (p.createdById === user.id || p.createdById === user.authId)) return true
       if (!p.quotationId) return false
       const q = quotations.find((x) => x.id === p.quotationId)
-      return q?.createdById === user?.id
+      return q ? isQuotationCreator(user, q) : false
     })
-  }, [projects, quotations, isAdmin, user?.id])
+  }, [projects, quotations, isAdmin, user])
 
   const activeCount = scoped.filter((p) => p.stage !== "completado").length
   /** Retraso operativo: etapa “atrasado” o fecha de entrega de taller vencida. */

@@ -29,8 +29,10 @@ import {
 } from "recharts"
 import {
   currencyMxn,
+  isQuotationCreator,
   projectNextInstallment,
   quotationIsTrashed,
+  quotePipelineStatus,
   type Quotation,
 } from "@/lib/technik/data"
 import {
@@ -177,7 +179,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   const pending = useMemo(
     () =>
       quotations
-        .filter((q) => q.status === "pending_review")
+        .filter((q) => quotePipelineStatus(q) === "pending_review")
         .sort((a, b) => {
           const d = quotationReviewQueuedMs(b, inboxEvents) - quotationReviewQueuedMs(a, inboxEvents)
           if (d !== 0) return d
@@ -188,7 +190,9 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   const waiting = useMemo(
     () =>
       quotations.filter(
-        (q) => q.clientSentAt && (q.clientResponse ?? "en_espera") === "en_espera",
+        (q) =>
+          quotePipelineStatus(q) === "sent_client" &&
+          (q.clientResponse ?? "en_espera") === "en_espera",
       ),
     [quotations],
   )
@@ -1031,7 +1035,7 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
       quotations
         .filter(
           (q) =>
-            q.createdById === user?.id &&
+            isQuotationCreator(user, q) &&
             (q.status === "draft" || q.status === "pending_review") &&
             !quotationIsTrashed(q),
         )

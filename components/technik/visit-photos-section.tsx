@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { Camera, ImagePlus, Trash2, X, Loader2, FileText } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import { visitPhotosOf, VISIT_PHOTO_MAX } from "@/lib/technik/visit-photos"
+import { authHeaders } from "@/lib/supabase/session-token"
 import type { VisitPhoto } from "@/lib/technik/data"
 
 function photoIsOnQuote(photo: VisitPhoto, quotePhotoUrl?: string) {
@@ -56,7 +57,9 @@ export function VisitPhotosSection({
     let cancelled = false
     const load = async () => {
       try {
-        const res = await fetch(`/api/quotes/${encodeURIComponent(quotationId)}/photos`)
+        const res = await fetch(`/api/quotes/${encodeURIComponent(quotationId)}/photos`, {
+          headers: await authHeaders(),
+        })
         const data = (await res.json()) as { ok?: boolean; photos?: VisitPhoto[] }
         if (!cancelled && data.ok && Array.isArray(data.photos)) {
           setRemote(data.photos)

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react"
 import { Plus, ChevronRight, ClipboardList, Send, Trash2, RotateCcw } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import {
+  isQuotationCreator,
   quotationIsTrashed,
   quotationTrashDaysLeft,
 } from "@/lib/technik/data"
@@ -26,7 +27,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
-          q.createdById === user?.id &&
+          isQuotationCreator(user, q) &&
           (q.status === "draft" || q.status === "pending_review") &&
           !quotationIsTrashed(q),
       ),
@@ -36,7 +37,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
-          q.createdById === user?.id && q.status === "draft" && quotationIsTrashed(q),
+          isQuotationCreator(user, q) && q.status === "draft" && quotationIsTrashed(q),
       ),
     [quotations, user],
   )

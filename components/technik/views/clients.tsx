@@ -83,7 +83,7 @@ export function ClientsView({ navigate }: { navigate?: (v: View) => void }) {
     setAdding(false)
     setForm(emptyForm)
     if (user?.role === "empleado" && navigate) {
-      navigate({ name: "builder" })
+      navigate({ name: "builder", clientId: res.id })
     }
   }
 

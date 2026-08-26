@@ -12,6 +12,7 @@ import type {
   WorkDepartment,
 } from "./data"
 import { quotationTrashExpired } from "./data"
+import { persistClientResponse, persistSentAt } from "./quotation-guards"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import { persistStorageImage, storagePublicUrl, coverPathForQuote, extFromDataUrl } from "./cover-image"
 import { visitPhotoUrl } from "./visit-photos"
@@ -309,15 +310,34 @@ export async function loadQuotations(users: User[]): Promise<
     eventsByQuote.set(id, dedupeActivityHistory(list))
   }
 
+  const photoRows = (photosRes.data ?? []) as PhotoRow[]
+  const photoPaths = [
+    ...new Set(
+      photoRows.flatMap((row) => [row.storage_path, row.thumb_path].filter(Boolean) as string[]),
+    ),
+  ]
+  const signedPhotoUrls = new Map<string, string>()
+  if (photoPaths.length > 0) {
+    const { data: signedRows } = await supabase.storage
+      .from("visit-photos")
+      .createSignedUrls(photoPaths, 60 * 60)
+    for (const row of signedRows ?? []) {
+      if (row.path && row.signedUrl && !row.error) signedPhotoUrls.set(row.path, row.signedUrl)
+    }
+  }
+
   const photosByQuote = new Map<string, VisitPhoto[]>()
-  for (const row of (photosRes.data ?? []) as PhotoRow[]) {
+  for (const row of photoRows) {
     const actor = row.uploaded_by ? authorOf(row.uploaded_by, users) : null
     const list = photosByQuote.get(row.quotation_id) ?? []
     list.push({
       id: row.id,
       quotationId: row.quotation_id,
-      url: visitPhotoUrl(row.quotation_id, row.id),
-      thumbUrl: visitPhotoUrl(row.quotation_id, row.id, true),
+      url: signedPhotoUrls.get(row.storage_path) ?? visitPhotoUrl(row.quotation_id, row.id),
+      thumbUrl:
+        (row.thumb_path ? signedPhotoUrls.get(row.thumb_path) : undefined) ??
+        signedPhotoUrls.get(row.storage_path) ??
+        visitPhotoUrl(row.quotation_id, row.id, true),
       caption: row.caption || undefined,
       takenAt: row.taken_at,
       uploadedById: actor?.createdById ?? row.uploaded_by ?? "",
@@ -429,11 +449,18 @@ export async function persistQuotation(
   const supabase = getSupabaseBrowser()
   const { data: existing } = await supabase
     .from("quotations")
-    .select("id, created_by, status")
+    .select("id, created_by, status, client_sent_at, supplier_sent_at, client_response, supplier_id")
     .eq("id", q.id)
     .maybeSingle()
 
-  const existingRow = existing as { created_by?: string; status?: QuoteStatus } | null
+  const existingRow = existing as {
+    created_by?: string
+    status?: QuoteStatus
+    client_sent_at?: string | null
+    supplier_sent_at?: string | null
+    client_response?: ClientResponse | null
+    supplier_id?: string | null
+  } | null
   const createdBy =
     existingRow?.created_by ||
     ctx.actorAuthId ||
@@ -451,6 +478,8 @@ export async function persistQuotation(
       ? existingRow.status
       : q.status
 
+  const persistedResponse = persistClientResponse(q.clientResponse, existingRow?.client_response)
+
   const row: Record<string, unknown> = {
     id: q.id,
     reference: q.reference,
@@ -464,10 +493,10 @@ export async function persistQuotation(
     terms: q.terms ?? null,
     tax_rate: q.taxRate ?? 0.16,
     isr_retention_rate: q.isrRetentionRate ?? 0,
-    client_response: q.clientResponse ?? null,
-    client_sent_at: q.clientSentAt ?? null,
-    supplier_sent_at: q.supplierSentAt ?? null,
-    supplier_id: q.supplierId ?? null,
+    client_response: persistedResponse,
+    client_sent_at: persistSentAt(q.clientSentAt, existingRow?.client_sent_at, persistedStatus),
+    supplier_sent_at: persistSentAt(q.supplierSentAt, existingRow?.supplier_sent_at, persistedStatus),
+    supplier_id: q.supplierId || existingRow?.supplier_id || null,
     deleted_at: q.deletedAt ?? null,
   }
 

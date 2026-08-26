@@ -1,4 +1,5 @@
 import type { VisitPhoto } from "./data"
+import { authHeaders } from "@/lib/supabase/session-token"
 
 /** Tope por cotización — evita inflar storage y el poll del workspace. */
 export const VISIT_PHOTO_MAX = 16
@@ -44,6 +45,7 @@ export async function postVisitPhoto(opts: {
     const res = await fetch(`/api/quotes/${encodeURIComponent(opts.quotationId)}/photos`, {
       method: "POST",
       body: fd,
+      headers: await authHeaders(),
     })
     const data = (await res.json()) as { ok?: boolean; photo?: VisitPhoto; error?: string }
     if (!res.ok || !data.ok || !data.photo) {
@@ -62,7 +64,7 @@ export async function deleteVisitPhotoRequest(
   try {
     const res = await fetch(
       `/api/quotes/${encodeURIComponent(quotationId)}/photos/${encodeURIComponent(photoId)}`,
-      { method: "DELETE" },
+      { method: "DELETE", headers: await authHeaders() },
     )
     const data = (await res.json()) as { ok?: boolean; error?: string }
     if (!res.ok || !data.ok) {
@@ -76,7 +78,10 @@ export async function deleteVisitPhotoRequest(
 
 export async function deleteAllVisitPhotosRequest(quotationId: string): Promise<void> {
   try {
-    await fetch(`/api/quotes/${encodeURIComponent(quotationId)}/photos`, { method: "DELETE" })
+    await fetch(`/api/quotes/${encodeURIComponent(quotationId)}/photos`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    })
   } catch {
     /* purge best-effort */
   }

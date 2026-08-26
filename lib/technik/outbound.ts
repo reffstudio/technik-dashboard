@@ -8,6 +8,7 @@
 
 import { QUOTE_CC_EMAILS, TECHNIK_COMPANY } from "./company"
 import type { Client, Supplier } from "./data"
+import { authHeaders } from "@/lib/supabase/session-token"
 
 export type QuotePdfKind = "client" | "supplier"
 export type OutboundChannel = "email" | "whatsapp"
@@ -230,6 +231,7 @@ export async function fetchQuotePdfBlob(
   try {
     const res = await fetch(
       `/api/quotes/${encodeURIComponent(quotationId)}/pdf?kind=${kind}`,
+      { headers: await authHeaders() },
     )
     const type = res.headers.get("content-type") ?? ""
     if (!res.ok || !type.includes("application/pdf")) return null
@@ -310,7 +312,7 @@ export async function shareQuotePdf(opts: {
 }
 
 /**
- * Envía el PDF por Resend (To + CC). WhatsApp Cloud no está activo.
+ * Envía el PDF por Resend (To + CC). WhatsApp es Compartir en el cliente.
  */
 export async function dispatchQuoteEmail(opts: {
   quotationId: string
@@ -367,7 +369,7 @@ export async function dispatchQuoteEmail(opts: {
 }
 
 /**
- * Intenta SMTP / WhatsApp Cloud. Si el API responde 501, el caller abre mailto/wa.me.
+ * Intenta el API de correo. Si responde 501 (p. ej. canal WhatsApp), el caller abre Compartir / wa.me.
  */
 export async function dispatchQuoteOutbound(
   payload: QuoteDispatchPayload,
@@ -377,7 +379,7 @@ export async function dispatchQuoteOutbound(
       `/api/quotes/${encodeURIComponent(payload.quotationId)}/dispatch`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify(payload),
       },
     )

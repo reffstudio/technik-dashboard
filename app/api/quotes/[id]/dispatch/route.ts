@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { sendQuoteDispatchMail } from "@/lib/mail/send"
 import { getSupabaseAdmin, isSupabaseAdminConfigured } from "@/lib/supabase/admin"
 import { normalizeEmails } from "@/lib/technik/outbound"
+import { storeQuotePdf } from "@/lib/technik/quote-pdf-storage"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -20,7 +21,7 @@ type Kind = "client" | "supplier"
 /**
  * POST /api/quotes/:id/dispatch
  * Correo: PDF adjunto desde cotizaciones@solutionstechnik.com (To + CC).
- * WhatsApp Cloud aún no está configurado.
+ * WhatsApp es Compartir en el cliente; no hay Cloud API.
  */
 export async function POST(
   req: Request,
@@ -97,7 +98,7 @@ export async function POST(
         quotationId: id,
         kind,
         channel,
-        error: "WhatsApp Cloud API aún no está configurado. Usa Compartir para WhatsApp.",
+        error: "Usa Compartir para WhatsApp. No hay envío automático por Cloud API.",
       },
       { status: 501 },
     )
@@ -147,6 +148,8 @@ export async function POST(
     return NextResponse.json({ ok: false, error: sent.error }, { status: 502 })
   }
 
+  const stored = await storeQuotePdf({ quotationId: id, kind, pdf })
+
   return NextResponse.json({
     ok: true,
     ready: true,
@@ -155,5 +158,6 @@ export async function POST(
     channel: "email",
     to: toEmail,
     cc,
+    stored: stored.ok,
   })
 }

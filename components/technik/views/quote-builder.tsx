@@ -37,7 +37,15 @@ const EMPTY_CLIENT = {
   ccEmails: [] as string[],
 }
 
-export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View) => void }) {
+export function QuoteBuilder({
+  id,
+  clientId: prefillClientId,
+  navigate,
+}: {
+  id?: string
+  clientId?: string
+  navigate: (v: View) => void
+}) {
   const {
     quotations,
     clients,
@@ -58,7 +66,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
   const steps: Step[] = ["client", "materials", "labor", "extras", "review"]
 
   const [step, setStep] = useState<Step>("client")
-  const [clientId, setClientId] = useState(existing?.clientId ?? "")
+  const [clientId, setClientId] = useState(existing?.clientId ?? prefillClientId ?? "")
   const [title, setTitle] = useState(existing?.title ?? "")
   const [selectedDepartments, setSelectedDepartments] = useState<WorkDepartment[]>(
     existing?.departments?.length
@@ -336,11 +344,15 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
     }
     if (draftId) {
       // Una sola mutación: evita que el autosave/push en vuelo pise el envío a revisión.
-      updateQuotation(
+      const result = updateQuotation(
         draftId,
         { ...payload, status: "pending_review" },
         "Envió a revisión",
       )
+      if (!result.ok) {
+        setFormError(result.error)
+        return
+      }
       navigate(isAdmin ? { name: "review", id: draftId } : { name: "quotations" })
       return
     }
@@ -405,7 +417,7 @@ export function QuoteBuilder({ id, navigate }: { id?: string; navigate: (v: View
         }
       >
         <div className="flex items-center gap-2">
-          {draftId && existing?.status === "draft" && (
+          {draftId && liveQuote?.status === "draft" && (
             <button
               type="button"
               onClick={handleDeleteDraft}

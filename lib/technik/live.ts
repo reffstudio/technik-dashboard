@@ -12,8 +12,9 @@ import type {
   TreasurySeparado,
   User,
 } from "./data"
-import { parseActivityMs, type InboxEvent } from "./notifications"
+import { type InboxEvent } from "./notifications"
 import { mergeActivityHistory } from "./activity-history"
+import { preferQuote } from "./quotation-guards"
 
 export const LIVE_CHANNEL = "technik-live-v1"
 export const WORKSPACE_STORAGE_KEY = "technik-workspace-v1"
@@ -130,53 +131,6 @@ function preferByUpdatedAt<T extends { updatedAt?: string; id: string }>(a: T, b
   const bAt = b.updatedAt ?? ""
   if (aAt !== bAt) return aAt >= bAt ? a : b
   return b
-}
-
-function mergeVisitPhotos(
-  left: Quotation["visitPhotos"],
-  right: Quotation["visitPhotos"],
-): Quotation["visitPhotos"] {
-  const map = new Map<string, NonNullable<Quotation["visitPhotos"]>[number]>()
-  for (const p of left ?? []) map.set(p.id, p)
-  for (const p of right ?? []) map.set(p.id, p)
-  if (map.size === 0) return left ?? right
-  return Array.from(map.values()).sort((a, b) => a.takenAt.localeCompare(b.takenAt))
-}
-
-function quotePipelineRank(status: Quotation["status"]) {
-  if (status === "closed") return 4
-  if (status === "approved") return 3
-  if (status === "pending_review") return 2
-  if (status === "draft") return 0
-  return 1
-}
-
-/**
- * Un envío a revisión no puede perder contra un borrador “más nuevo”
- * (autosave, fotos de visita con timestamp UTC, etc.).
- */
-function preferQuote(a: Quotation, b: Quotation): Quotation {
-  const aRank = quotePipelineRank(a.status)
-  const bRank = quotePipelineRank(b.status)
-  let winner = a
-  if (aRank !== bRank) {
-    winner = aRank > bRank ? a : b
-  } else {
-    const aMs = parseActivityMs(a.updatedAt ?? a.createdAt)
-    const bMs = parseActivityMs(b.updatedAt ?? b.createdAt)
-    if (aMs !== bMs) winner = aMs >= bMs ? a : b
-    else {
-      const aHist = a.history?.length ?? 0
-      const bHist = b.history?.length ?? 0
-      winner = aHist >= bHist ? a : b
-    }
-  }
-  const history = mergeActivityHistory(a.history, b.history)
-  return {
-    ...winner,
-    history,
-    visitPhotos: mergeVisitPhotos(a.visitPhotos, b.visitPhotos),
-  }
 }
 
 /** Si la campana ya registró el envío, el borrador pasa a cola de revisión. */

@@ -6,7 +6,8 @@
     "dev": "NODE_OPTIONS='--max-old-space-size=1024' next dev --webpack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "npx --yes tsx --test lib/technik/quotation-guards.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

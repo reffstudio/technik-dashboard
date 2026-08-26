@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireStaff } from "@/lib/api/require-staff"
 import { readWorkspaceHub, writeWorkspaceHub } from "@/lib/technik/workspace-hub"
 import {
   attachVisitPhotosToQuotations,
@@ -19,25 +20,22 @@ export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 async function quoteExists(id: string) {
-  if (readWorkspaceHub().quotations.some((q) => q.id === id)) return true
-  if (!isSupabaseAdminConfigured()) return false
-  try {
-    const { data } = await getSupabaseAdmin()
-      .from("quotations")
-      .select("id")
-      .eq("id", id)
-      .maybeSingle()
-    return Boolean(data)
-  } catch {
-    return false
+  if (isSupabaseAdminConfigured()) {
+    try {
+      const { data } = await getSupabaseAdmin()
+        .from("quotations")
+        .select("id")
+        .eq("id", id)
+        .maybeSingle()
+      if (data) return true
+    } catch {
+      /* fall through to hub for local mock */
+    }
   }
+  return readWorkspaceHub().quotations.some((q) => q.id === id)
 }
 
-function patchQuoteHistory(
-  quotationId: string,
-  actor: string,
-  action: string,
-) {
+function patchQuoteHistory(quotationId: string, actor: string, action: string) {
   const snap = readWorkspaceHub()
   const stamp = (() => {
     const d = new Date()
@@ -66,9 +64,11 @@ function patchQuoteHistory(
 
 /** GET /api/quotes/:id/photos — metadatos (sin bytes). */
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireStaff(req)
+  if (!auth.ok) return auth.response
   const { id } = await ctx.params
   if (!(await quoteExists(id))) {
     return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 })
@@ -88,6 +88,8 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireStaff(req)
+  if (!auth.ok) return auth.response
   const { id } = await ctx.params
   if (!(await quoteExists(id))) {
     return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 })
@@ -120,8 +122,6 @@ export async function POST(
   const width = Math.max(1, Number(form.get("width")) || 1)
   const height = Math.max(1, Number(form.get("height")) || 1)
   const caption = String(form.get("caption") ?? "").trim()
-  const uploadedById = String(form.get("uploadedById") ?? "system")
-  const uploadedBy = String(form.get("uploadedBy") ?? "Usuario")
 
   const bytes = Buffer.from(await file.arrayBuffer())
   const thumbBytes = Buffer.from(await thumb.arrayBuffer())
@@ -133,8 +133,8 @@ export async function POST(
     width,
     height,
     caption,
-    uploadedById,
-    uploadedBy,
+    uploadedById: auth.actor.id,
+    uploadedBy: auth.actor.name,
   })
   if (!stored.ok) {
     return NextResponse.json({ ok: false, error: stored.error }, { status: stored.status })
@@ -149,16 +149,21 @@ export async function POST(
     return NextResponse.json({ ok: false, error: persisted.error }, { status: 500 })
   }
 
-  patchQuoteHistory(id, uploadedBy, "Agregó foto de visita")
+  patchQuoteHistory(id, auth.actor.name, "Agregó foto de visita")
   return NextResponse.json({ ok: true, photo: stored.photo, max: VISIT_PHOTO_MAX })
 }
 
 /** DELETE /api/quotes/:id/photos — borra todas (purga de borrador). */
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireStaff(req)
+  if (!auth.ok) return auth.response
   const { id } = await ctx.params
+  if (!(await quoteExists(id))) {
+    return NextResponse.json({ ok: false, error: "Cotización no encontrada" }, { status: 404 })
+  }
   const n = deleteStoredVisitPhotosForQuote(id)
   await deleteAllVisitPhotosFromSupabase(id)
   return NextResponse.json({ ok: true, deleted: n })

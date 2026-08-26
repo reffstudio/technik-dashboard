@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireStaff } from "@/lib/api/require-staff"
 import { readWorkspaceHub, writeWorkspaceHub } from "@/lib/technik/workspace-hub"
 import {
   attachVisitPhotosToQuotations,
@@ -42,11 +43,13 @@ function patchQuoteHistory(quotationId: string, actor: string, action: string) {
   })
 }
 
-/** GET — bytes de la foto o miniatura. No viaja en el snapshot del workspace. */
+/** GET — bytes de la foto o miniatura. Requiere sesión (no va en el snapshot). */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ id: string; photoId: string }> },
 ) {
+  const auth = await requireStaff(req)
+  if (!auth.ok) return auth.response
   const { id, photoId } = await ctx.params
   const row = getStoredVisitPhoto(id, photoId)
   if (row) {
@@ -78,9 +81,11 @@ export async function GET(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string; photoId: string }> },
 ) {
+  const auth = await requireStaff(req)
+  if (!auth.ok) return auth.response
   const { id, photoId } = await ctx.params
   const row = getStoredVisitPhoto(id, photoId)
   deleteStoredVisitPhoto(id, photoId)
@@ -88,6 +93,6 @@ export async function DELETE(
   if (!row) {
     return NextResponse.json({ ok: true })
   }
-  patchQuoteHistory(id, row.meta.uploadedBy || "Usuario", "Eliminó foto de visita")
+  patchQuoteHistory(id, auth.actor.name, "Eliminó foto de visita")
   return NextResponse.json({ ok: true })
 }

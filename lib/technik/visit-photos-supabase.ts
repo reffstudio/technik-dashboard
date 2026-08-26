@@ -143,9 +143,11 @@ export async function listVisitPhotosFromSupabase(quotationId: string): Promise<
       .select("*")
       .eq("quotation_id", quotationId)
       .order("taken_at")
-    return ((data ?? []) as {
+    const rows = (data ?? []) as {
       id: string
       quotation_id: string
+      storage_path: string
+      thumb_path: string | null
       caption: string | null
       mime: VisitPhoto["mime"]
       bytes: number
@@ -154,11 +156,25 @@ export async function listVisitPhotosFromSupabase(quotationId: string): Promise<
       height: number
       taken_at: string
       uploaded_by: string | null
-    }[]).map((row) => ({
+    }[]
+    const paths = [
+      ...new Set(rows.flatMap((row) => [row.storage_path, row.thumb_path].filter(Boolean) as string[])),
+    ]
+    const signed = new Map<string, string>()
+    if (paths.length > 0) {
+      const { data: signedRows } = await admin.storage.from("visit-photos").createSignedUrls(paths, 60 * 60)
+      for (const item of signedRows ?? []) {
+        if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl)
+      }
+    }
+    return rows.map((row) => ({
       id: row.id,
       quotationId: row.quotation_id,
-      url: visitPhotoUrl(row.quotation_id, row.id),
-      thumbUrl: visitPhotoUrl(row.quotation_id, row.id, true),
+      url: signed.get(row.storage_path) ?? visitPhotoUrl(row.quotation_id, row.id),
+      thumbUrl:
+        (row.thumb_path ? signed.get(row.thumb_path) : undefined) ??
+        signed.get(row.storage_path) ??
+        visitPhotoUrl(row.quotation_id, row.id, true),
       caption: row.caption || undefined,
       takenAt: row.taken_at,
       uploadedById: row.uploaded_by ?? "",

@@ -54,7 +54,7 @@ export type View =
   | { name: "project"; id: string }
   | { name: "quotations" }
   | { name: "review"; id: string }
-  | { name: "builder"; id?: string }
+  | { name: "builder"; id?: string; clientId?: string }
   | { name: "clients" }
   | { name: "catalog" }
   | { name: "suppliers" }
@@ -123,7 +123,7 @@ export function AppShell() {
     setMoreOpen(null)
   }
 
-  const pendingCount = quotations.filter((q) => q.status === "pending_review").length
+  const pendingCount = quotations.filter((q) => q.status === "pending_review" && !q.clientSentAt).length
 
   /** Primarios en la barra. */
   const adminPrimary: NavItem[] = [
@@ -609,7 +609,7 @@ function renderView(view: View, navigate: (v: View) => void, isAdmin: boolean) {
     case "review":
       return <QuotationReview id={view.id} navigate={navigate} />
     case "builder":
-      return <QuoteBuilder id={view.id} navigate={navigate} />
+      return <QuoteBuilder id={view.id} clientId={view.clientId} navigate={navigate} />
     case "clients":
       return <ClientsView navigate={navigate} />
     case "catalog":

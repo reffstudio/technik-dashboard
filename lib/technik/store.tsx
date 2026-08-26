@@ -424,6 +424,7 @@ export function TechnikProvider({
   const pendingInboxRef = useRef<InboxEvent | undefined>(undefined)
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastNoticeKeyRef = useRef("")
+  const lastAnnouncedInboxIdRef = useRef("")
   const pushingRef = useRef(false)
   /** Si llega un publish mientras otro está en vuelo, se encola (no se descarta). */
   const queuedOverridesRef = useRef<Partial<WorkspaceSnapshot> | null>(null)
@@ -631,6 +632,7 @@ export function TechnikProvider({
           href: inbox.href,
         }
         if (isSupabaseConfigured()) {
+          lastAnnouncedInboxIdRef.current = pendingInboxRef.current.id
           void trackPersist(`inbox:${pendingInboxRef.current.id}`, () =>
             persistInboxEvent(pendingInboxRef.current!),
           )
@@ -734,30 +736,8 @@ export function TechnikProvider({
   const applySnapshot = useCallback((snapshot: WorkspaceSnapshot) => {
     skipBroadcastRef.current = true
     revRef.current = snapshot.rev
-    // Con Supabase el hub no reemplaza el workspace, pero sí trae avisos y
-    // cotizaciones en vuelo (p. ej. un colaborador acaba de enviar a revisión).
+    // Con Supabase el hub no es fuente de verdad (Realtime + tablas).
     if (isSupabaseConfigured()) {
-      if ((snapshot.inboxEvents ?? []).length > 0) {
-        setInboxEvents((prev) =>
-          adoptById(prev, snapshot.inboxEvents ?? [], (a, b) =>
-            (a.at ?? "") >= (b.at ?? "") ? a : b,
-          ),
-        )
-      }
-      if ((snapshot.quotations ?? []).length > 0) {
-        setQuotations((prev) =>
-          adoptQuotations(
-            prev,
-            snapshot.quotations
-              .map((q) => ({
-                ...q,
-                departments: quotationDepartments(q),
-              }))
-              .filter((q) => !quotationTrashExpired(q)),
-            snapshot.inboxEvents ?? workspaceRef.current.inboxEvents,
-          ).filter((q) => !quotationTrashExpired(q)),
-        )
-      }
       return
     }
     setUsers(snapshot.users)
@@ -881,6 +861,14 @@ export function TechnikProvider({
   const flushPublish = useCallback(
     (overrides?: Partial<WorkspaceSnapshot>) => {
       if (suppressPublishRef.current) return
+      if (isSupabaseConfigured()) {
+        pendingMessageRef.current = undefined
+        pendingAudienceRef.current = "except_self"
+        pendingInboxRef.current = undefined
+        queuedOverridesRef.current = null
+        needsRepublishRef.current = false
+        return
+      }
 
       // No descartar: si hay un push en vuelo, encola el más reciente (p. ej. enviar a revisión tras autosave).
       if (pushingRef.current) {
@@ -975,11 +963,77 @@ export function TechnikProvider({
   )
   flushPublishRef.current = flushPublish
 
-  // Hidratar desde Supabase; el hub solo sirve avisos en vivo.
+  // Hidratar desde Supabase (Realtime + poll de respaldo). Sin DB, el hub mock.
   useEffect(() => {
     let cancelled = false
+    const supabaseMode = isSupabaseConfigured()
+
+    const pullFromSupabase = async () => {
+      if (!supabaseMode) return
+      const quotesRes = await loadQuotations(workspaceRef.current.users)
+      if (cancelled) return
+      if (quotesRes.ok) {
+        const remote = quotesRes.quotations
+        const inbox = workspaceRef.current.inboxEvents
+        const merged = adoptQuotations(
+          workspaceRef.current.quotations,
+          remote,
+          inbox,
+        ).filter((q) => !quotationTrashExpired(q))
+        const remoteIds = new Set(remote.map((q) => q.id))
+        const authId = userAuthIdRef.current
+        const role = userRoleRef.current
+        for (const q of merged) {
+          if (remoteIds.has(q.id)) continue
+          const owner = workspaceRef.current.users.find(
+            (u) => u.id === q.createdById || u.authId === q.createdById,
+          )
+          const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
+          if (mine) {
+            void trackPersist(`quote:${q.id}`, () =>
+              enqueuePersistQuotation(q, {
+                actorAuthId: authId,
+                users: workspaceRef.current.users,
+                isAdmin: role === "admin",
+              }),
+            )
+          }
+        }
+        setQuotations((live) => {
+          const next = adoptQuotations(live, remote, inbox).filter(
+            (q) => !quotationTrashExpired(q),
+          )
+          return quotesSignature(live) === quotesSignature(next) ? live : next
+        })
+      }
+      const ops = await loadOpsWorkspace(workspaceRef.current.users)
+      if (cancelled) return
+      if (ops.ok) applyLoadedOps(ops)
+      const inbox =
+        ops.ok && !ops.inboxEventsError
+          ? adoptById(
+              workspaceRef.current.inboxEvents,
+              ops.inboxEvents,
+              (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
+            )
+          : workspaceRef.current.inboxEvents
+      setQuotations((prev) => {
+        const promoted = promoteInboxQueuedDrafts(prev, inbox)
+        return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
+      })
+      const core = await loadCoreWorkspace()
+      if (cancelled) return
+      applyLoadedCore(core)
+      setSyncStatus("live")
+    }
 
     const pull = async (isBoot = false) => {
+      if (supabaseMode) {
+        await pullFromSupabase()
+        if (isBoot) suppressPublishRef.current = false
+        return
+      }
+
       const res = await fetchRemoteWorkspace()
       if (cancelled) return
       if (!res.ok || !res.snapshot) {
@@ -997,79 +1051,58 @@ export function TechnikProvider({
           }
         }
       }
-
-      if (isSupabaseConfigured()) {
-        const quotesRes = await loadQuotations(workspaceRef.current.users)
-        if (cancelled) return
-        if (quotesRes.ok) {
-          const prev = workspaceRef.current.quotations
-          const next = adoptQuotations(
-            prev,
-            quotesRes.quotations,
-            workspaceRef.current.inboxEvents,
-          ).filter((q) => !quotationTrashExpired(q))
-          const remoteIds = new Set(quotesRes.quotations.map((q) => q.id))
-          const authId = userAuthIdRef.current
-          const role = userRoleRef.current
-          for (const q of next) {
-            if (remoteIds.has(q.id)) continue
-            const owner = workspaceRef.current.users.find(
-              (u) => u.id === q.createdById || u.authId === q.createdById,
-            )
-            const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
-            if (mine) {
-              void trackPersist(`quote:${q.id}`, () =>
-                enqueuePersistQuotation(q, {
-                  actorAuthId: authId,
-                  users: workspaceRef.current.users,
-                  isAdmin: role === "admin",
-                }),
-              )
-            }
-          }
-          if (quotesSignature(prev) !== quotesSignature(next)) {
-            setQuotations(next)
-          }
-        }
-        const ops = await loadOpsWorkspace(workspaceRef.current.users)
-        if (cancelled) return
-        if (ops.ok) applyLoadedOps(ops)
-        const inbox =
-          ops.ok && !ops.inboxEventsError
-            ? adoptById(
-                workspaceRef.current.inboxEvents,
-                ops.inboxEvents,
-                (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
-              )
-            : workspaceRef.current.inboxEvents
-        setQuotations((prev) => {
-          const promoted = promoteInboxQueuedDrafts(prev, inbox)
-          return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
-        })
-        const core = await loadCoreWorkspace()
-        if (cancelled) return
-        applyLoadedCore(core)
-      }
-
       if (isBoot) suppressPublishRef.current = false
     }
 
     void pull(true)
     const timer = window.setInterval(() => {
       if (!pushingRef.current) void pull(false)
-    }, 4000)
+    }, supabaseMode ? 30_000 : 4_000)
     const onFocus = () => {
       if (!pushingRef.current) void pull(false)
     }
     window.addEventListener("focus", onFocus)
 
+    let channel: ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | undefined
+    let debounce: ReturnType<typeof setTimeout> | undefined
+    if (supabaseMode) {
+      const supabase = getSupabaseBrowser()
+      const refresh = () => {
+        window.clearTimeout(debounce)
+        debounce = setTimeout(() => {
+          if (!cancelled && !pushingRef.current) void pullFromSupabase()
+        }, 280)
+      }
+      channel = supabase
+        .channel("technik-ops")
+        .on("postgres_changes", { event: "*", schema: "public", table: "quotations" }, refresh)
+        .on("postgres_changes", { event: "*", schema: "public", table: "quotation_visit_photos" }, refresh)
+        .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, refresh)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "inbox_events" }, (payload) => {
+          const row = payload.new as { id?: string; title?: string; body?: string }
+          if (row.id && row.id === lastAnnouncedInboxIdRef.current) {
+            refresh()
+            return
+          }
+          if (row.title && userRoleRef.current === "admin") {
+            showNotice(row.body ? `${row.title} · ${row.body}` : row.title)
+          }
+          refresh()
+        })
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") setSyncStatus("live")
+        })
+    }
+
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      window.clearTimeout(debounce)
       window.removeEventListener("focus", onFocus)
+      if (channel) void getSupabaseBrowser().removeChannel(channel)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore])
+  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice, trackPersist])
 
   useEffect(() => {
     const backup = readOpsBackup()
@@ -2417,7 +2450,6 @@ export function TechnikProvider({
       const patch: Partial<Quotation> = { clientResponse: response }
       if (response === "aprobada") {
         if (current.status !== "closed") patch.status = "approved"
-        if (!current.clientSentAt) patch.clientSentAt = today()
         const filled = clientPublicItemsForQuote(current, catalog)
         if (!(current.publicItems ?? []).length && filled.length > 0) {
           patch.publicItems = filled

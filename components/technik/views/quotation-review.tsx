@@ -40,6 +40,7 @@ import {
   internalEconomy,
   lineTotalMxn,
   quotationDepartments,
+  isQuotationCreator,
   suggestedPublicUnitPrice,
   type Client,
   type CatalogItem,
@@ -660,23 +661,26 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         }
       }
 
+      const delivered = shared === "shared" || fallbackChannel !== null
       const d = new Date().toISOString().slice(0, 10)
       if (kind === "client") {
-        const result = updateQuotation(
-          q!.id,
-          {
-            clientSentAt: d,
-            clientResponse: q!.clientResponse ?? "en_espera",
-            publicItems,
-            terms,
-            taxRate,
-            isrRetentionRate,
-          },
-          `PDF compartido con el cliente (${payload.contact})`,
-        )
-        if (!result.ok) {
-          setToast({ icon: Lock, title: "No permitido", msg: result.error })
-          return
+        if (delivered) {
+          const result = updateQuotation(
+            q!.id,
+            {
+              clientSentAt: d,
+              clientResponse: q!.clientResponse ?? "en_espera",
+              publicItems,
+              terms,
+              taxRate,
+              isrRetentionRate,
+            },
+            `PDF compartido con el cliente (${payload.contact})`,
+          )
+          if (!result.ok) {
+            setToast({ icon: Lock, title: "No permitido", msg: result.error })
+            return
+          }
         }
         if (shared === "shared") {
           setToast({
@@ -700,17 +704,23 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
           setToast({
             icon: Download,
             title: "PDF descargado",
-            msg: "Copia el contacto del cliente y adjunta el archivo.",
+            msg: "Copia el contacto del cliente y adjunta el archivo. No se marcó como enviada.",
           })
         }
         return
       }
 
-      updateQuotation(
-        q!.id,
-        { supplierSentAt: d, supplierId: supplier!.id },
-        `Lista de materiales compartida con ${supplier!.name} (${payload.contact})`,
-      )
+      if (delivered) {
+        const result = updateQuotation(
+          q!.id,
+          { supplierSentAt: d, supplierId: supplier!.id },
+          `Lista de materiales compartida con ${supplier!.name} (${payload.contact})`,
+        )
+        if (!result.ok) {
+          setToast({ icon: Lock, title: "No permitido", msg: result.error })
+          return
+        }
+      }
       if (shared === "shared") {
         setToast({
           icon: Share2,
@@ -733,7 +743,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         setToast({
           icon: Download,
           title: "PDF descargado",
-          msg: "Copia el contacto del proveedor y adjunta el archivo.",
+          msg: "Copia el contacto del proveedor y adjunta el archivo. No se marcó como enviada.",
         })
       }
     } catch {
@@ -871,11 +881,15 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
           return
         }
       } else {
-        updateQuotation(
+        const result = updateQuotation(
           q!.id,
           { supplierSentAt: d, supplierId: supplier!.id },
           `Lista de materiales enviada a ${supplier!.name} (${recipients.to}${ccNote})`,
         )
+        if (!result.ok) {
+          setToast({ icon: Lock, title: "No permitido", msg: result.error })
+          return
+        }
       }
       setToast({
         icon: CheckCircle2,
@@ -994,8 +1008,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                 className="shrink-0 lg:max-w-[26rem]"
                 beforeApply={() => {
                   if (q.status === "approved" || q.status === "closed") return true
-                  persistDocument()
-                  return true
+                  return persistDocument()
                 }}
                 onApplied={onPipelineApplied}
               />
@@ -1182,7 +1195,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                 canEdit={
                   !isAdmin &&
                   user?.role === "empleado" &&
-                  q.createdById === user.id &&
+                  isQuotationCreator(user, q) &&
                   (q.status === "draft" || q.status === "pending_review")
                 }
                 compact

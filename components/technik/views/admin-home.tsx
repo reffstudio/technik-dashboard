@@ -6,6 +6,7 @@ import { useTechnik, quoteTotals } from "@/lib/technik/store"
 import {
   currency,
   quotationHasDepartment,
+  quotePipelineStatus,
   type QuoteStatus,
   type WorkDepartment,
 } from "@/lib/technik/data"
@@ -39,9 +40,11 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
 
   const clientName = (id: string) => clients.find((c) => c.id === id)?.company ?? id
 
-  const pending = quotations.filter((q) => q.status === "pending_review")
+  const pending = quotations.filter((q) => quotePipelineStatus(q) === "pending_review")
   const waitingClient = quotations.filter(
-    (q) => q.clientSentAt && (q.clientResponse ?? "en_espera") === "en_espera",
+    (q) =>
+      quotePipelineStatus(q) === "sent_client" &&
+      (q.clientResponse ?? "en_espera") === "en_espera",
   )
   const pipelineValue = useMemo(
     () =>
@@ -61,7 +64,7 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
     if (filter === "queue") base = pending
     else if (filter === "waiting") base = waitingClient
     else if (filter === "all") base = quotations.filter((q) => q.status !== "draft")
-    else if (filter === "sent_client") base = quotations.filter((q) => !!q.clientSentAt)
+    else if (filter === "sent_client") base = quotations.filter((q) => quotePipelineStatus(q) === "sent_client")
     else if (filter === "sent_supplier") base = quotations.filter((q) => !!q.supplierSentAt)
     else base = quotations.filter((q) => q.status === filter)
 

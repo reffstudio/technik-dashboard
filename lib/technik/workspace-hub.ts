@@ -121,7 +121,16 @@ export function writeWorkspaceHub(input: {
   }
 }
 
-/** Reinicia el hub vacío. */
+/** Snapshot sin datos de negocio: avisos en vivo únicamente. */
+export function noticeOnlySnapshot(): WorkspaceSnapshot {
+  const snap = readWorkspaceHub()
+  return {
+    ...emptySnapshot(),
+    rev: snap.rev,
+    lastLive: snap.lastLive,
+  }
+}
+
 export function resetWorkspaceHub(): WorkspaceSnapshot {
   const hub = getHub()
   hub.snapshot = emptySnapshot()

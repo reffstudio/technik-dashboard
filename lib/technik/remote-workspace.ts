@@ -1,4 +1,5 @@
 import type { LiveEnvelope, LiveNoticeAudience, WorkspaceSnapshot } from "./live"
+import { authHeaders } from "@/lib/supabase/session-token"
 
 export type RemoteWorkspaceResponse = {
   ok: boolean
@@ -21,6 +22,7 @@ export async function fetchRemoteWorkspace(): Promise<RemoteWorkspaceResponse> {
     const res = await fetch("/api/workspace", {
       method: "GET",
       cache: "no-store",
+      headers: await authHeaders(),
     })
     const data = await parseJson(res)
     if (!res.ok) return { ok: false, error: data.error ?? `HTTP ${res.status}` }
@@ -44,7 +46,10 @@ export async function pushRemoteWorkspace(input: {
   try {
     const res = await fetch("/api/workspace", {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await authHeaders()),
+      },
       body: JSON.stringify(input),
       cache: "no-store",
     })

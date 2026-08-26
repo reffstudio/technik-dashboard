@@ -257,7 +257,7 @@ export function QuotePipelineControls({
       return
     }
     if (next === "sent_client") {
-      updateQuotation(
+      const result = updateQuotation(
         quotation.id,
         {
           status: "pending_review",
@@ -265,23 +265,35 @@ export function QuotePipelineControls({
         },
         "Marcó enviada al cliente",
       )
+      if (!result.ok) {
+        onApplied?.("sent_client", { error: result.error })
+        return
+      }
       onApplied?.("sent_client")
       return
     }
     if (next === "pending_review") {
-      updateQuotation(
+      const result = updateQuotation(
         quotation.id,
-        { status: "pending_review", clientSentAt: undefined },
+        { status: "pending_review" },
         "Envió a revisión",
       )
+      if (!result.ok) {
+        onApplied?.(next, { error: result.error })
+        return
+      }
       onApplied?.(next)
       return
     }
-    updateQuotation(
+    const result = updateQuotation(
       quotation.id,
       { status: "draft", clientSentAt: undefined },
       `Estado → ${PIPELINE_STATUS_META.draft.label}`,
     )
+    if (!result.ok) {
+      onApplied?.(next, { error: result.error })
+      return
+    }
     onApplied?.(next)
   }
 
