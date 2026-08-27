@@ -13,11 +13,13 @@ La app **ya no es mock**. Auth, persistencia y Realtime van a Supabase. Este arc
 - [x] Fotos de visita en Storage (`visit-photos`), APIs con sesión
 - [x] `/api/workspace` autenticado; con Supabase no mezcla cotizaciones del hub
 - [x] Realtime en `quotations`, `inbox_events`, `projects`, `quotation_visit_photos` (aplicar SQL `20260826140000_…`)
+- [x] Folio de cotización vía `next_code` (aplicar SQL `20260827150000_next_code_from_max.sql`)
 - [x] Tests del pipeline (`npm test` / `tsx --test`)
 
 ## Al desplegar / proyecto live
 
 - [ ] Aplicar `20260826140000_quote_pdfs_and_realtime.sql` (bucket + publication). El envío de correo **crea el bucket** si falta; Realtime sí necesita el SQL.
+- [ ] Aplicar `20260827150000_next_code_from_max.sql` para que el folio no choque con cotizaciones ya existentes.
 - [ ] Confirmar RLS: colaborador no edita `unit_cost` ni cuotas cobradas
 - [ ] Verificar que el dashboard en vivo usa las mismas `NEXT_PUBLIC_*` que este repo
 

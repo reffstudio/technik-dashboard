@@ -280,7 +280,7 @@ interface TechnikState {
     lines: QuoteLine[]
     notes?: string
     submit: boolean
-  }) => string
+  }) => Promise<string>
   updateQuotation: (
     id: string,
     patch: Partial<Quotation>,
@@ -292,7 +292,7 @@ interface TechnikState {
     id: string,
     response: ClientResponse,
   ) => { ok: true; projectId?: string } | { ok: false; error: string }
-  duplicateQuotation: (id: string) => string | null
+  duplicateQuotation: (id: string) => Promise<string | null>
   archiveQuotation: (id: string) => void
   /** Manda un borrador a Eliminados (se borra del todo a los 7 días). */
   deleteDraftQuotation: (id: string) => { ok: true } | { ok: false; error: string }
@@ -647,16 +647,46 @@ export function TechnikProvider({
     [showNotice, trackPersist],
   )
 
-  const persistQuoteNow = useCallback((q: Quotation) => {
-    if (!isSupabaseConfigured()) return
-    void trackPersist(`quote:${q.id}`, () =>
-      enqueuePersistQuotation(q, {
-        actorAuthId: userAuthIdRef.current,
-        users: workspaceRef.current.users,
-        isAdmin: userRoleRef.current === "admin",
-      }),
-    )
-  }, [trackPersist])
+  const persistQuoteNowAsync = useCallback(
+    async (q: Quotation) => {
+      if (!isSupabaseConfigured()) return { ok: true as const, id: q.id }
+      let id = q.id
+      const res = await trackPersist(`quote:${q.id}`, async () => {
+        const saved = await enqueuePersistQuotation(q, {
+          actorAuthId: userAuthIdRef.current,
+          users: workspaceRef.current.users,
+          isAdmin: userRoleRef.current === "admin",
+        })
+        if (!saved.ok) return saved
+        id = saved.id
+        if (saved.id !== q.id) {
+          setQuotations((prev) =>
+            prev.map((x) => (x.id === q.id ? { ...x, id: saved.id, reference: saved.id } : x)),
+          )
+          quotationsRef.current = quotationsRef.current.map((x) =>
+            x.id === q.id ? { ...x, id: saved.id, reference: saved.id } : x,
+          )
+        }
+        return { ok: true as const }
+      })
+      if (!res.ok) {
+        return {
+          ok: false as const,
+          error: res.error || "No se pudo guardar la cotización.",
+          id,
+        }
+      }
+      return { ok: true as const, id }
+    },
+    [trackPersist],
+  )
+
+  const persistQuoteNow = useCallback(
+    (q: Quotation) => {
+      void persistQuoteNowAsync(q)
+    },
+    [persistQuoteNowAsync],
+  )
 
   const persistProjectNow = useCallback((project: Project) => {
     if (!isSupabaseConfigured()) return
@@ -982,7 +1012,6 @@ export function TechnikProvider({
         ).filter((q) => !quotationTrashExpired(q))
         const remoteIds = new Set(remote.map((q) => q.id))
         const authId = userAuthIdRef.current
-        const role = userRoleRef.current
         for (const q of merged) {
           if (remoteIds.has(q.id)) continue
           const owner = workspaceRef.current.users.find(
@@ -990,13 +1019,7 @@ export function TechnikProvider({
           )
           const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
           if (mine) {
-            void trackPersist(`quote:${q.id}`, () =>
-              enqueuePersistQuotation(q, {
-                actorAuthId: authId,
-                users: workspaceRef.current.users,
-                isAdmin: role === "admin",
-              }),
-            )
+            void persistQuoteNowAsync(q)
           }
         }
         setQuotations((live) => {
@@ -1102,7 +1125,7 @@ export function TechnikProvider({
       if (channel) void getSupabaseBrowser().removeChannel(channel)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice, trackPersist])
+  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice, persistQuoteNowAsync])
 
   useEffect(() => {
     const backup = readOpsBackup()
@@ -1996,8 +2019,11 @@ export function TechnikProvider({
   }, [trackPersist])
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
-    (input) => {
-      const code = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
+    async (input) => {
+      const fallback = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
+      const code = isSupabaseConfigured()
+        ? ((await nextServerCode("quotation")) ?? fallback)
+        : fallback
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
@@ -2008,7 +2034,7 @@ export function TechnikProvider({
         title: input.title,
         departments: input.departments.length
           ? input.departments
-          : [departments[0]?.id].filter(Boolean) as WorkDepartment[],
+          : ([departments[0]?.id].filter(Boolean) as WorkDepartment[]),
         status: input.submit ? "pending_review" : "draft",
         lines: input.lines,
         publicItems: [],
@@ -2030,30 +2056,28 @@ export function TechnikProvider({
         ],
       }
       const nextQuotations = [q, ...quotationsRef.current]
-      if (input.submit) {
+      setQuotations(nextQuotations)
+      quotationsRef.current = nextQuotations
+      flushPublish({ quotations: nextQuotations })
+      const saved = await persistQuoteNowAsync(q)
+      const finalId = saved.id
+      if (input.submit && saved.ok) {
         const inboxItem: InboxEvent = {
-          id: `review-${code}-${stamp}`,
+          id: `review-${finalId}-${stamp}`,
           kind: "review_queue",
           title: "Nueva cotización por revisar",
-          body: `${code} · ${input.title}`,
+          body: `${finalId} · ${input.title}`,
           at: new Date().toISOString(),
-          href: { name: "review", id: code },
+          href: { name: "review", id: finalId },
         }
-        announce(`${actor} · Nueva cotización en revisión ${code}`, "admin", inboxItem)
-        setQuotations(nextQuotations)
-        persistQuoteNow(q)
+        announce(`${actor} · Nueva cotización en revisión ${finalId}`, "admin", inboxItem)
         flushPublish({
-          quotations: nextQuotations,
           inboxEvents: [inboxItem, ...workspaceRef.current.inboxEvents],
         })
-      } else {
-        setQuotations(nextQuotations)
-        persistQuoteNow(q)
-        flushPublish({ quotations: nextQuotations })
       }
-      return code
+      return finalId
     },
-    [user, quotations, departments, announce, flushPublish, persistQuoteNow],
+    [user, departments, announce, flushPublish, persistQuoteNowAsync],
   )
 
   const updateQuotation = useCallback(
@@ -2165,10 +2189,13 @@ export function TechnikProvider({
   )
 
   const duplicateQuotation = useCallback(
-    (id: string) => {
-      const src = quotations.find((q) => q.id === id)
+    async (id: string) => {
+      const src = quotationsRef.current.find((q) => q.id === id)
       if (!src) return null
-      const code = nextQuotationCode(quotations.map((q) => q.reference))
+      const fallback = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
+      const code = isSupabaseConfigured()
+        ? ((await nextServerCode("quotation")) ?? fallback)
+        : fallback
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
@@ -2201,11 +2228,13 @@ export function TechnikProvider({
           },
         ],
       }
-      setQuotations((prev) => [q, ...prev])
-      persistQuoteNow(q)
-      return code
+      const nextQuotations = [q, ...quotationsRef.current]
+      setQuotations(nextQuotations)
+      quotationsRef.current = nextQuotations
+      const saved = await persistQuoteNowAsync(q)
+      return saved.id
     },
-    [quotations, user, persistQuoteNow],
+    [user, persistQuoteNowAsync],
   )
 
   const archiveQuotation = useCallback(

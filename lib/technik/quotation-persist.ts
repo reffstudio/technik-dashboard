@@ -12,7 +12,9 @@ import type {
   WorkDepartment,
 } from "./data"
 import { quotationTrashExpired } from "./data"
-import { persistClientResponse, persistSentAt } from "./quotation-guards"
+import { isDuplicateQuoteKey, persistClientResponse, persistSentAt } from "./quotation-guards"
+import { nextQuotationCode } from "./codes"
+import { nextServerCode } from "./core-persist"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import { persistStorageImage, storagePublicUrl, coverPathForQuote, extFromDataUrl } from "./cover-image"
 import { visitPhotoUrl } from "./visit-photos"
@@ -107,6 +109,9 @@ function persistErrorMessage(error: { code?: string; message?: string }) {
   }
   if (error.code === "23503") {
     return "Falta el cliente o un ítem de catálogo en el servidor."
+  }
+  if (isDuplicateQuoteKey(error)) {
+    return "Ese folio ya existe. Recarga e intenta de nuevo."
   }
   return msg || "No se pudo guardar la cotización."
 }
@@ -442,10 +447,38 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
   return { ok: true as const }
 }
 
-export async function persistQuotation(
+type ExistingQuoteRow = {
+  created_by?: string
+  status?: QuoteStatus
+  client_sent_at?: string | null
+  supplier_sent_at?: string | null
+  client_response?: ClientResponse | null
+  supplier_id?: string | null
+}
+
+function localCreatorAuthId(q: Quotation, ctx: { actorAuthId?: string; users: User[] }) {
+  return (
+    ctx.users.find((u) => u.id === q.createdById || u.authId === q.createdById)?.authId ||
+    ctx.actorAuthId
+  )
+}
+
+function canWriteExistingQuote(
+  existing: ExistingQuoteRow,
   q: Quotation,
   ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+) {
+  const owner = existing.created_by
+  if (owner && ctx.actorAuthId && owner === ctx.actorAuthId) return true
+  if (!ctx.isAdmin) return false
+  const localCreator = localCreatorAuthId(q, ctx)
+  return Boolean(owner && localCreator && owner === localCreator)
+}
+
+async function persistQuotationOnce(
+  q: Quotation,
+  ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
+): Promise<{ ok: true } | { ok: false; error: string; duplicate?: boolean }> {
   const supabase = getSupabaseBrowser()
   const { data: existing } = await supabase
     .from("quotations")
@@ -453,14 +486,11 @@ export async function persistQuotation(
     .eq("id", q.id)
     .maybeSingle()
 
-  const existingRow = existing as {
-    created_by?: string
-    status?: QuoteStatus
-    client_sent_at?: string | null
-    supplier_sent_at?: string | null
-    client_response?: ClientResponse | null
-    supplier_id?: string | null
-  } | null
+  const existingRow = existing as ExistingQuoteRow | null
+  if (existingRow && !canWriteExistingQuote(existingRow, q, ctx)) {
+    return { ok: false, error: "folio ocupado", duplicate: true }
+  }
+
   const createdBy =
     existingRow?.created_by ||
     ctx.actorAuthId ||
@@ -515,7 +545,7 @@ export async function persistQuotation(
   }
 
   const writeQuote = (payload: Record<string, unknown>) => {
-    if (existing) {
+    if (existingRow) {
       const { id: _id, created_by: _createdBy, ...updates } = payload
       return supabase.from("quotations").update(updates).eq("id", q.id)
     }
@@ -533,13 +563,48 @@ export async function persistQuotation(
     const retry = await writeQuote(row)
     error = retry.error
   }
+  if (error && isDuplicateQuoteKey(error) && !existingRow) {
+    const { data: raced } = await supabase
+      .from("quotations")
+      .select("id, created_by, status, client_sent_at, supplier_sent_at, client_response, supplier_id")
+      .eq("id", q.id)
+      .maybeSingle()
+    const racedRow = raced as ExistingQuoteRow | null
+    if (racedRow && canWriteExistingQuote(racedRow, q, ctx)) {
+      const { id: _id, created_by: _createdBy, ...updates } = row
+      const upd = await supabase.from("quotations").update(updates).eq("id", q.id)
+      error = upd.error
+    } else {
+      return { ok: false, error: persistErrorMessage(error), duplicate: true }
+    }
+  }
   if (error) {
-    return { ok: false, error: persistErrorMessage(error) }
+    return { ok: false, error: persistErrorMessage(error), duplicate: isDuplicateQuoteKey(error) }
   }
 
   const children = await persistChildren(q, ctx.users, ctx.isAdmin)
   if (!children.ok) return children
   return { ok: true }
+}
+
+export async function persistQuotation(
+  q: Quotation,
+  ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  let working = q
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const result = await persistQuotationOnce(working, ctx)
+    if (result.ok) return { ok: true, id: working.id }
+    if (!result.duplicate) return { ok: false, error: result.error }
+    const nextId =
+      (await nextServerCode("quotation")) ??
+      nextQuotationCode([working.id, q.id, q.reference])
+    if (!nextId || nextId === working.id) {
+      return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
+    }
+    working = { ...working, id: nextId, reference: nextId }
+  }
+  return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
 }
 
 export async function deleteQuotationRow(id: string) {

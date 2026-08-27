@@ -175,7 +175,7 @@ export function QuoteBuilder({
       if (!draftId) {
         if (creatingRef.current) return
         creatingRef.current = true
-        const newId = createQuotation({
+        void createQuotation({
           clientId,
           title: title.trim(),
           departments: selectedDepartments,
@@ -183,9 +183,13 @@ export function QuoteBuilder({
           notes,
           submit: false,
         })
-        lastSavedSig.current = sig
-        setDraftId(newId)
-        creatingRef.current = false
+          .then((newId) => {
+            lastSavedSig.current = sig
+            setDraftId(newId)
+          })
+          .finally(() => {
+            creatingRef.current = false
+          })
         return
       }
       updateQuotation(draftId, {
@@ -262,29 +266,32 @@ export function QuoteBuilder({
     })
   }
 
-  function ensureDraftId(): string | null {
+  async function ensureDraftId(): Promise<string | null> {
     if (draftId) return draftId
     if (!canContinueClient) return null
     if (creatingRef.current) return null
     creatingRef.current = true
-    const newId = createQuotation({
-      clientId,
-      title: title.trim(),
-      departments: selectedDepartments,
-      lines,
-      notes,
-      submit: false,
-    })
-    lastSavedSig.current = JSON.stringify({
-      clientId,
-      title: title.trim(),
-      selectedDepartments,
-      lines,
-      notes,
-    })
-    setDraftId(newId)
-    creatingRef.current = false
-    return newId
+    try {
+      const newId = await createQuotation({
+        clientId,
+        title: title.trim(),
+        departments: selectedDepartments,
+        lines,
+        notes,
+        submit: false,
+      })
+      lastSavedSig.current = JSON.stringify({
+        clientId,
+        title: title.trim(),
+        selectedDepartments,
+        lines,
+        notes,
+      })
+      setDraftId(newId)
+      return newId
+    } finally {
+      creatingRef.current = false
+    }
   }
 
   async function createAndSelectClient() {
@@ -333,7 +340,7 @@ export function QuoteBuilder({
     setNewExtra({ name: "", unit: "ud", unitCost: 0 })
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!canSubmit) return
     const payload = {
       clientId,
@@ -356,7 +363,7 @@ export function QuoteBuilder({
       navigate(isAdmin ? { name: "review", id: draftId } : { name: "quotations" })
       return
     }
-    const newId = createQuotation({ ...payload, submit: true })
+    const newId = await createQuotation({ ...payload, submit: true })
     navigate(isAdmin ? { name: "review", id: newId } : { name: "quotations" })
   }
 
@@ -660,7 +667,7 @@ export function QuoteBuilder({
                 quotationId={draftId}
                 photos={liveQuote?.visitPhotos}
                 canEdit={!sentLocked}
-                onNeedDraft={async () => ensureDraftId()}
+                onNeedDraft={() => ensureDraftId()}
               />
             </div>
           </div>

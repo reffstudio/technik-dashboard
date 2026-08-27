@@ -6,6 +6,7 @@ import {
   type Quotation,
 } from "./data"
 import {
+  isDuplicateQuoteKey,
   persistClientResponse,
   persistSentAt,
   preferQuote,
@@ -95,6 +96,19 @@ describe("preferQuote", () => {
       updatedAt: "2026-01-02 10:00",
     })
     assert.equal(preferQuote(waiting, approved).clientResponse, "aprobada")
+  })
+})
+
+describe("isDuplicateQuoteKey", () => {
+  it("detecta el error de Postgres de folio repetido", () => {
+    assert.equal(
+      isDuplicateQuoteKey({
+        code: "23505",
+        message: `duplicate key value violates unique constraint "quotations_pkey"`,
+      }),
+      true,
+    )
+    assert.equal(isDuplicateQuoteKey({ code: "42501", message: "rls" }), false)
   })
 })
 

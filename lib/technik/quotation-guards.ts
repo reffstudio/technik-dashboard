@@ -40,6 +40,11 @@ export function persistSentAt(
   return incoming || stored || null
 }
 
+export function isDuplicateQuoteKey(error: { code?: string; message?: string }) {
+  const msg = error.message ?? ""
+  return error.code === "23505" || /quotations_pkey|duplicate key/i.test(msg)
+}
+
 export function persistClientResponse(
   incoming?: ClientResponse | null,
   existing?: ClientResponse | null,
