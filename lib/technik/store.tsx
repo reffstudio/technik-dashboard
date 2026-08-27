@@ -649,26 +649,45 @@ export function TechnikProvider({
 
   const persistQuoteNowAsync = useCallback(
     async (q: Quotation) => {
+      if (!q?.id) {
+        return { ok: false as const, error: "Cotización sin folio.", id: "" }
+      }
       if (!isSupabaseConfigured()) return { ok: true as const, id: q.id }
       let id = q.id
       const res = await trackPersist(`quote:${q.id}`, async () => {
-        const saved = await enqueuePersistQuotation(q, {
-          actorAuthId: userAuthIdRef.current,
-          users: workspaceRef.current.users,
-          isAdmin: userRoleRef.current === "admin",
-        })
-        if (!saved.ok) return saved
-        id = saved.id
-        if (saved.id !== q.id) {
-          setQuotations((prev) =>
-            prev.map((x) => (x.id === q.id ? { ...x, id: saved.id, reference: saved.id } : x)),
-          )
-          quotationsRef.current = quotationsRef.current.map((x) =>
-            x.id === q.id ? { ...x, id: saved.id, reference: saved.id } : x,
-          )
+        try {
+          const saved = await enqueuePersistQuotation(q, {
+            actorAuthId: userAuthIdRef.current || undefined,
+            users: workspaceRef.current.users.filter(Boolean),
+            isAdmin: userRoleRef.current === "admin",
+          })
+          if (!saved?.ok) {
+            return {
+              ok: false as const,
+              error: saved && "error" in saved && saved.error
+                ? saved.error
+                : "No se pudo guardar la cotización.",
+            }
+          }
+          id = saved.id || q.id
+          return { ok: true as const }
+        } catch (err) {
+          return {
+            ok: false as const,
+            error: err instanceof Error && !/cannot read propert/i.test(err.message)
+              ? err.message
+              : "No se pudo guardar la cotización. Recarga e inténtalo de nuevo.",
+          }
         }
-        return { ok: true as const }
       })
+      if (res.ok && id && id !== q.id) {
+        const remap = (list: Quotation[]) =>
+          list
+            .filter((x) => x?.id)
+            .map((x) => (x.id === q.id ? { ...x, id, reference: id } : x))
+        setQuotations((prev) => remap(prev))
+        quotationsRef.current = remap(quotationsRef.current)
+      }
       if (!res.ok) {
         return {
           ok: false as const,
@@ -1010,12 +1029,12 @@ export function TechnikProvider({
           remote,
           inbox,
         ).filter((q) => !quotationTrashExpired(q))
-        const remoteIds = new Set(remote.map((q) => q.id))
+        const remoteIds = new Set(remote.filter((q) => q?.id).map((q) => q.id))
         const authId = userAuthIdRef.current
         for (const q of merged) {
-          if (remoteIds.has(q.id)) continue
+          if (!q?.id || remoteIds.has(q.id)) continue
           const owner = workspaceRef.current.users.find(
-            (u) => u.id === q.createdById || u.authId === q.createdById,
+            (u) => u && (u.id === q.createdById || u.authId === q.createdById),
           )
           const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
           if (mine) {

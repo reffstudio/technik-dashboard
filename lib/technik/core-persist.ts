@@ -106,10 +106,14 @@ function catalogFromRow(row: CatalogRow): CatalogItem {
 }
 
 export async function nextServerCode(kind: string): Promise<string | null> {
-  const supabase = getSupabaseBrowser()
-  const { data, error } = await supabase.rpc("next_code", { p_kind: kind })
-  if (error || typeof data !== "string" || !data) return null
-  return data
+  try {
+    const supabase = getSupabaseBrowser()
+    const { data, error } = await supabase.rpc("next_code", { p_kind: kind })
+    if (error || typeof data !== "string" || !data) return null
+    return data
+  } catch {
+    return null
+  }
 }
 
 export async function loadCoreWorkspace(): Promise<{

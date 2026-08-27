@@ -324,7 +324,7 @@ export async function persistProject(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = getSupabaseBrowser()
   const createdBy =
-    ctx.users.find((u) => u.id === project.createdById || u.authId === project.createdById)?.authId ||
+    ctx.users.find((u) => u && (u.id === project.createdById || u.authId === project.createdById))?.authId ||
     ctx.actorAuthId ||
     null
 
@@ -377,7 +377,7 @@ export async function persistProject(
     .from("project_installments")
     .select("id, paid_at")
     .eq("project_id", project.id)
-  const nextIds = new Set((project.installments ?? []).map((i) => i.id))
+  const nextIds = new Set((project.installments ?? []).filter((i) => i?.id).map((i) => i.id))
   for (const row of (existingInst ?? []) as { id: string; paid_at: string | null }[]) {
     if (nextIds.has(row.id)) continue
     if (row.paid_at) continue
@@ -385,7 +385,7 @@ export async function persistProject(
   }
 
   for (const [i, inst] of (project.installments ?? []).entries()) {
-    if (!(inst.amount > 0) || !inst.dueDate) continue
+    if (!inst || !(inst.amount > 0) || !inst.dueDate) continue
     const paid = Boolean(inst.paidAt)
     const { error: iErr } = await supabase.from("project_installments").upsert({
       id: inst.id,
@@ -419,7 +419,7 @@ export async function persistProject(
     const { error: eErr } = await supabase.from("project_events").insert(
       fresh.map((h) => ({
         project_id: project.id,
-        actor_id: ctx.users.find((u) => u.name === h.by)?.authId ?? ctx.actorAuthId ?? null,
+        actor_id: ctx.users.find((u) => u && u.name === h.by)?.authId ?? ctx.actorAuthId ?? null,
         action: h.action,
         created_at: parseStamp(h.at),
       })),

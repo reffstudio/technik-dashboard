@@ -113,7 +113,20 @@ function persistErrorMessage(error: { code?: string; message?: string }) {
   if (isDuplicateQuoteKey(error)) {
     return "Ese folio ya existe. Recarga e intenta de nuevo."
   }
+  if (/cannot read propert/i.test(msg)) {
+    return "No se pudo guardar la cotización. Recarga e inténtalo de nuevo."
+  }
   return msg || "No se pudo guardar la cotización."
+}
+
+function caughtPersistError(err: unknown) {
+  if (err && typeof err === "object") return persistErrorMessage(err)
+  return persistErrorMessage({ message: err instanceof Error ? err.message : String(err ?? "") })
+}
+
+function userAuthIdOf(users: User[], localId?: string) {
+  if (!localId) return undefined
+  return users.find((u) => u && (u.id === localId || u.authId === localId))?.authId
 }
 
 function eventKey(at: string, action: string) {
@@ -142,9 +155,10 @@ async function persistQuoteImage(
 
 export function quotesSignature(list: Quotation[]) {
   return list
+    .filter((q) => q?.id)
     .map(
       (q) =>
-        `${q.id}:${q.updatedAt}:${q.status}:${q.deletedAt ?? ""}:${q.lines.length}:${q.history?.length ?? 0}:${q.publicItems?.length ?? 0}:${q.visitPhotos?.length ?? 0}:${q.clientResponse ?? ""}:${q.comments ?? ""}:${q.coverImageUrl ?? ""}`,
+        `${q.id}:${q.updatedAt}:${q.status}:${q.deletedAt ?? ""}:${q.lines?.length ?? 0}:${q.history?.length ?? 0}:${q.publicItems?.length ?? 0}:${q.visitPhotos?.length ?? 0}:${q.clientResponse ?? ""}:${q.comments ?? ""}:${q.coverImageUrl ?? ""}`,
     )
     .sort()
     .join("|")
@@ -378,8 +392,8 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
 
   const { error: delLines } = await supabase.from("quotation_lines").delete().eq("quotation_id", q.id)
   if (delLines) return { ok: false as const, error: persistErrorMessage(delLines) }
-  const lineRows = q.lines
-    .filter((l) => l.itemId && l.quantity > 0)
+  const lineRows = (q.lines ?? [])
+    .filter((l) => l && l.itemId && l.quantity > 0)
     .map((l, i) => ({
       quotation_id: q.id,
       catalog_item_id: l.itemId,
@@ -396,6 +410,7 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
     await supabase.from("quotation_public_items").delete().eq("quotation_id", q.id)
     const publicRows: Record<string, unknown>[] = []
     for (const [i, item] of (q.publicItems ?? []).entries()) {
+      if (!item) continue
       const image = await persistQuoteImage(q.id, item.id || `item-${i}`, item.imageUrl)
       const row: Record<string, unknown> = {
         quotation_id: q.id,
@@ -406,7 +421,7 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
         image_path: image,
         sort_order: i,
       }
-      if (isUuid(item.id)) row.id = item.id
+      if (item.id && isUuid(item.id)) row.id = item.id
       publicRows.push(row)
     }
     if (publicRows.length > 0) {
@@ -424,7 +439,7 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
       eventKey(e.created_at ?? "", e.action),
     ),
   )
-  const fresh = dedupeActivityHistory(q.history ?? [])
+  const fresh = dedupeActivityHistory((q.history ?? []).filter((h) => h && h.at && h.action))
     .filter((h) => !seen.has(eventKey(h.at, h.action)))
     .slice(-20)
   if (fresh.length > 0) {
@@ -433,7 +448,7 @@ async function persistChildren(q: Quotation, users: User[], isAdmin: boolean) {
         const parsed = new Date(h.at.includes("T") ? h.at : h.at.replace(" ", "T"))
         return {
           quotation_id: q.id,
-          actor_id: users.find((u) => u.name === h.by || u.id === h.by)?.authId ?? null,
+          actor_id: users.find((u) => u && (u.name === h.by || u.id === h.by || u.authId === h.by))?.authId ?? null,
           action: h.action,
           created_at: Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(),
         }
@@ -457,10 +472,7 @@ type ExistingQuoteRow = {
 }
 
 function localCreatorAuthId(q: Quotation, ctx: { actorAuthId?: string; users: User[] }) {
-  return (
-    ctx.users.find((u) => u.id === q.createdById || u.authId === q.createdById)?.authId ||
-    ctx.actorAuthId
-  )
+  return userAuthIdOf(ctx.users, q.createdById) || ctx.actorAuthId
 }
 
 function canWriteExistingQuote(
@@ -479,6 +491,9 @@ async function persistQuotationOnce(
   q: Quotation,
   ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
 ): Promise<{ ok: true } | { ok: false; error: string; duplicate?: boolean }> {
+  if (!q?.id) {
+    return { ok: false, error: "Cotización sin folio." }
+  }
   const supabase = getSupabaseBrowser()
   const { data: existing } = await supabase
     .from("quotations")
@@ -492,9 +507,7 @@ async function persistQuotationOnce(
   }
 
   const createdBy =
-    existingRow?.created_by ||
-    ctx.actorAuthId ||
-    ctx.users.find((u) => u.id === q.createdById || u.authId === q.createdById)?.authId
+    existingRow?.created_by || ctx.actorAuthId || userAuthIdOf(ctx.users, q.createdById)
 
   if (!createdBy) {
     return { ok: false, error: "No hay sesión para guardar la cotización." }
@@ -591,20 +604,25 @@ export async function persistQuotation(
   q: Quotation,
   ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  let working = q
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const result = await persistQuotationOnce(working, ctx)
-    if (result.ok) return { ok: true, id: working.id }
-    if (!result.duplicate) return { ok: false, error: result.error }
-    const nextId =
-      (await nextServerCode("quotation")) ??
-      nextQuotationCode([working.id, q.id, q.reference])
-    if (!nextId || nextId === working.id) {
-      return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
+  try {
+    if (!q?.id) return { ok: false, error: "Cotización sin folio." }
+    let working = q
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const result = await persistQuotationOnce(working, ctx)
+      if (result.ok) return { ok: true, id: working.id }
+      if (!result.duplicate) return { ok: false, error: result.error }
+      const nextId =
+        (await nextServerCode("quotation")) ??
+        nextQuotationCode([working.id, q.id, q.reference].filter(Boolean))
+      if (!nextId || nextId === working.id) {
+        return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
+      }
+      working = { ...working, id: nextId, reference: nextId }
     }
-    working = { ...working, id: nextId, reference: nextId }
+    return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
+  } catch (err) {
+    return { ok: false, error: caughtPersistError(err) }
   }
-  return { ok: false, error: "No se pudo asignar un folio libre. Inténtalo de nuevo." }
 }
 
 export async function deleteQuotationRow(id: string) {
@@ -619,11 +637,15 @@ const persistTail = new Map<string, Promise<unknown>>()
 export function enqueuePersistQuotation(
   q: Quotation,
   ctx: { actorAuthId?: string; users: User[]; isAdmin: boolean },
-) {
-  const prev = persistTail.get(q.id) ?? Promise.resolve()
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const key = q?.id || "quote-pending"
+  const prev = persistTail.get(key) ?? Promise.resolve()
   const next = prev
     .catch(() => undefined)
     .then(() => persistQuotation(q, ctx))
-  persistTail.set(q.id, next)
+  persistTail.set(key, next)
+  void next.then((saved) => {
+    if (saved.ok && saved.id && saved.id !== key) persistTail.set(saved.id, next)
+  })
   return next
 }

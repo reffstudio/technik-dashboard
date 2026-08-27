@@ -140,16 +140,16 @@ export function promoteInboxQueuedDrafts(
 ): Quotation[] {
   if (!inboxEvents?.length) return quotations
   return quotations.map((q) => {
-    if (q.status !== "draft") return q
+    if (!q || q.status !== "draft") return q
     const queued = inboxEvents.some((e) => {
-      if (e.kind !== "review_queue") return false
+      if (!e || e.kind !== "review_queue") return false
       return (
         e.href?.id === q.id ||
         e.href?.id === q.reference ||
         e.id === `review-${q.id}` ||
         e.id === `review-${q.reference}` ||
-        e.id.startsWith(`review-${q.id}-`) ||
-        e.id.startsWith(`review-${q.reference}-`)
+        Boolean(e.id?.startsWith(`review-${q.id}-`)) ||
+        Boolean(e.id?.startsWith(`review-${q.reference}-`))
       )
     })
     if (!queued) return q
@@ -163,8 +163,12 @@ function mergeById<T extends { id: string }>(
   prefer: (a: T, b: T) => T,
 ): T[] {
   const map = new Map<string, T>()
-  for (const item of left ?? []) map.set(item.id, item)
+  for (const item of left ?? []) {
+    if (!item?.id) continue
+    map.set(item.id, item)
+  }
   for (const item of right ?? []) {
+    if (!item?.id) continue
     const prev = map.get(item.id)
     map.set(item.id, prev ? prefer(prev, item) : item)
   }
@@ -244,12 +248,19 @@ export function adoptByKey<T>(
   keyOf: (item: T) => string,
   prefer: (a: T, b: T) => T,
 ): T[] {
-  if (!incoming.length) return local
-  if (!local.length) return incoming
+  if (!incoming.length) return local.filter((item) => Boolean(item && keyOf(item)))
+  if (!local.length) return incoming.filter((item) => Boolean(item && keyOf(item)))
   const map = new Map<string, T>()
-  for (const item of local) map.set(keyOf(item), item)
-  for (const item of incoming) {
+  for (const item of local) {
+    if (!item) continue
     const key = keyOf(item)
+    if (!key) continue
+    map.set(key, item)
+  }
+  for (const item of incoming) {
+    if (!item) continue
+    const key = keyOf(item)
+    if (!key) continue
     const prev = map.get(key)
     map.set(key, prev ? prefer(prev, item) : item)
   }
@@ -265,7 +276,7 @@ export function adoptById<T extends { id: string }>(
   incoming: T[],
   prefer: (a: T, b: T) => T,
 ): T[] {
-  return adoptByKey(local, incoming, (item) => item.id, prefer)
+  return adoptByKey(local, incoming, (item) => item?.id ?? "", prefer)
 }
 
 export function adoptQuotations(
