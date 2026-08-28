@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
-import { Maximize2, X } from "lucide-react"
+import { Maximize2, Minus, Plus, X } from "lucide-react"
 import { publicQuoteTotals } from "@/lib/technik/store"
 import {
   currencyMxn,
@@ -233,7 +233,7 @@ export function QuotePdfPreview({
               className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/20 bg-neutral-950/75 px-4 py-2.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition-all hover:bg-neutral-950/90 hover:scale-[1.02] opacity-90 group-hover:opacity-100"
             >
               <Maximize2 className="size-3.5" />
-              Ver pantalla completa
+              Ver preview
             </button>
           </div>
         </div>
@@ -308,17 +308,13 @@ export function QuotePdfPreview({
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6 flex items-start justify-center">
+            <FullscreenLetter>
               {doc === "client" ? (
-                <FullscreenLetter>
-                  <ClientLetterDocument {...clientLetterProps} />
-                </FullscreenLetter>
+                <ClientLetterDocument {...clientLetterProps} />
               ) : (
-                <FullscreenLetter>
-                  <SupplierLetterDocument {...supplierLetterProps} />
-                </FullscreenLetter>
+                <SupplierLetterDocument {...supplierLetterProps} />
               )}
-            </div>
+            </FullscreenLetter>
           </div>,
           document.body,
         )}
@@ -327,19 +323,23 @@ export function QuotePdfPreview({
 }
 
 function FullscreenLetter({ children }: { children: ReactNode }) {
-  const boxRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0.85)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [fit, setFit] = useState(0.85)
+  const [zoom, setZoom] = useState(1)
+  const dragRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null)
+  const scale = fit * zoom
+  const canPan = zoom > 1.01
 
   useEffect(() => {
-    const el = boxRef.current
+    const el = viewportRef.current
     if (!el) return
 
     const update = () => {
-      const pad = 32
+      const pad = 48
       const availW = el.clientWidth - pad
       const availH = el.clientHeight - pad
       if (availW <= 0 || availH <= 0) return
-      setScale(Math.min(1, availW / LETTER_WIDTH_PX, availH / LETTER_HEIGHT_PX))
+      setFit(Math.min(1, availW / LETTER_WIDTH_PX, availH / LETTER_HEIGHT_PX))
     }
 
     update()
@@ -352,27 +352,89 @@ function FullscreenLetter({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  function bumpZoom(delta: number) {
+    setZoom((prev) => Math.min(3, Math.max(1, Math.round((prev + delta) * 20) / 20)))
+  }
+
   return (
-    <div ref={boxRef} className="w-full h-full flex items-center justify-center">
+    <div className="relative flex-1 min-h-0 flex flex-col">
       <div
-        style={{
-          width: LETTER_WIDTH_PX * scale,
-          height: LETTER_HEIGHT_PX * scale,
+        ref={viewportRef}
+        className={`flex-1 min-h-0 overflow-auto p-4 sm:p-6 select-none ${canPan ? "cursor-grab active:cursor-grabbing" : ""}`}
+        style={{ touchAction: canPan ? "none" : "auto" }}
+        onPointerDown={(e) => {
+          if (!canPan) return
+          const el = viewportRef.current
+          if (!el) return
+          e.preventDefault()
+          dragRef.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop }
+          el.setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          const drag = dragRef.current
+          const el = viewportRef.current
+          if (!drag || !el) return
+          el.scrollLeft = drag.sl - (e.clientX - drag.x)
+          el.scrollTop = drag.st - (e.clientY - drag.y)
+        }}
+        onPointerUp={() => {
+          dragRef.current = null
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null
         }}
       >
         <div
-          className="origin-top-left"
+          className="mx-auto"
           style={{
-            width: `${LETTER_WIDTH_IN}in`,
-            height: `${LETTER_HEIGHT_IN}in`,
-            transform: `scale(${scale})`,
+            width: LETTER_WIDTH_PX * scale,
+            height: LETTER_HEIGHT_PX * scale,
           }}
         >
-          {children}
+          <div
+            className="origin-top-left"
+            style={{
+              width: `${LETTER_WIDTH_IN}in`,
+              height: `${LETTER_HEIGHT_IN}in`,
+              transform: `scale(${scale})`,
+            }}
+          >
+            {children}
+          </div>
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
+        <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-white/15 bg-neutral-950/80 p-1 shadow-lg backdrop-blur-md">
+          <button
+            type="button"
+            onClick={() => bumpZoom(-0.25)}
+            disabled={zoom <= 1}
+            className="inline-flex size-9 items-center justify-center rounded-full text-white hover:bg-white/10 disabled:opacity-35"
+            aria-label="Alejar"
+          >
+            <Minus className="size-4" />
+          </button>
+          <span className="min-w-[3.25rem] text-center text-[11px] font-semibold tabular-nums text-white">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            type="button"
+            onClick={() => bumpZoom(0.25)}
+            disabled={zoom >= 3}
+            className="inline-flex size-9 items-center justify-center rounded-full text-white hover:bg-white/10 disabled:opacity-35"
+            aria-label="Acercar"
+          >
+            <Plus className="size-4" />
+          </button>
         </div>
       </div>
     </div>
   )
+}
+
+function pdfMoney(n: number) {
+  return currencyMxn(n).replace(/\s*MXN\s*/gi, "").replace(/\u00a0/g, " ").trim()
 }
 
 function LetterChrome({
@@ -403,24 +465,24 @@ function LetterChrome({
         width: "100%",
         height: "100%",
         overflow: "hidden",
-        padding: "0.45in 0.55in 0.4in",
+        padding: "0.42in 0.5in 0.36in",
         backgroundColor: "#ffffff",
         color: "#171717",
         colorScheme: "light",
       }}
     >
       <header
-        className="grid grid-cols-[1.1fr_auto_1.1fr] gap-2 items-start shrink-0 mb-3"
+        className="grid grid-cols-[1.1fr_auto_1.1fr] gap-2 items-start shrink-0 mb-3.5"
         style={{
           display: "grid",
           gridTemplateColumns: "1.1fr auto 1.1fr",
-          gap: "8px",
+          gap: "10px",
           alignItems: "start",
           flexShrink: 0,
-          marginBottom: "12px",
+          marginBottom: "14px",
         }}
       >
-        <div className="text-[8.5px] leading-snug text-neutral-600 space-y-px pt-0.5">
+        <div className="text-[10px] leading-snug text-neutral-600 space-y-px pt-0.5">
           {TECHNIK_COMPANY.addressLines.map((line) => (
             <p key={line}>{line}</p>
           ))}
@@ -436,18 +498,18 @@ function LetterChrome({
           <img
             src="/brand/technik-logo-light.png"
             alt="Technik Solutions"
-            width={108}
-            height={36}
+            width={128}
+            height={42}
             decoding="sync"
             data-letter-fit="logo"
-            className="h-9 w-[108px] object-contain"
-            style={{ width: 108, height: 36, objectFit: "contain", display: "block" }}
+            className="h-[42px] w-[128px] object-contain"
+            style={{ width: 128, height: 42, objectFit: "contain", display: "block" }}
           />
         </div>
 
-        <div className="text-right text-[9.5px] leading-snug pt-0.5 space-y-1">
+        <div className="text-right text-[11px] leading-snug pt-0.5 space-y-1">
           {rightTitle && (
-            <p className="font-bold uppercase tracking-wide text-[9px] text-neutral-900">
+            <p className="font-bold uppercase tracking-wide text-[10.5px] text-neutral-900">
               {rightTitle}
             </p>
           )}
@@ -466,19 +528,50 @@ function LetterChrome({
         </div>
       </header>
       {children}
-      <footer className="flex flex-col items-center gap-1 pt-2 border-t border-neutral-200 shrink-0 mt-auto">
+      <footer
+        className="shrink-0 mt-auto pt-2.5"
+        style={{
+          flexShrink: 0,
+          marginTop: "auto",
+          paddingTop: "10px",
+          borderTop: "1px solid #e5e5e5",
+          width: "100%",
+          textAlign: "center",
+        }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/brand/technik-logo-light.png"
           alt=""
-          width={24}
-          height={24}
+          width={28}
+          height={28}
           decoding="sync"
           data-letter-fit="mark"
-          className="h-6 w-6 object-contain"
-          style={{ width: 24, height: 24, objectFit: "contain", display: "block" }}
+          className="h-7 w-7 object-contain"
+          style={{
+            width: 28,
+            height: 28,
+            objectFit: "contain",
+            display: "block",
+            margin: "0 auto",
+          }}
         />
-        <p className="text-[8px] text-neutral-500 italic">{TECHNIK_COMPANY.slogan}</p>
+        <p
+          className="text-neutral-500 italic"
+          style={{
+            marginTop: "6px",
+            fontSize: "11px",
+            lineHeight: 1.25,
+            fontStyle: "italic",
+            color: "#737373",
+            letterSpacing: "0.01em",
+            whiteSpace: "nowrap",
+            textAlign: "center",
+            width: "100%",
+          }}
+        >
+          {TECHNIK_COMPANY.slogan}
+        </p>
       </footer>
     </article>
   )
@@ -532,33 +625,33 @@ function ClientLetterDocument({
         }}
       >
         <div className="min-w-0">
-          <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Con atención
           </p>
-          <p className="text-[11px] font-semibold text-neutral-900 truncate">
+          <p className="text-[13px] font-semibold text-neutral-900 truncate">
             {client?.contact || "—"}
           </p>
         </div>
         <div className="min-w-0">
-          <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Empresa
           </p>
-          <p className="text-[11px] font-semibold text-neutral-900 truncate">
+          <p className="text-[13px] font-semibold text-neutral-900 truncate">
             {client?.company || "—"}
           </p>
           {client?.rfc && (
-            <p className="text-[8.5px] font-mono text-neutral-600 truncate">
+            <p className="text-[10px] font-mono text-neutral-600 truncate">
               RFC {client.rfc}
             </p>
           )}
           {client?.location && (
-            <p className="text-[8.5px] text-neutral-600 truncate">{client.location}</p>
+            <p className="text-[10px] text-neutral-600 truncate">{client.location}</p>
           )}
           {client?.phone && (
-            <p className="text-[8.5px] text-neutral-600 truncate">{client.phone}</p>
+            <p className="text-[10px] text-neutral-600 truncate">{client.phone}</p>
           )}
           {client?.email && (
-            <p className="text-[8.5px] text-neutral-600 truncate">{client.email}</p>
+            <p className="text-[10px] text-neutral-600 truncate">{client.email}</p>
           )}
         </div>
       </section>
@@ -570,11 +663,11 @@ function ClientLetterDocument({
         >
           <thead>
             <tr
-              className="text-white text-[8px] uppercase tracking-wider"
+              className="text-white text-[9.5px] uppercase tracking-wider"
               style={{ backgroundColor: "#171717", color: "#ffffff" }}
             >
-              <th className="px-1.5 py-1.5 text-left font-semibold w-[72%]">Concepto</th>
-              <th className="px-1.5 py-1.5 text-right font-semibold w-[28%]">Total MXN</th>
+              <th className="px-2 py-2 text-left font-semibold w-[70%]">Concepto</th>
+              <th className="px-2 py-2 text-right font-semibold w-[30%]">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -582,7 +675,7 @@ function ClientLetterDocument({
               <tr>
                 <td
                   colSpan={2}
-                  className="px-2 py-6 text-center text-neutral-400 border border-neutral-200 text-[9px]"
+                  className="px-2 py-6 text-center text-neutral-400 border border-neutral-200 text-[11px]"
                 >
                   Agrega ítems al cliente para verlos en la cotización.
                 </td>
@@ -592,18 +685,18 @@ function ClientLetterDocument({
                 const lineTotal = lineTotalMxn(item.quantity, item.unitPrice)
                 return (
                   <tr key={item.id} className="border border-neutral-200 align-top">
-                    <td className="px-1.5 py-1.5">
-                      <p className="font-bold text-[9.5px] uppercase tracking-tight text-neutral-900 leading-tight">
+                    <td className="px-2 py-2">
+                      <p className="font-bold text-[11.5px] uppercase tracking-tight text-neutral-900 leading-snug">
                         {item.title || "Sin título"}
                       </p>
                       {item.description && (
-                        <p className="mt-1 whitespace-pre-wrap text-neutral-700 text-[8px] leading-snug line-clamp-8">
+                        <p className="mt-1 whitespace-pre-wrap text-neutral-700 text-[10px] leading-snug line-clamp-6">
                           {item.description}
                         </p>
                       )}
                       {item.imageUrl && (
-                        <div className="mt-1">
-                          <p className="text-[7px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+                        <div className="mt-1.5">
+                          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
                             Imagen de referencia
                           </p>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -624,8 +717,11 @@ function ClientLetterDocument({
                         </div>
                       )}
                     </td>
-                    <td className="px-1.5 py-1.5 text-right font-mono font-semibold tabular-nums text-[8.5px]">
-                      {currencyMxn(lineTotal)}
+                    <td
+                      className="px-2 py-2 text-right font-mono font-semibold tabular-nums text-[11px]"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {pdfMoney(lineTotal)}
                     </td>
                   </tr>
                 )
@@ -635,7 +731,7 @@ function ClientLetterDocument({
         </table>
         {coverUrl && (
           <div className="mt-2 shrink-0">
-            <p className="text-[7px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
               Imagen de referencia
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -658,45 +754,68 @@ function ClientLetterDocument({
       </div>
 
       <section
-        className="grid grid-cols-[1.25fr_0.85fr] gap-3 shrink-0 mb-2"
+        className="shrink-0 mb-2"
         style={{
           display: "grid",
-          gridTemplateColumns: "1.25fr 0.85fr",
-          gap: "12px",
+          gridTemplateColumns: "minmax(0, 1.05fr) minmax(2.55in, 0.95fr)",
+          columnGap: "20px",
+          alignItems: "start",
           flexShrink: 0,
-          marginBottom: "8px",
+          marginBottom: "10px",
         }}
       >
         <div className="min-w-0">
-          <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">
+          <p
+            className="font-semibold uppercase tracking-wider text-neutral-500"
+            style={{ fontSize: "9.5px", marginBottom: "6px", letterSpacing: "0.08em" }}
+          >
             Condiciones
           </p>
-          <p className="whitespace-pre-wrap text-neutral-700 text-[7.5px] leading-snug line-clamp-7">
+          <p
+            className="whitespace-pre-wrap text-neutral-700"
+            style={{ fontSize: "10px", lineHeight: 1.45 }}
+          >
             {terms || DEFAULT_QUOTE_TERMS}
           </p>
         </div>
-        <div className="text-[8.5px] space-y-1">
-          <TotalsRow label="Total parcial" value={currencyMxn(totals.partial)} />
-          <TotalsRow label="Subtotal" value={currencyMxn(totals.subtotal)} />
+        <div style={{ fontSize: "10.5px", minWidth: 0 }}>
+          <TotalsRow label="Total parcial" value={pdfMoney(totals.partial)} />
+          <TotalsRow label="Subtotal" value={pdfMoney(totals.subtotal)} />
           <TotalsRow
-            label={`Impuestos (IVA ${formatPercentLabel(taxRate)}%)`}
-            value={currencyMxn(totals.tax)}
+            label={`IVA ${formatPercentLabel(taxRate)}%`}
+            value={pdfMoney(totals.tax)}
           />
           <TotalsRow
             label={`Retención ISR ${formatPercentLabel(isrRetentionRate)}%`}
             value={
               totals.isrRetention > 0
-                ? `− ${currencyMxn(totals.isrRetention)}`
-                : currencyMxn(0)
+                ? `− ${pdfMoney(totals.isrRetention)}`
+                : pdfMoney(0)
             }
           />
           <div
-            className="flex items-center justify-between mt-1 px-1.5 py-1 rounded-sm"
-            style={{ backgroundColor: "#fef2f2", border: "1px solid #fee2e2" }}
+            className="mt-1.5 px-2 py-1.5 rounded-sm"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr auto",
+              columnGap: "10px",
+              alignItems: "baseline",
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fee2e2",
+            }}
           >
-            <span className="font-bold text-neutral-900 text-[9px]">TOTAL MXN</span>
-            <span className="font-mono font-bold text-[10px] tabular-nums text-neutral-900">
-              {currencyMxn(totals.total)}
+            <span
+              className="font-bold text-neutral-900"
+              style={{ fontSize: "11.5px", whiteSpace: "nowrap" }}
+            >
+              Total
+            </span>
+            <span />
+            <span
+              className="font-mono font-bold tabular-nums text-neutral-900"
+              style={{ fontSize: "13px", whiteSpace: "nowrap", letterSpacing: "-0.01em" }}
+            >
+              {pdfMoney(totals.total)} MXN
             </span>
           </div>
         </div>
@@ -746,28 +865,28 @@ function SupplierLetterDocument({
         }}
       >
         <div className="min-w-0">
-          <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Proveedor
           </p>
-          <p className="text-[11px] font-semibold text-neutral-900 truncate">
+          <p className="text-[13px] font-semibold text-neutral-900 truncate">
             {supplier?.name || "—"}
           </p>
-          <p className="text-[9px] text-neutral-600 truncate">
+          <p className="text-[10.5px] text-neutral-600 truncate">
             {supplier?.contact || "Sin contacto"}
           </p>
         </div>
         <div className="min-w-0">
-          <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Proyecto / folio
           </p>
-          <p className="text-[10px] font-semibold text-neutral-900 leading-snug line-clamp-2">
+          <p className="text-[12px] font-semibold text-neutral-900 leading-snug line-clamp-2">
             {projectTitle}
           </p>
-          <p className="text-[8.5px] font-mono text-neutral-600 mt-0.5">{quoteNo}</p>
+          <p className="text-[10px] font-mono text-neutral-600 mt-0.5">{quoteNo}</p>
         </div>
       </section>
 
-      <p className="text-[8px] text-neutral-500 mb-2 shrink-0">
+      <p className="text-[10px] text-neutral-500 mb-2 shrink-0">
         Lista de materiales (nombres y cantidades). Sin costos ni precios.
       </p>
 
@@ -778,13 +897,13 @@ function SupplierLetterDocument({
         >
           <thead>
             <tr
-              className="text-white text-[8px] uppercase tracking-wider"
+              className="text-white text-[9.5px] uppercase tracking-wider"
               style={{ backgroundColor: "#171717", color: "#ffffff" }}
             >
-              <th className="px-1.5 py-1.5 text-left font-semibold w-[14%]">Código</th>
-              <th className="px-1.5 py-1.5 text-left font-semibold w-[52%]">Material</th>
-              <th className="px-1.5 py-1.5 text-right font-semibold w-[17%]">Cant.</th>
-              <th className="px-1.5 py-1.5 text-left font-semibold w-[17%]">Unidad</th>
+              <th className="px-2 py-2 text-left font-semibold w-[14%]">Código</th>
+              <th className="px-2 py-2 text-left font-semibold w-[52%]">Material</th>
+              <th className="px-2 py-2 text-right font-semibold w-[17%]">Cant.</th>
+              <th className="px-2 py-2 text-left font-semibold w-[17%]">Unidad</th>
             </tr>
           </thead>
           <tbody>
@@ -792,7 +911,7 @@ function SupplierLetterDocument({
               <tr>
                 <td
                   colSpan={4}
-                  className="px-2 py-6 text-center text-neutral-400 border border-neutral-200 text-[9px]"
+                  className="px-2 py-6 text-center text-neutral-400 border border-neutral-200 text-[11px]"
                 >
                   No hay materiales en esta cotización.
                 </td>
@@ -800,16 +919,16 @@ function SupplierLetterDocument({
             ) : (
               bomLines.map((row) => (
                 <tr key={row.itemId} className="border border-neutral-200 align-top">
-                  <td className="px-1.5 py-1.5 font-mono text-[8px] text-neutral-700">
+                  <td className="px-2 py-2 font-mono text-[10px] text-neutral-700">
                     {row.code}
                   </td>
-                  <td className="px-1.5 py-1.5 text-[9px] font-medium text-neutral-900 leading-snug">
+                  <td className="px-2 py-2 text-[11px] font-medium text-neutral-900 leading-snug">
                     {row.name}
                   </td>
-                  <td className="px-1.5 py-1.5 text-right font-mono font-semibold text-[9px] tabular-nums">
+                  <td className="px-2 py-2 text-right font-mono font-semibold text-[11px] tabular-nums">
                     {row.quantity}
                   </td>
-                  <td className="px-1.5 py-1.5 text-[8.5px] text-neutral-600">{row.unit}</td>
+                  <td className="px-2 py-2 text-[10.5px] text-neutral-600">{row.unit}</td>
                 </tr>
               ))
             )}
@@ -818,7 +937,7 @@ function SupplierLetterDocument({
       </div>
 
       {(supplier?.email || supplier?.phone || supplier?.whatsapp) && (
-        <section className="shrink-0 mb-2 text-[8px] text-neutral-600 space-y-0.5">
+        <section className="shrink-0 mb-2 text-[10px] text-neutral-600 space-y-0.5">
           {supplier.email && <p>Correo: {supplier.email}</p>}
           {supplier.phone && <p>Tel: {supplier.phone}</p>}
           {supplier.whatsapp && <p>WhatsApp: {supplier.whatsapp}</p>}
@@ -830,9 +949,23 @@ function SupplierLetterDocument({
 
 function TotalsRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between text-neutral-700 gap-2">
-      <span className="truncate">{label}</span>
-      <span className="font-mono tabular-nums shrink-0">{value}</span>
+    <div
+      className="text-neutral-700"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        columnGap: "12px",
+        alignItems: "baseline",
+        padding: "3px 2px",
+      }}
+    >
+      <span style={{ whiteSpace: "nowrap" }}>{label}</span>
+      <span
+        className="font-mono tabular-nums"
+        style={{ whiteSpace: "nowrap", textAlign: "right" }}
+      >
+        {value}
+      </span>
     </div>
   )
 }
