@@ -512,6 +512,13 @@ export function TechnikProvider({
           }
         } else if (persistFailedOffline(res)) {
           setSaveStatus("offline")
+        } else if (key.startsWith("inbox:")) {
+          console.warn("[technik] Aviso de bandeja no se pudo guardar", res.error)
+          if (saveJobsRef.current.get(key) === job) saveJobsRef.current.delete(key)
+          if (savePendingRef.current === 0 && saveJobsRef.current.size === 0) {
+            saveDirtyRef.current = false
+            setSaveStatus("saved")
+          }
         } else {
           const message = displayPersistError(res.error)
           console.warn("[technik] No se pudo guardar", key, message)

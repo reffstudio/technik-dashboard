@@ -540,7 +540,7 @@ export async function persistInboxEvent(event: InboxEvent) {
   if (!event?.id) return { ok: false as const, error: "Aviso sin identificador." }
   try {
     const supabase = getSupabaseBrowser()
-    const { error } = await supabase.from("inbox_events").upsert({
+    const { error } = await supabase.from("inbox_events").insert({
       id: event.id,
       kind: event.kind,
       title: event.title,
@@ -548,8 +548,14 @@ export async function persistInboxEvent(event: InboxEvent) {
       at: event.at,
       href: event.href ?? null,
     })
-    if (error) return { ok: false as const, error: error.message }
-    return { ok: true as const }
+    if (!error) return { ok: true as const }
+    if (error.code === "23505" || /duplicate key/i.test(error.message ?? "")) {
+      return { ok: true as const }
+    }
+    if (error.code === "42501" || /row-level security/i.test(error.message ?? "")) {
+      return { ok: false as const, error: "No se pudo avisar a administración." }
+    }
+    return { ok: false as const, error: error.message }
   } catch (err) {
     return {
       ok: false as const,
