@@ -11,11 +11,12 @@ function isOffline() {
 }
 
 export function displayPersistError(error?: string) {
-  if (!error) return "No se pudo guardar."
+  if (!error) return "No se pudo guardar. Recarga e inténtalo de nuevo."
   if (/cannot read propert/i.test(error)) {
     return "No se pudo guardar. Recarga e inténtalo de nuevo."
   }
-  return error
+  if (/^no se pudo guardar/i.test(error)) return error
+  return `No se pudo guardar · ${error}`
 }
 
 function persistCaughtMessage(err: unknown) {

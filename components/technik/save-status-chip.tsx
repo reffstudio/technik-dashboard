@@ -47,9 +47,7 @@ export function SaveStatusChip() {
       className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-destructive shrink-0 max-w-[42vw] sm:max-w-none text-left"
       title={displayPersistError(saveError)}
     >
-      <span className="truncate">
-        No se pudo guardar · {displayPersistError(saveError)}
-      </span>
+      <span className="truncate">{displayPersistError(saveError)}</span>
     </button>
   )
 }

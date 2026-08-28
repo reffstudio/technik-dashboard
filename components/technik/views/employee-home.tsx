@@ -27,6 +27,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
+          q?.id &&
           isQuotationCreator(user, q) &&
           (q.status === "draft" || q.status === "pending_review") &&
           !quotationIsTrashed(q),
@@ -37,7 +38,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
-          isQuotationCreator(user, q) && q.status === "draft" && quotationIsTrashed(q),
+          q?.id && isQuotationCreator(user, q) && q.status === "draft" && quotationIsTrashed(q),
       ),
     [quotations, user],
   )

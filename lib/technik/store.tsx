@@ -630,7 +630,7 @@ export function TechnikProvider({
       pendingMessageRef.current = message
       pendingAudienceRef.current = audience
       if (inbox) {
-        pendingInboxRef.current = {
+        const inboxEvent = {
           id: inbox.id ?? `inbox-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           kind: inbox.kind,
           title: inbox.title,
@@ -638,11 +638,10 @@ export function TechnikProvider({
           at: inbox.at ?? new Date().toISOString(),
           href: inbox.href,
         }
+        pendingInboxRef.current = inboxEvent
         if (isSupabaseConfigured()) {
-          lastAnnouncedInboxIdRef.current = pendingInboxRef.current.id
-          void trackPersist(`inbox:${pendingInboxRef.current.id}`, () =>
-            persistInboxEvent(pendingInboxRef.current!),
-          )
+          lastAnnouncedInboxIdRef.current = inboxEvent.id
+          void trackPersist(`inbox:${inboxEvent.id}`, () => persistInboxEvent(inboxEvent))
         }
       } else {
         pendingInboxRef.current = undefined

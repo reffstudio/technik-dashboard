@@ -537,17 +537,25 @@ export async function deleteApartadoMovementRow(id: string) {
 }
 
 export async function persistInboxEvent(event: InboxEvent) {
-  const supabase = getSupabaseBrowser()
-  const { error } = await supabase.from("inbox_events").upsert({
-    id: event.id,
-    kind: event.kind,
-    title: event.title,
-    body: event.body ?? "",
-    at: event.at,
-    href: event.href ?? null,
-  })
-  if (error) return { ok: false as const, error: error.message }
-  return { ok: true as const }
+  if (!event?.id) return { ok: false as const, error: "Aviso sin identificador." }
+  try {
+    const supabase = getSupabaseBrowser()
+    const { error } = await supabase.from("inbox_events").upsert({
+      id: event.id,
+      kind: event.kind,
+      title: event.title,
+      body: event.body ?? "",
+      at: event.at,
+      href: event.href ?? null,
+    })
+    if (error) return { ok: false as const, error: error.message }
+    return { ok: true as const }
+  } catch (err) {
+    return {
+      ok: false as const,
+      error: err instanceof Error ? err.message : "No se pudo guardar el aviso.",
+    }
+  }
 }
 
 const tails = new Map<string, Promise<unknown>>()

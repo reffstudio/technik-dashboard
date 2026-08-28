@@ -689,9 +689,9 @@ export function quotePipelineStatus(
 
 export function isQuotationCreator(
   user: Pick<User, "id" | "authId"> | null | undefined,
-  quotation: Pick<Quotation, "createdById">,
+  quotation: Pick<Quotation, "createdById"> | null | undefined,
 ): boolean {
-  if (!user) return false
+  if (!user || !quotation) return false
   return user.id === quotation.createdById || Boolean(user.authId && user.authId === quotation.createdById)
 }
 

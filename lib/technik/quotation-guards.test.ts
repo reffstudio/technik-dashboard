@@ -56,6 +56,8 @@ describe("isQuotationCreator", () => {
     assert.equal(isQuotationCreator({ id: "user-1", authId: "auth-uuid" }, q), true)
     assert.equal(isQuotationCreator({ id: "user-1", authId: "other" }, q), false)
     assert.equal(isQuotationCreator({ id: "user-1" }, quote({ createdById: "user-1" })), true)
+    assert.equal(isQuotationCreator(null, q), false)
+    assert.equal(isQuotationCreator({ id: "user-1" }, undefined), false)
   })
 })
 
