@@ -246,8 +246,9 @@ export async function getQuotePdfBlob(opts: {
   kind: QuotePdfKind
   capture: () => Promise<Blob>
 }): Promise<{ blob: Blob; source: "file" | "capture" }> {
-  const blob = await fetchQuotePdfBlob(opts.quotationId, opts.kind)
-  if (blob && blob.size > 0) return { blob, source: "file" }
+  void opts.quotationId
+  void opts.kind
+  // Siempre la carta del preview. El archivo en Storage es copia del último envío, no la plantilla.
   const captured = await opts.capture()
   if (!captured || captured.size === 0) {
     throw new Error("El PDF generado está vacío.")

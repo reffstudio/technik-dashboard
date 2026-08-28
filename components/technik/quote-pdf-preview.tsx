@@ -248,10 +248,13 @@ export function QuotePdfPreview({
             className="pointer-events-none"
             style={{
               position: "fixed",
-              left: 0,
+              left: "-12000px",
               top: 0,
-              opacity: 0,
-              zIndex: -1,
+              width: `${LETTER_WIDTH_IN}in`,
+              height: `${LETTER_HEIGHT_IN}in`,
+              opacity: 1,
+              overflow: "hidden",
+              zIndex: 0,
             }}
           >
             <div
@@ -394,13 +397,29 @@ function LetterChrome({
         : {})}
       className={`bg-white text-neutral-900 shadow-md overflow-hidden flex flex-col box-border w-full h-full ${className}`}
       style={{
+        display: "flex",
+        flexDirection: "column",
+        boxSizing: "border-box",
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
         padding: "0.45in 0.55in 0.4in",
         backgroundColor: "#ffffff",
         color: "#171717",
         colorScheme: "light",
       }}
     >
-      <header className="grid grid-cols-[1.1fr_auto_1.1fr] gap-2 items-start shrink-0 mb-3">
+      <header
+        className="grid grid-cols-[1.1fr_auto_1.1fr] gap-2 items-start shrink-0 mb-3"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.1fr auto 1.1fr",
+          gap: "8px",
+          alignItems: "start",
+          flexShrink: 0,
+          marginBottom: "12px",
+        }}
+      >
         <div className="text-[8.5px] leading-snug text-neutral-600 space-y-px pt-0.5">
           {TECHNIK_COMPANY.addressLines.map((line) => (
             <p key={line}>{line}</p>
@@ -420,7 +439,9 @@ function LetterChrome({
             width={108}
             height={36}
             decoding="sync"
+            data-letter-fit="logo"
             className="h-9 w-[108px] object-contain"
+            style={{ width: 108, height: 36, objectFit: "contain", display: "block" }}
           />
         </div>
 
@@ -453,7 +474,9 @@ function LetterChrome({
           width={24}
           height={24}
           decoding="sync"
+          data-letter-fit="mark"
           className="h-6 w-6 object-contain"
+          style={{ width: 24, height: 24, objectFit: "contain", display: "block" }}
         />
         <p className="text-[8px] text-neutral-500 italic">{TECHNIK_COMPANY.slogan}</p>
       </footer>
@@ -495,7 +518,19 @@ function ClientLetterDocument({
       printKind={printKind}
       className={className}
     >
-      <section className="grid grid-cols-2 gap-3 shrink-0 mb-3 border-y border-neutral-200 py-2.5">
+      <section
+        className="grid grid-cols-2 gap-3 shrink-0 mb-3 border-y border-neutral-200 py-2.5"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "12px",
+          flexShrink: 0,
+          marginBottom: "12px",
+          padding: "10px 0",
+          borderTop: "1px solid #e5e5e5",
+          borderBottom: "1px solid #e5e5e5",
+        }}
+      >
         <div className="min-w-0">
           <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Con atención
@@ -529,7 +564,10 @@ function ClientLetterDocument({
       </section>
 
       <div className="flex-1 min-h-0 flex flex-col mb-2">
-        <table className="w-full border-collapse table-fixed">
+        <table
+          className="w-full border-collapse table-fixed"
+          style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}
+        >
           <thead>
             <tr
               className="text-white text-[8px] uppercase tracking-wider"
@@ -572,7 +610,16 @@ function ClientLetterDocument({
                           <img
                             src={item.imageUrl}
                             alt=""
+                            data-letter-fit="media"
                             className="h-[0.85in] max-w-[1.6in] object-contain border border-neutral-200"
+                            style={{
+                              height: "0.85in",
+                              maxWidth: "1.6in",
+                              width: "auto",
+                              objectFit: "contain",
+                              display: "block",
+                              border: "1px solid #e5e5e5",
+                            }}
                           />
                         </div>
                       )}
@@ -595,13 +642,31 @@ function ClientLetterDocument({
             <img
               src={coverUrl}
               alt=""
+              data-letter-fit="media"
               className="h-[0.85in] max-w-[1.6in] object-contain border border-neutral-200"
+              style={{
+                height: "0.85in",
+                maxWidth: "1.6in",
+                width: "auto",
+                objectFit: "contain",
+                display: "block",
+                border: "1px solid #e5e5e5",
+              }}
             />
           </div>
         )}
       </div>
 
-      <section className="grid grid-cols-[1.25fr_0.85fr] gap-3 shrink-0 mb-2">
+      <section
+        className="grid grid-cols-[1.25fr_0.85fr] gap-3 shrink-0 mb-2"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.25fr 0.85fr",
+          gap: "12px",
+          flexShrink: 0,
+          marginBottom: "8px",
+        }}
+      >
         <div className="min-w-0">
           <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-1">
             Condiciones
@@ -667,7 +732,19 @@ function SupplierLetterDocument({
       printKind={printKind}
       className={className}
     >
-      <section className="grid grid-cols-2 gap-3 shrink-0 mb-3 border-y border-neutral-200 py-2.5">
+      <section
+        className="grid grid-cols-2 gap-3 shrink-0 mb-3 border-y border-neutral-200 py-2.5"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "12px",
+          flexShrink: 0,
+          marginBottom: "12px",
+          padding: "10px 0",
+          borderTop: "1px solid #e5e5e5",
+          borderBottom: "1px solid #e5e5e5",
+        }}
+      >
         <div className="min-w-0">
           <p className="text-[8px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
             Proveedor
@@ -695,7 +772,10 @@ function SupplierLetterDocument({
       </p>
 
       <div className="flex-1 min-h-0 flex flex-col mb-2">
-        <table className="w-full border-collapse table-fixed">
+        <table
+          className="w-full border-collapse table-fixed"
+          style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}
+        >
           <thead>
             <tr
               className="text-white text-[8px] uppercase tracking-wider"
