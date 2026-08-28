@@ -1,6 +1,7 @@
 "use client"
 
 import { CloudOff, Loader2 } from "lucide-react"
+import { displayPersistError } from "@/lib/technik/save-queue"
 import { useTechnik } from "@/lib/technik/store"
 
 export function SaveStatusChip() {
@@ -44,10 +45,10 @@ export function SaveStatusChip() {
       type="button"
       onClick={retrySave}
       className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-destructive shrink-0 max-w-[42vw] sm:max-w-none text-left"
-      title={saveError || "Reintentar"}
+      title={displayPersistError(saveError)}
     >
       <span className="truncate">
-        No se pudo guardar{saveError ? ` · ${saveError}` : ""}
+        No se pudo guardar · {displayPersistError(saveError)}
       </span>
     </button>
   )

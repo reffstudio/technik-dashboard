@@ -10,6 +10,7 @@ import {
   persistClientResponse,
   persistSentAt,
   preferQuote,
+  mergeVisitPhotos,
 } from "./quotation-guards"
 
 function quote(partial: Partial<Quotation>): Quotation {
@@ -123,5 +124,11 @@ describe("persistSentAt / persistClientResponse", () => {
   it("no degrada la respuesta del cliente", () => {
     assert.equal(persistClientResponse("en_espera", "aprobada"), "aprobada")
     assert.equal(persistClientResponse("aprobada", "en_espera"), "aprobada")
+  })
+})
+
+describe("mergeVisitPhotos", () => {
+  it("no truena si hay huecos en el array", () => {
+    assert.doesNotThrow(() => mergeVisitPhotos([undefined as never], [undefined as never]))
   })
 })

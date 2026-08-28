@@ -95,10 +95,9 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     departments,
     updateQuotation,
     user,
-    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
-  const q = quotations.find((x) => x.id === id)
+  const q = quotations.find((x) => x?.id === id)
   const sentLocked = q?.status === "approved" || q?.status === "closed"
 
   const [prices, setPrices] = useState<Record<string, number>>({})
@@ -219,7 +218,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       })
     if (same) return
 
-    markSaving()
     const t = window.setTimeout(() => {
       const result = updateQuotation(q.id, { lines })
       if (!result.ok) {
@@ -227,7 +225,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       }
     }, 350)
     return () => window.clearTimeout(t)
-  }, [draftLines, quantities, prices, q, isAdmin, sentLocked, updateQuotation, markSaving])
+  }, [draftLines, quantities, prices, q, isAdmin, sentLocked, updateQuotation])
 
   useEffect(() => {
     if (!q) return
@@ -236,12 +234,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       return
     }
     if ((comments ?? "") === (q.comments ?? "")) return
-    markSaving()
     const t = window.setTimeout(() => {
       updateQuotation(q.id, { comments })
     }, 700)
     return () => window.clearTimeout(t)
-  }, [comments, q, updateQuotation, markSaving])
+  }, [comments, q, updateQuotation])
 
   useEffect(() => {
     if (!toast) return

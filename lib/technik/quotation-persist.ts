@@ -97,7 +97,7 @@ function num(value: number | string | null | undefined, fallback = 0) {
 }
 
 function authorOf(createdBy: string, users: User[]) {
-  const u = users.find((x) => x.authId === createdBy || x.id === createdBy)
+  const u = users.find((x) => x && (x.authId === createdBy || x.id === createdBy))
   if (u) return { createdBy: u.name, createdById: u.id }
   return { createdBy: "Colaborador", createdById: createdBy }
 }
@@ -281,7 +281,7 @@ export async function loadQuotations(users: User[]): Promise<
 
   if (rows.length === 0) return { ok: true, quotations: [] }
 
-  const ids = rows.map((r) => r.id)
+  const ids = rows.map((r) => r?.id).filter(Boolean) as string[]
   const [linesRes, publicRes, eventsRes, photosRes] = await Promise.all([
     supabase.from("quotation_lines").select("quotation_id, catalog_item_id, quantity, unit_price, sort_order").in("quotation_id", ids),
     supabase.from("quotation_public_items").select("id, quotation_id, quantity, title, description, unit_price, image_path, sort_order").in("quotation_id", ids),
@@ -373,6 +373,7 @@ export async function loadQuotations(users: User[]): Promise<
   return {
     ok: true,
     quotations: rows
+      .filter((row) => row?.id)
       .map((row) =>
         quoteFromRow(
           row,
@@ -643,9 +644,10 @@ export function enqueuePersistQuotation(
   const next = prev
     .catch(() => undefined)
     .then(() => persistQuotation(q, ctx))
+    .catch((err) => ({ ok: false as const, error: caughtPersistError(err) }))
   persistTail.set(key, next)
   void next.then((saved) => {
-    if (saved.ok && saved.id && saved.id !== key) persistTail.set(saved.id, next)
+    if (saved?.ok && saved.id && saved.id !== key) persistTail.set(saved.id, next)
   })
   return next
 }

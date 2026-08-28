@@ -57,10 +57,9 @@ export function QuoteBuilder({
     addCatalogItem,
     deleteDraftQuotation,
     user,
-    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
-  const existing = id ? quotations.find((q) => q.id === id) : undefined
+  const existing = id ? quotations.find((q) => q?.id === id) : undefined
   const sentLocked = existing?.status === "approved" || existing?.status === "closed"
 
   const steps: Step[] = ["client", "materials", "labor", "extras", "review"]
@@ -117,7 +116,7 @@ export function QuoteBuilder({
   const laborLines = lines.filter((l) => labor.some((m) => m.id === l.itemId))
   const extraLines = lines.filter((l) => extras.some((m) => m.id === l.itemId))
   const client = clients.find((c) => c.id === clientId)
-  const liveQuote = draftId ? quotations.find((q) => q.id === draftId) : existing
+  const liveQuote = draftId ? quotations.find((q) => q?.id === draftId) : existing
 
   const filteredClients = useMemo(
     () =>
@@ -170,7 +169,6 @@ export function QuoteBuilder({
     })
     if (sig === lastSavedSig.current && draftId) return
 
-    markSaving()
     const handle = window.setTimeout(() => {
       if (!draftId) {
         if (creatingRef.current) return
@@ -184,9 +182,11 @@ export function QuoteBuilder({
           submit: false,
         })
           .then((newId) => {
+            if (!newId) return
             lastSavedSig.current = sig
             setDraftId(newId)
           })
+          .catch(() => undefined)
           .finally(() => {
             creatingRef.current = false
           })
@@ -215,7 +215,6 @@ export function QuoteBuilder({
     liveQuote?.status,
     createQuotation,
     updateQuotation,
-    markSaving,
   ])
 
   if (sentLocked && existing) {

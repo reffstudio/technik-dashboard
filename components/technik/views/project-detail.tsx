@@ -70,7 +70,6 @@ export function ProjectDetail({
     removeProjectInstallment,
     markInstallmentPaid,
     addPaymentCorrectionNote,
-    markSaving,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const project = projects.find((p) => p.id === id)
@@ -151,7 +150,6 @@ export function ProjectDetail({
       (dueDate || undefined) === (project.dueDate || undefined) &&
       (deliveredAt || undefined) === (project.deliveredAt || undefined)
     if (same) return
-    markSaving()
     const t = window.setTimeout(() => {
       updateProject(project.id, {
           dueDate: dueDate || undefined,
@@ -166,7 +164,6 @@ export function ProjectDetail({
     deliveredAt,
     isAdmin,
     project,
-    markSaving,
     updateProject,
   ])
 

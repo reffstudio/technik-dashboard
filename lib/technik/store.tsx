@@ -147,6 +147,7 @@ import {
   persistTreasuryMonth,
 } from "./ops-persist"
 import {
+  displayPersistError,
   persistFailedOffline,
   runWithRetries,
   type PersistResult,
@@ -492,26 +493,32 @@ export function TechnikProvider({
     setSaveStatus(typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "saving")
     setSaveError(undefined)
     return (async () => {
-      const res = await runWithRetries(job)
-      savePendingRef.current = Math.max(0, savePendingRef.current - 1)
-      if (res.ok) {
-        if (saveJobsRef.current.get(key) === job) saveJobsRef.current.delete(key)
-        if (savePendingRef.current === 0 && saveJobsRef.current.size === 0) {
-          saveDirtyRef.current = false
-          setSaveStatus("saved")
-        } else if (savePendingRef.current > 0) {
-          setSaveStatus("saving")
+      let res: PersistResult = { ok: false, error: "No se pudo guardar." }
+      try {
+        res = await runWithRetries(job)
+        return res
+      } catch (err) {
+        res = { ok: false, error: displayPersistError(err instanceof Error ? err.message : undefined) }
+        return res
+      } finally {
+        savePendingRef.current = Math.max(0, savePendingRef.current - 1)
+        if (res.ok) {
+          if (saveJobsRef.current.get(key) === job) saveJobsRef.current.delete(key)
+          if (savePendingRef.current === 0 && saveJobsRef.current.size === 0) {
+            saveDirtyRef.current = false
+            setSaveStatus("saved")
+          } else if (savePendingRef.current > 0) {
+            setSaveStatus("saving")
+          }
+        } else if (persistFailedOffline(res)) {
+          setSaveStatus("offline")
+        } else {
+          const message = displayPersistError(res.error)
+          console.warn("[technik] No se pudo guardar", key, message)
+          setSaveError(message)
+          setSaveStatus("error")
         }
-        return res
       }
-      if (persistFailedOffline(res)) {
-        setSaveStatus("offline")
-        return res
-      }
-      console.warn("[technik] No se pudo guardar", key, res.error)
-      setSaveError(res.error || "No se pudo guardar.")
-      setSaveStatus("error")
-      return res
     })()
   }, [])
   trackPersistRef.current = trackPersist
@@ -649,53 +656,61 @@ export function TechnikProvider({
 
   const persistQuoteNowAsync = useCallback(
     async (q: Quotation) => {
-      if (!q?.id) {
-        return { ok: false as const, error: "Cotización sin folio.", id: "" }
-      }
-      if (!isSupabaseConfigured()) return { ok: true as const, id: q.id }
-      let id = q.id
-      const res = await trackPersist(`quote:${q.id}`, async () => {
-        try {
-          const saved = await enqueuePersistQuotation(q, {
-            actorAuthId: userAuthIdRef.current || undefined,
-            users: workspaceRef.current.users.filter(Boolean),
-            isAdmin: userRoleRef.current === "admin",
-          })
-          if (!saved?.ok) {
+      try {
+        if (!q?.id) {
+          return { ok: false as const, error: "Cotización sin folio.", id: "" }
+        }
+        if (!isSupabaseConfigured()) return { ok: true as const, id: q.id }
+        let id = q.id
+        const res = await trackPersist(`quote:${q.id}`, async () => {
+          try {
+            const saved = await enqueuePersistQuotation(q, {
+              actorAuthId: userAuthIdRef.current || undefined,
+              users: workspaceRef.current.users.filter(Boolean),
+              isAdmin: userRoleRef.current === "admin",
+            })
+            if (!saved?.ok) {
+              return {
+                ok: false as const,
+                error: displayPersistError(
+                  saved && "error" in saved && saved.error
+                    ? saved.error
+                    : "No se pudo guardar la cotización.",
+                ),
+              }
+            }
+            id = saved.id || q.id
+            return { ok: true as const }
+          } catch (err) {
             return {
               ok: false as const,
-              error: saved && "error" in saved && saved.error
-                ? saved.error
-                : "No se pudo guardar la cotización.",
+              error: displayPersistError(err instanceof Error ? err.message : undefined),
             }
           }
-          id = saved.id || q.id
-          return { ok: true as const }
-        } catch (err) {
+        })
+        if (res?.ok && id && id !== q.id) {
+          const remap = (list: Quotation[]) =>
+            list
+              .filter((x) => x?.id)
+              .map((x) => (x.id === q.id ? { ...x, id, reference: id } : x))
+          setQuotations((prev) => remap(prev))
+          quotationsRef.current = remap(quotationsRef.current)
+        }
+        if (!res?.ok) {
           return {
             ok: false as const,
-            error: err instanceof Error && !/cannot read propert/i.test(err.message)
-              ? err.message
-              : "No se pudo guardar la cotización. Recarga e inténtalo de nuevo.",
+            error: displayPersistError(res?.error || "No se pudo guardar la cotización."),
+            id,
           }
         }
-      })
-      if (res.ok && id && id !== q.id) {
-        const remap = (list: Quotation[]) =>
-          list
-            .filter((x) => x?.id)
-            .map((x) => (x.id === q.id ? { ...x, id, reference: id } : x))
-        setQuotations((prev) => remap(prev))
-        quotationsRef.current = remap(quotationsRef.current)
-      }
-      if (!res.ok) {
+        return { ok: true as const, id }
+      } catch (err) {
         return {
           ok: false as const,
-          error: res.error || "No se pudo guardar la cotización.",
-          id,
+          error: displayPersistError(err instanceof Error ? err.message : undefined),
+          id: q?.id || "",
         }
       }
-      return { ok: true as const, id }
     },
     [trackPersist],
   )
@@ -2039,7 +2054,9 @@ export function TechnikProvider({
 
   const createQuotation: TechnikState["createQuotation"] = useCallback(
     async (input) => {
-      const fallback = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
+      const fallback = nextQuotationCode(
+        quotationsRef.current.filter((x) => x?.id).map((x) => x.reference),
+      )
       const code = isSupabaseConfigured()
         ? ((await nextServerCode("quotation")) ?? fallback)
         : fallback
@@ -2074,13 +2091,22 @@ export function TechnikProvider({
           },
         ],
       }
-      const nextQuotations = [q, ...quotationsRef.current]
+      const nextQuotations = [q, ...quotationsRef.current.filter((x) => x?.id)]
       setQuotations(nextQuotations)
       quotationsRef.current = nextQuotations
       flushPublish({ quotations: nextQuotations })
-      const saved = await persistQuoteNowAsync(q)
-      const finalId = saved.id
-      if (input.submit && saved.ok) {
+      let saved: Awaited<ReturnType<typeof persistQuoteNowAsync>>
+      try {
+        saved = await persistQuoteNowAsync(q)
+      } catch (err) {
+        saved = {
+          ok: false as const,
+          error: displayPersistError(err instanceof Error ? err.message : undefined),
+          id: q.id,
+        }
+      }
+      const finalId = saved?.id || q.id
+      if (input.submit && saved?.ok) {
         const inboxItem: InboxEvent = {
           id: `review-${finalId}-${stamp}`,
           kind: "review_queue",
@@ -2101,7 +2127,7 @@ export function TechnikProvider({
 
   const updateQuotation = useCallback(
     (id: string, patch: Partial<Quotation>, historyAction?: string) => {
-      const current = quotationsRef.current.find((q) => q.id === id)
+      const current = quotationsRef.current.find((q) => q?.id === id)
       if (!current) return { ok: false as const, error: "Cotización no encontrada." }
 
       let nextPatch = { ...patch }
@@ -2145,7 +2171,7 @@ export function TechnikProvider({
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const nextQuotations = quotationsRef.current.map((q) => {
-        if (q.id !== id) return q
+        if (!q || q.id !== id) return q
         return {
           ...q,
           ...nextPatch,
@@ -2182,7 +2208,7 @@ export function TechnikProvider({
       }
       setQuotations(nextQuotations)
       quotationsRef.current = nextQuotations
-      const updated = nextQuotations.find((q) => q.id === id)
+      const updated = nextQuotations.find((q) => q?.id === id)
       if (updated) persistQuoteNow(updated)
       flushPublish({
         quotations: nextQuotations,
@@ -2209,9 +2235,11 @@ export function TechnikProvider({
 
   const duplicateQuotation = useCallback(
     async (id: string) => {
-      const src = quotationsRef.current.find((q) => q.id === id)
+      const src = quotationsRef.current.find((q) => q?.id === id)
       if (!src) return null
-      const fallback = nextQuotationCode(quotationsRef.current.map((q) => q.reference))
+      const fallback = nextQuotationCode(
+        quotationsRef.current.filter((x) => x?.id).map((x) => x.reference),
+      )
       const code = isSupabaseConfigured()
         ? ((await nextServerCode("quotation")) ?? fallback)
         : fallback
@@ -2247,11 +2275,15 @@ export function TechnikProvider({
           },
         ],
       }
-      const nextQuotations = [q, ...quotationsRef.current]
+      const nextQuotations = [q, ...quotationsRef.current.filter((x) => x?.id)]
       setQuotations(nextQuotations)
       quotationsRef.current = nextQuotations
-      const saved = await persistQuoteNowAsync(q)
-      return saved.id
+      try {
+        const saved = await persistQuoteNowAsync(q)
+        return saved?.id || q.id
+      } catch {
+        return q.id
+      }
     },
     [user, persistQuoteNowAsync],
   )
@@ -2265,7 +2297,7 @@ export function TechnikProvider({
 
   const deleteDraftQuotation = useCallback(
     (id: string): { ok: true } | { ok: false; error: string } => {
-      const q = quotations.find((x) => x.id === id)
+      const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
       if (q.status !== "draft") {
         return { ok: false, error: "Solo se pueden borrar borradores" }
@@ -2279,17 +2311,17 @@ export function TechnikProvider({
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const nextQuotations = quotations.map((x) =>
-        x.id === id
+        x?.id === id
           ? {
               ...x,
               deletedAt: new Date().toISOString(),
               updatedAt: stamp,
-              history: [...x.history, { at: stamp, by: actor, action: "Envió a eliminados" }],
+              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Envió a eliminados" }],
             }
           : x,
       )
       setQuotations(nextQuotations)
-      const updated = nextQuotations.find((x) => x.id === id)
+      const updated = nextQuotations.find((x) => x?.id === id)
       if (updated) persistQuoteNow(updated)
       flushPublish({ quotations: nextQuotations })
       return { ok: true }
@@ -2299,7 +2331,7 @@ export function TechnikProvider({
 
   const restoreDraftQuotation = useCallback(
     (id: string): { ok: true } | { ok: false; error: string } => {
-      const q = quotations.find((x) => x.id === id)
+      const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
       if (!quotationIsTrashed(q)) {
         return { ok: false, error: "Ese borrador no está en Eliminados" }
@@ -2310,17 +2342,17 @@ export function TechnikProvider({
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const nextQuotations = quotations.map((x) =>
-        x.id === id
+        x?.id === id
           ? {
               ...x,
               deletedAt: undefined,
               updatedAt: stamp,
-              history: [...x.history, { at: stamp, by: actor, action: "Recuperó de eliminados" }],
+              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Recuperó de eliminados" }],
             }
           : x,
       )
       setQuotations(nextQuotations)
-      const updated = nextQuotations.find((x) => x.id === id)
+      const updated = nextQuotations.find((x) => x?.id === id)
       if (updated) persistQuoteNow(updated)
       flushPublish({ quotations: nextQuotations })
       return { ok: true }
@@ -2346,7 +2378,7 @@ export function TechnikProvider({
 
   const uploadVisitPhotos = useCallback(
     async (quotationId: string, files: File[]) => {
-      const current = quotations.find((q) => q.id === quotationId)
+      const current = quotations.find((q) => q?.id === quotationId)
       if (!current) return { ok: false as const, error: "Cotización no encontrada." }
       const have = current.visitPhotos?.length ?? 0
       const room = VISIT_PHOTO_MAX - have
@@ -2493,7 +2525,7 @@ export function TechnikProvider({
 
   const setClientResponse = useCallback(
     (id: string, response: ClientResponse) => {
-      const current = quotationsRef.current.find((q) => q.id === id)
+      const current = quotationsRef.current.find((q) => q?.id === id)
       if (!current) return { ok: false as const, error: "Cotización no encontrada." }
       const patch: Partial<Quotation> = { clientResponse: response }
       if (response === "aprobada") {
@@ -2510,7 +2542,7 @@ export function TechnikProvider({
       )
       if (!result.ok) return result
       if (response === "aprobada") {
-        const latest = quotationsRef.current.find((q) => q.id === id) ?? { ...current, ...patch }
+        const latest = quotationsRef.current.find((q) => q?.id === id) ?? { ...current, ...patch }
         const projectId = createProjectFromQuotation(id, latest)
         return { ok: true as const, projectId: projectId ?? undefined }
       }

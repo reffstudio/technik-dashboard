@@ -69,7 +69,7 @@ export function nextQuotationCode(existing: string[], year = new Date().getFullY
   const prefix = `${BRAND_CODE}-Q-${year}-`
   let max = 2000
   for (const code of existing) {
-    if (!code.startsWith(prefix)) continue
+    if (!code?.startsWith(prefix)) continue
     const n = Number(code.slice(prefix.length))
     if (!Number.isNaN(n) && n > max) max = n
   }
@@ -84,7 +84,7 @@ export function nextProjectCode(existing: string[], year = new Date().getFullYea
   const prefix = `${BRAND_CODE}-P-${year}-`
   let max = 0
   for (const code of existing) {
-    if (!code.startsWith(prefix)) continue
+    if (!code?.startsWith(prefix)) continue
     const n = Number(code.slice(prefix.length))
     if (!Number.isNaN(n) && n > max) max = n
   }
@@ -95,7 +95,7 @@ export function nextClientCode(existing: string[]): string {
   const prefix = `${BRAND_CODE}-C-`
   let max = 1000
   for (const code of existing) {
-    if (!code.startsWith(prefix)) continue
+    if (!code?.startsWith(prefix)) continue
     const n = Number(code.slice(prefix.length))
     if (!Number.isNaN(n) && n > max) max = n
   }
@@ -106,7 +106,7 @@ export function nextVendorCode(existing: string[]): string {
   const prefix = `${BRAND_CODE}-V-`
   let max = 0
   for (const code of existing) {
-    if (!code.startsWith(prefix)) continue
+    if (!code?.startsWith(prefix)) continue
     const n = Number(code.slice(prefix.length))
     if (!Number.isNaN(n) && n > max) max = n
   }
@@ -137,7 +137,7 @@ export function nextCatalogCode(
   const prefix = catalogPrefix(kind, category)
   let max = 0
   for (const code of existing) {
-    if (!code.startsWith(prefix)) continue
+    if (!code?.startsWith(prefix)) continue
     const n = Number(code.slice(prefix.length))
     if (!Number.isNaN(n) && n > max) max = n
   }

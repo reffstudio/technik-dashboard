@@ -59,8 +59,8 @@ export function mergeVisitPhotos(
   right: Quotation["visitPhotos"],
 ): Quotation["visitPhotos"] {
   const map = new Map<string, NonNullable<Quotation["visitPhotos"]>[number]>()
-  for (const p of left ?? []) map.set(p.id, p)
-  for (const p of right ?? []) map.set(p.id, p)
+  for (const p of left ?? []) if (p?.id) map.set(p.id, p)
+  for (const p of right ?? []) if (p?.id) map.set(p.id, p)
   if (map.size === 0) return left ?? right
   return Array.from(map.values()).sort((a, b) => a.takenAt.localeCompare(b.takenAt))
 }

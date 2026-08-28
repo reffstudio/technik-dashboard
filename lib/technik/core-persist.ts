@@ -108,7 +108,21 @@ function catalogFromRow(row: CatalogRow): CatalogItem {
 export async function nextServerCode(kind: string): Promise<string | null> {
   try {
     const supabase = getSupabaseBrowser()
-    const { data, error } = await supabase.rpc("next_code", { p_kind: kind })
+    const rpc = supabase.rpc("next_code", { p_kind: kind })
+    const timed = new Promise<{ data: unknown; error: { message?: string } | null }>((resolve) => {
+      const timer = setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 6000)
+      void rpc.then(
+        (res) => {
+          clearTimeout(timer)
+          resolve(res)
+        },
+        () => {
+          clearTimeout(timer)
+          resolve({ data: null, error: { message: "rpc failed" } })
+        },
+      )
+    })
+    const { data, error } = await timed
     if (error || typeof data !== "string" || !data) return null
     return data
   } catch {
