@@ -43,6 +43,7 @@ import {
   quotationIsTrashed,
   isQuotationCreator,
   canTrashQuotation,
+  DEFAULT_COVER_IMAGE,
   suggestedPublicUnitPrice,
   type Client,
   type CatalogItem,
@@ -58,10 +59,11 @@ import {
   DEFAULT_TAX_RATE,
   formatPercentLabel,
 } from "@/lib/technik/company"
-import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls } from "../ui"
+import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls, StatusBadge } from "../ui"
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
+import { CoverPhotoField } from "../cover-photo-field"
 import type { View } from "../app-shell"
 import {
   clientQuoteMail,
@@ -318,6 +320,12 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   }
 
   const client = clients.find((c) => c.id === q.clientId)
+  const coverEditable =
+    !sentLocked &&
+    (isAdmin ||
+      (user?.role === "empleado" &&
+        isQuotationCreator(user, q) &&
+        (q.status === "draft" || q.status === "pending_review")))
   const supplier = suppliers.find((s) => s.id === supplierId)
   /** Cantidades/horas y precios públicos: admin puede ajustar hasta enviar al cliente. */
   const qtyEditable = isAdmin && !sentLocked
@@ -1004,7 +1012,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   return (
     <div>
       {/* Reserva espacio para la barra fija */}
-      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 188 : 132) }} />
+      <div aria-hidden className="mb-5" style={{ height: stickyH || (isAdmin ? 140 : 88) }} />
 
       <div
         ref={stickyRef}
@@ -1012,90 +1020,100 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         style={{ top: pinnedTop }}
       >
         <div className="mx-auto max-w-[1400px] px-4 sm:px-5 lg:px-8 py-3">
-          <button
-            onClick={() => navigate({ name: "quotations" })}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-2.5 transition-colors"
-          >
-            <ArrowLeft className="size-3.5" />
-            Volver
-          </button>
-          <div className="rounded-2xl border border-border/70 bg-card/90 px-4 py-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg lg:text-xl font-bold text-foreground tracking-tight font-display truncate">
-                  {q.title}
-                </h1>
-                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                  <span className="font-mono text-[11px] font-semibold text-primary">{q.reference}</span>
-                  {client?.company && (
-                    <>
-                      <span className="text-border">·</span>
-                      <span className="truncate text-foreground/75">{client.company}</span>
-                    </>
-                  )}
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <DepartmentBadges quotation={q} />
-                  <QuoteAuthor quotation={q} layout="inline" />
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 lg:max-w-[26rem]">
-                <QuotePipelineControls
-                  quotation={q}
-                  align="end"
-                  className="shrink-0"
-                  beforeApply={() => {
-                    if (q.status === "approved" || q.status === "closed") return true
-                    return persistDocument()
-                  }}
-                  onApplied={onPipelineApplied}
-                />
-                {canTrashQuotation(user, q) && (
-                  <button
-                    type="button"
-                    title="Mover a eliminados"
-                    aria-label="Eliminar cotización"
-                    onClick={() => {
-                      const linked = projects.some((p) => p.quotationId === q.id)
-                      const pair = linked ? " El proyecto ligado también se mueve." : ""
-                      if (
-                        !window.confirm(
-                          `¿Mover ${q.reference} a Eliminados?${pair} Puedes recuperarla en 15 días.`,
-                        )
-                      ) {
-                        return
-                      }
-                      void deleteDraftQuotation(q.id).then((res) => {
-                        if (!res.ok) {
-                          setToast({ icon: XCircle, title: "No se pudo eliminar", msg: res.error })
-                          return
-                        }
-                        navigate({ name: "quotations" })
-                      })
-                    }}
-                    className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-            {isAdmin && (
-              <label className="mt-3 block min-w-0">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Notas internas
-                </span>
-                <input
-                  value={comments}
-                  onChange={(e) => setComments(e.target.value)}
-                  placeholder="Acuerdos, llamadas, motivo de rechazo…"
-                  className="mt-1 w-full rounded-lg bg-input/60 border border-border px-3 py-1.5 text-xs outline-none focus:border-primary/60"
-                />
-              </label>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button
+              onClick={() => navigate({ name: "quotations" })}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="size-3.5" />
+              Volver
+            </button>
+            <QuotePipelineControls
+              quotation={q}
+              align="end"
+              className="shrink-0"
+              beforeApply={() => {
+                if (q.status === "approved" || q.status === "closed") return true
+                return persistDocument()
+              }}
+              onApplied={onPipelineApplied}
+            />
           </div>
+          {isAdmin && (
+            <label className="mt-2 block min-w-0">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Notas internas
+              </span>
+              <input
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                placeholder="Acuerdos, llamadas, motivo de rechazo…"
+                className="mt-1 w-full rounded-lg bg-input/60 border border-border px-3 py-1.5 text-xs outline-none focus:border-primary/60"
+              />
+            </label>
+          )}
         </div>
       </div>
+
+      <section className="mb-6">
+        <CoverPhotoField
+          imageUrl={q.coverImageUrl || DEFAULT_COVER_IMAGE}
+          onChange={(url) => updateQuotation(q.id, { coverImageUrl: url })}
+          canRemove={Boolean(q.coverImageUrl)}
+          disabled={!coverEditable}
+        >
+          <div className="flex justify-end">
+            {canTrashQuotation(user, q) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const linked = projects.some((p) => p.quotationId === q.id)
+                  const pair = linked ? " El proyecto ligado también se mueve." : ""
+                  if (
+                    !window.confirm(
+                      `¿Mover ${q.reference} a Eliminados?${pair} Puedes recuperarla en 15 días.`,
+                    )
+                  ) {
+                    return
+                  }
+                  void deleteDraftQuotation(q.id).then((res) => {
+                    if (!res.ok) {
+                      setToast({ icon: XCircle, title: "No se pudo eliminar", msg: res.error })
+                      return
+                    }
+                    navigate({ name: "quotations" })
+                  })
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-destructive/80"
+              >
+                <Trash2 className="size-3.5" />
+                Eliminar cotización
+              </button>
+            )}
+          </div>
+
+          <div className="mt-auto max-w-[min(100%,36rem)] pb-12 sm:pb-0 sm:pr-40">
+            <p className="font-mono text-[11px] font-semibold tracking-wide text-white/75">
+              {q.reference}
+            </p>
+            <h1 className="mt-1 text-2xl font-bold font-display tracking-tight text-white sm:text-3xl text-balance">
+              {q.title}
+            </h1>
+            {client?.company && (
+              <p className="mt-1 truncate text-sm font-medium text-white/80">{client.company}</p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <StatusBadge quotation={q} />
+              <DepartmentBadges quotation={q} />
+              <QuoteAuthor
+                quotation={q}
+                layout="inline"
+                className="rounded-full border border-white/20 bg-black/35 px-2 py-0.5 [&_span]:!text-white"
+              />
+            </div>
+          </div>
+        </CoverPhotoField>
+      </section>
 
       {!isAdmin && (
         <div className="mb-5 rounded-xl border border-primary/20 bg-primary/[0.06] p-3.5 text-sm text-muted-foreground">
