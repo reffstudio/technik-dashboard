@@ -123,6 +123,7 @@ export async function POST(
 
   const subject = String(form.get("subject") ?? "").trim() || `Cotización ${id}`
   const body = String(form.get("body") ?? "").trim()
+  const html = String(form.get("html") ?? "").trim()
   const filename = String(form.get("filename") ?? "").trim() || `${id}.pdf`
   const pdfEntry = form.get("pdf")
   if (!(pdfEntry instanceof File) || pdfEntry.size === 0) {
@@ -141,6 +142,7 @@ export async function POST(
     replyTo,
     subject,
     body,
+    html: html || undefined,
     filename,
     pdf,
   })

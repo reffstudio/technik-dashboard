@@ -89,10 +89,25 @@ export function preferQuote(a: Quotation, b: Quotation): Quotation {
   return {
     ...winner,
     history,
+    deletedAt: preferDeletedAt(a, b),
     visitPhotos: mergeVisitPhotos(a.visitPhotos, b.visitPhotos),
     clientSentAt: keepStamp(a.clientSentAt, b.clientSentAt),
     supplierSentAt: keepStamp(a.supplierSentAt, b.supplierSentAt),
     supplierId: winner.supplierId || a.supplierId || b.supplierId,
     clientResponse: preferClientResponse(a.clientResponse, b.clientResponse),
   }
+}
+
+/** En empate de fecha, no se “destapa” un eliminado por un refresh sin deleted_at. */
+export function preferDeletedAt(
+  a: { deletedAt?: string; updatedAt?: string },
+  b: { deletedAt?: string; updatedAt?: string },
+): string | undefined {
+  const aHas = Boolean(a.deletedAt)
+  const bHas = Boolean(b.deletedAt)
+  if (aHas === bHas) return a.deletedAt || b.deletedAt
+  const aMs = parseActivityMs(a.updatedAt ?? "")
+  const bMs = parseActivityMs(b.updatedAt ?? "")
+  if (aMs !== bMs) return aMs > bMs ? a.deletedAt : b.deletedAt
+  return a.deletedAt || b.deletedAt
 }

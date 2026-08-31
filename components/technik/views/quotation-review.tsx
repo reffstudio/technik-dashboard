@@ -287,7 +287,9 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
-            onClick={() => restoreDraftQuotation(q.id)}
+            onClick={() => {
+              void restoreDraftQuotation(q.id)
+            }}
             className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
           >
             Recuperar
@@ -634,7 +636,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
           ? clientQuoteSharePayload({
               client: client!,
               reference,
-              title: q!.title,
+              title: quotePdfProjectName(q!),
             })
           : supplierQuoteSharePayload({
               supplier: supplier!,
@@ -665,7 +667,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
           const mail = clientQuoteMail({
             client: client!,
             reference,
-            title: q!.title,
+            title: quotePdfProjectName(q!),
           })
           const waDigits = clientWhatsAppNumber(client!)
           if (mail.to) {
@@ -832,17 +834,20 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
 
     if (!lockPricesIfNeeded()) return
 
-    const mail =
+    const clientMail =
       kind === "client"
         ? clientQuoteMail({
             client: client!,
             reference,
-            title: q!.title,
+            title: quotePdfProjectName(q!),
           })
-        : supplierQuoteMail({
-            supplier: supplier!,
-            reference,
-          })
+        : null
+    const mail =
+      clientMail ??
+      supplierQuoteMail({
+        supplier: supplier!,
+        reference,
+      })
     const recipients = quoteDispatchRecipients({
       to: mail.to,
       clientCc: kind === "client" ? client?.ccEmails : undefined,
@@ -883,6 +888,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         cc: recipients.cc,
         subject: mail.subject,
         body: mail.body,
+        html: clientMail?.html,
         filename,
         pdf: blob,
         accessToken: token,
@@ -1059,8 +1065,13 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                       ) {
                         return
                       }
-                      const res = deleteDraftQuotation(q.id)
-                      if (res.ok) navigate({ name: "quotations" })
+                      void deleteDraftQuotation(q.id).then((res) => {
+                        if (!res.ok) {
+                          setToast({ icon: XCircle, title: "No se pudo eliminar", msg: res.error })
+                          return
+                        }
+                        navigate({ name: "quotations" })
+                      })
                     }}
                     className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
                   >

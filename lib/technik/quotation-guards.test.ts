@@ -14,6 +14,7 @@ import {
   isDuplicateQuoteKey,
   persistClientResponse,
   persistSentAt,
+  preferDeletedAt,
   preferQuote,
   mergeVisitPhotos,
 } from "./quotation-guards"
@@ -137,6 +138,28 @@ describe("persistSentAt / persistClientResponse", () => {
 describe("mergeVisitPhotos", () => {
   it("no truena si hay huecos en el array", () => {
     assert.doesNotThrow(() => mergeVisitPhotos([undefined as never], [undefined as never]))
+  })
+})
+
+describe("preferDeletedAt", () => {
+  it("en empate no destapa un eliminado", () => {
+    assert.equal(
+      preferDeletedAt(
+        { deletedAt: "2026-08-31T12:00:00.000Z", updatedAt: "2026-08-31 12:00" },
+        { updatedAt: "2026-08-31 12:00" },
+      ),
+      "2026-08-31T12:00:00.000Z",
+    )
+  })
+
+  it("preferQuote conserva deletedAt si el otro lado no lo trae", () => {
+    const trashed = quote({
+      status: "approved",
+      deletedAt: "2026-08-31T12:00:00.000Z",
+      updatedAt: "2026-08-31 12:00",
+    })
+    const live = quote({ status: "approved", updatedAt: "2026-08-31 12:00" })
+    assert.equal(preferQuote(trashed, live).deletedAt, "2026-08-31T12:00:00.000Z")
   })
 })
 

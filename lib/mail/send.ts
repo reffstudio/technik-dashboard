@@ -52,6 +52,7 @@ export async function sendQuoteDispatchMail(input: {
   replyTo?: string
   subject: string
   body: string
+  html?: string
   filename: string
   pdf: Buffer
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -65,9 +66,10 @@ export async function sendQuoteDispatchMail(input: {
 
   const { apiKey, quotesFrom, replyTo: envReplyTo } = resendEnv()
   const template = quoteDispatchEmail({
-    greeting: input.subject,
-    intro: "Adjuntamos el PDF de la cotización.",
+    greeting: input.html ? undefined : input.subject,
+    intro: input.html ? undefined : "Adjuntamos el PDF de la cotización.",
     body: input.body,
+    html: input.html,
   })
   const replyTo = input.replyTo?.trim() || envReplyTo || undefined
 

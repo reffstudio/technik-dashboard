@@ -132,6 +132,7 @@ import {
 import {
   deleteQuotationRow,
   enqueuePersistQuotation,
+  persistQuotationDeletedAt,
   loadQuotations,
   quotesSignature,
   readOpsBackup,
@@ -143,6 +144,7 @@ import {
   deleteSeparadoRow,
   deleteProjectRow,
   enqueuePersistProject,
+  persistProjectDeletedAt,
   loadOpsWorkspace,
   persistApartadoMovement,
   persistExpense,
@@ -301,10 +303,10 @@ interface TechnikState {
   duplicateQuotation: (id: string) => Promise<string | null>
   archiveQuotation: (id: string) => void
   /** Manda una cotización a Eliminados (15 días). Si hay proyecto ligado, va junto. */
-  deleteDraftQuotation: (id: string) => { ok: true } | { ok: false; error: string }
-  restoreDraftQuotation: (id: string) => { ok: true } | { ok: false; error: string }
-  trashProject: (id: string) => { ok: true } | { ok: false; error: string }
-  restoreProject: (id: string) => { ok: true } | { ok: false; error: string }
+  deleteDraftQuotation: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  restoreDraftQuotation: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  trashProject: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  restoreProject: (id: string) => Promise<{ ok: true } | { ok: false; error: string }>
   purgeExpiredTrashedDrafts: () => void
   uploadVisitPhotos: (
     quotationId: string,
@@ -2313,8 +2315,27 @@ export function TechnikProvider({
     [updateQuotation],
   )
 
+  const persistTrashFlags = useCallback(
+    async (
+      quoteFlags: Array<{ id: string; deletedAt?: string }>,
+      projectFlags: Array<{ id: string; deletedAt?: string }>,
+    ) => {
+      if (!isSupabaseConfigured()) return { ok: true as const }
+      for (const q of quoteFlags) {
+        const res = await persistQuotationDeletedAt(q.id, q.deletedAt ?? null)
+        if (!res.ok) return res
+      }
+      for (const p of projectFlags) {
+        const res = await persistProjectDeletedAt(p.id, p.deletedAt ?? null)
+        if (!res.ok) return res
+      }
+      return { ok: true as const }
+    },
+    [],
+  )
+
   const deleteDraftQuotation = useCallback(
-    (id: string): { ok: true } | { ok: false; error: string } => {
+    async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
       const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
       if (quotationIsTrashed(q)) {
@@ -2330,15 +2351,17 @@ export function TechnikProvider({
         }
       }
       const deletedAt = new Date().toISOString()
-      const stamp = nowStamp()
+      const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
+      const prevQuotations = quotations
+      const prevProjects = projects
       const nextQuotations = quotations.map((x) =>
         x?.id === id
           ? {
               ...x,
               deletedAt,
               updatedAt: stamp,
-              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Envió a eliminados" }],
+              history: [...(x.history ?? []), { at: nowStamp(), by: actor, action: "Envió a eliminados" }],
             }
           : x,
       )
@@ -2351,10 +2374,10 @@ export function TechnikProvider({
                 ? {
                     ...p,
                     deletedAt,
-                    updatedAt: today(),
+                    updatedAt: stamp,
                     history: [
                       ...(p.history ?? []),
-                      { at: stamp, by: actor, action: "Envió a eliminados (con cotización)" },
+                      { at: nowStamp(), by: actor, action: "Envió a eliminados (con cotización)" },
                     ],
                   }
                 : p,
@@ -2362,6 +2385,16 @@ export function TechnikProvider({
       setQuotations(nextQuotations)
       if (linked.length > 0) setProjects(nextProjects)
       const updated = nextQuotations.find((x) => x?.id === id)
+      const saved = await persistTrashFlags(
+        updated ? [{ id: updated.id, deletedAt }] : [],
+        linked.map((p) => ({ id: p.id, deletedAt })),
+      )
+      if (!saved.ok) {
+        setQuotations(prevQuotations)
+        setProjects(prevProjects)
+        setSaveError(saved.error)
+        return saved
+      }
       if (updated) persistQuoteNow(updated)
       for (const p of nextProjects) {
         if (p.quotationId === id && p.deletedAt === deletedAt) persistProjectNow(p)
@@ -2369,11 +2402,11 @@ export function TechnikProvider({
       flushPublish({ quotations: nextQuotations, projects: nextProjects })
       return { ok: true }
     },
-    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow],
+    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow, persistTrashFlags],
   )
 
   const restoreDraftQuotation = useCallback(
-    (id: string): { ok: true } | { ok: false; error: string } => {
+    async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
       const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
       if (!quotationIsTrashed(q)) {
@@ -2382,15 +2415,17 @@ export function TechnikProvider({
       if (!canRestoreQuotation(user, q)) {
         return { ok: false, error: "Solo puedes recuperar tus propias cotizaciones" }
       }
-      const stamp = nowStamp()
+      const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
+      const prevQuotations = quotations
+      const prevProjects = projects
       const nextQuotations = quotations.map((x) =>
         x?.id === id
           ? {
               ...x,
               deletedAt: undefined,
               updatedAt: stamp,
-              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Recuperó de eliminados" }],
+              history: [...(x.history ?? []), { at: nowStamp(), by: actor, action: "Recuperó de eliminados" }],
             }
           : x,
       )
@@ -2403,10 +2438,10 @@ export function TechnikProvider({
                 ? {
                     ...p,
                     deletedAt: undefined,
-                    updatedAt: today(),
+                    updatedAt: stamp,
                     history: [
                       ...(p.history ?? []),
-                      { at: stamp, by: actor, action: "Recuperó de eliminados (con cotización)" },
+                      { at: nowStamp(), by: actor, action: "Recuperó de eliminados (con cotización)" },
                     ],
                   }
                 : p,
@@ -2414,6 +2449,16 @@ export function TechnikProvider({
       setQuotations(nextQuotations)
       if (linked.length > 0) setProjects(nextProjects)
       const updated = nextQuotations.find((x) => x?.id === id)
+      const saved = await persistTrashFlags(
+        updated ? [{ id: updated.id, deletedAt: undefined }] : [],
+        linked.map((p) => ({ id: p.id, deletedAt: undefined })),
+      )
+      if (!saved.ok) {
+        setQuotations(prevQuotations)
+        setProjects(prevProjects)
+        setSaveError(saved.error)
+        return saved
+      }
       if (updated) persistQuoteNow(updated)
       for (const p of nextProjects) {
         if (p.quotationId === id && !p.deletedAt && linked.some((l) => l.id === p.id)) {
@@ -2423,11 +2468,11 @@ export function TechnikProvider({
       flushPublish({ quotations: nextQuotations, projects: nextProjects })
       return { ok: true }
     },
-    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow],
+    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow, persistTrashFlags],
   )
 
   const trashProject = useCallback(
-    (id: string): { ok: true } | { ok: false; error: string } => {
+    async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
       const p = projects.find((x) => x.id === id)
       if (!p) return { ok: false, error: "Proyecto no encontrado" }
       if (p.deletedAt) return { ok: false, error: "Ese proyecto ya está en Eliminados" }
@@ -2439,32 +2484,38 @@ export function TechnikProvider({
         if (q && !quotationIsTrashed(q)) return deleteDraftQuotation(q.id)
       }
       const deletedAt = new Date().toISOString()
-      const stamp = nowStamp()
+      const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
+      const prevProjects = projects
       const nextProjects = projects.map((x) =>
         x.id === id
           ? {
               ...x,
               deletedAt,
-              updatedAt: today(),
-              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Envió a eliminados" }],
+              updatedAt: stamp,
+              history: [...(x.history ?? []), { at: nowStamp(), by: actor, action: "Envió a eliminados" }],
             }
           : x,
       )
       setProjects(nextProjects)
+      const saved = await persistTrashFlags([], [{ id, deletedAt }])
+      if (!saved.ok) {
+        setProjects(prevProjects)
+        setSaveError(saved.error)
+        return saved
+      }
       const updated = nextProjects.find((x) => x.id === id)
       if (updated) persistProjectNow(updated)
       flushPublish({ projects: nextProjects })
       return { ok: true }
     },
-    [projects, quotations, user, deleteDraftQuotation, persistProjectNow, flushPublish],
+    [projects, quotations, user, deleteDraftQuotation, persistProjectNow, persistTrashFlags, flushPublish],
   )
 
   const restoreProject = useCallback(
-    (id: string): { ok: true } | { ok: false; error: string } => {
+    async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
       const p = projects.find((x) => x.id === id)
       if (!p) return { ok: false, error: "Proyecto no encontrado" }
-      if (!p.deletedAt) return { ok: false, error: "Ese proyecto no está en Eliminados" }
       if (!canTrashProject(user)) {
         return { ok: false, error: "Solo administración puede recuperar proyectos" }
       }
@@ -2472,25 +2523,33 @@ export function TechnikProvider({
         const q = quotations.find((x) => x?.id === p.quotationId)
         if (q && quotationIsTrashed(q)) return restoreDraftQuotation(q.id)
       }
-      const stamp = nowStamp()
+      if (!p.deletedAt) return { ok: false, error: "Ese proyecto no está en Eliminados" }
+      const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
+      const prevProjects = projects
       const nextProjects = projects.map((x) =>
         x.id === id
           ? {
               ...x,
               deletedAt: undefined,
-              updatedAt: today(),
-              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Recuperó de eliminados" }],
+              updatedAt: stamp,
+              history: [...(x.history ?? []), { at: nowStamp(), by: actor, action: "Recuperó de eliminados" }],
             }
           : x,
       )
       setProjects(nextProjects)
+      const saved = await persistTrashFlags([], [{ id, deletedAt: undefined }])
+      if (!saved.ok) {
+        setProjects(prevProjects)
+        setSaveError(saved.error)
+        return saved
+      }
       const updated = nextProjects.find((x) => x.id === id)
       if (updated) persistProjectNow(updated)
       flushPublish({ projects: nextProjects })
       return { ok: true }
     },
-    [projects, quotations, user, restoreDraftQuotation, persistProjectNow, flushPublish],
+    [projects, quotations, user, restoreDraftQuotation, persistProjectNow, persistTrashFlags, flushPublish],
   )
 
   const purgeExpiredTrashedDrafts = useCallback(() => {

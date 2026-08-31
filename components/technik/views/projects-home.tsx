@@ -20,6 +20,7 @@ import {
   projectIsHidden,
   projectIsOverdue,
   projectIsTrashed,
+  quotationIsTrashed,
   projectTitle,
   quotationHasDepartment,
   projectCoverUrl,
@@ -354,7 +355,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
             folder === "trashed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          Eliminados
+          Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
         </button>
       </div>
 
@@ -434,7 +435,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
               project={p}
               onOpen={() => navigate({ name: "project", id: p.id })}
               onTrash={
-                canTrashProject(user) && !projectIsTrashed(p)
+                canTrashProject(user) && !projectIsHidden(p, quotations)
                   ? () => {
                       const pair = p.quotationId
                         ? " La cotización ligada también se mueve."
@@ -446,13 +447,23 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
                       ) {
                         return
                       }
-                      trashProject(p.id)
+                      void trashProject(p.id).then((res) => {
+                        if (!res.ok) {
+                          window.alert(res.error)
+                          return
+                        }
+                        setFolder("trashed")
+                      })
                     }
                   : undefined
               }
               onRestore={
-                projectIsTrashed(p) && canTrashProject(user)
-                  ? () => restoreProject(p.id)
+                projectIsHidden(p, quotations) && canTrashProject(user)
+                  ? () => {
+                      void restoreProject(p.id).then((res) => {
+                        if (!res.ok) window.alert(res.error)
+                      })
+                    }
                   : undefined
               }
             />
@@ -487,8 +498,11 @@ function ProjectTile({
   const cobroVencido =
     billing.status === "vencido" || projectHasOverdueInstallment(project)
   const cover = projectCoverUrl(project, quote)
-  const inTrash = projectIsTrashed(project)
-  const days = inTrash && project.deletedAt ? trashDaysLeft(project.deletedAt) : null
+  const inTrash = projectIsTrashed(project) || Boolean(quote && quotationIsTrashed(quote))
+  const days =
+    inTrash && (project.deletedAt || quote?.deletedAt)
+      ? trashDaysLeft(project.deletedAt || quote?.deletedAt || "")
+      : null
 
   return (
     <div

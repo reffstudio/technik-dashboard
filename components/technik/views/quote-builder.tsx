@@ -366,11 +366,15 @@ export function QuoteBuilder({
     navigate(isAdmin ? { name: "review", id: newId } : { name: "quotations" })
   }
 
-  function handleDeleteDraft() {
+  async function handleDeleteDraft() {
     if (!draftId) return
     if (!window.confirm("¿Mover este borrador a Eliminados? Puedes recuperarlo en 15 días.")) return
-    const res = deleteDraftQuotation(draftId)
-    if (res.ok) navigate({ name: "quotations" })
+    const res = await deleteDraftQuotation(draftId)
+    if (!res.ok) {
+      setFormError(res.error)
+      return
+    }
+    navigate({ name: "quotations" })
   }
 
   const continueLabel =

@@ -573,6 +573,9 @@ async function persistQuotationOnce(
     error = retry.error
   }
   if (error && /deleted_at/i.test(error.message)) {
+    if (q.deletedAt) {
+      return { ok: false, error: "No se pudo marcar la cotización como eliminada." }
+    }
     delete row.deleted_at
     const retry = await writeQuote(row)
     error = retry.error
@@ -624,6 +627,13 @@ export async function persistQuotation(
   } catch (err) {
     return { ok: false, error: caughtPersistError(err) }
   }
+}
+
+export async function persistQuotationDeletedAt(id: string, deletedAt: string | null) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("quotations").update({ deleted_at: deletedAt }).eq("id", id)
+  if (!error) return { ok: true as const }
+  return { ok: false as const, error: persistErrorMessage(error) }
 }
 
 export async function deleteQuotationRow(id: string) {

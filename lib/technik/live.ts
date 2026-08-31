@@ -14,7 +14,7 @@ import type {
 } from "./data"
 import { type InboxEvent } from "./notifications"
 import { mergeActivityHistory } from "./activity-history"
-import { preferQuote } from "./quotation-guards"
+import { preferDeletedAt, preferQuote } from "./quotation-guards"
 
 export const LIVE_CHANNEL = "technik-live-v1"
 export const WORKSPACE_STORAGE_KEY = "technik-workspace-v1"
@@ -290,7 +290,11 @@ export function adoptQuotations(
 export function adoptProjects(local: Project[], incoming: Project[]): Project[] {
   return adoptById(local, incoming, (a, b) => {
     const winner = preferByUpdatedAt(a, b)
-    return { ...winner, history: mergeActivityHistory(a.history, b.history) }
+    return {
+      ...winner,
+      deletedAt: preferDeletedAt(a, b),
+      history: mergeActivityHistory(a.history, b.history),
+    }
   })
 }
 

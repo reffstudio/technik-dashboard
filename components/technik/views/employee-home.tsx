@@ -194,7 +194,9 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                       ) {
                         return
                       }
-                      deleteDraftQuotation(q.id)
+                      void deleteDraftQuotation(q.id).then((res) => {
+                        if (!res.ok) window.alert(res.error)
+                      })
                     }}
                     className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
                   >
@@ -206,7 +208,11 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                     type="button"
                     title="Recuperar"
                     aria-label="Recuperar cotización"
-                    onClick={() => restoreDraftQuotation(q.id)}
+                    onClick={() => {
+                      void restoreDraftQuotation(q.id).then((res) => {
+                        if (!res.ok) window.alert(res.error)
+                      })
+                    }}
                     className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-primary hover:border-primary/40"
                   >
                     <RotateCcw className="size-4" />

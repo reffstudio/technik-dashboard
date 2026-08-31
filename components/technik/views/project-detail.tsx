@@ -26,6 +26,7 @@ import {
   PROJECT_STAGES,
   projectBillingSummary,
   canTrashProject,
+  projectIsHidden,
   projectIsOverdue,
   projectIsTrashed,
   projectTitle,
@@ -145,7 +146,7 @@ export function ProjectDetail({
   const billing = project ? projectBillingSummary(project, totalDue) : null
 
   useEffect(() => {
-    if (!isAdmin || !project || projectIsTrashed(project)) return
+    if (!isAdmin || !project || projectIsHidden(project, quotations)) return
     if (skipProjectSave.current) {
       skipProjectSave.current = false
       return
@@ -169,6 +170,7 @@ export function ProjectDetail({
     deliveredAt,
     isAdmin,
     project,
+    quotations,
     updateProject,
   ])
 
@@ -187,7 +189,7 @@ export function ProjectDetail({
     )
   }
 
-  const inTrash = projectIsTrashed(project)
+  const inTrash = projectIsTrashed(project) || projectIsHidden(project, quotations)
 
   const overdue = projectIsOverdue(project)
   const displayTitle = projectTitle(project, quote?.title)
@@ -382,8 +384,9 @@ export function ProjectDetail({
                 ) {
                   return
                 }
-                const res = trashProject(project.id)
-                if (res.ok) navigate({ name: "projects" })
+                void trashProject(project.id).then((res) => {
+                  if (!res.ok) setToast(res.error)
+                })
               }}
               className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
             >
@@ -395,7 +398,11 @@ export function ProjectDetail({
               type="button"
               title="Recuperar"
               aria-label="Recuperar proyecto"
-              onClick={() => restoreProject(project.id)}
+              onClick={() => {
+                void restoreProject(project.id).then((res) => {
+                  if (!res.ok) setToast(res.error)
+                })
+              }}
               className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
             >
               <RotateCcw className="size-3.5" />

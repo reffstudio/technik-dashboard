@@ -184,7 +184,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       paymentMode: row.payment_mode || undefined,
       installments: instBy.get(row.id) ?? [],
       createdAt: (row.created_at ?? "").slice(0, 10),
-      updatedAt: (row.updated_at ?? "").slice(0, 10),
+      updatedAt: row.updated_at?.slice(0, 16).replace("T", " ") ?? (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],
       coverImageUrl: row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined,
       deletedAt: row.deleted_at ?? undefined,
@@ -371,6 +371,12 @@ export async function persistProject(
     error = retry.error
   }
   if (error && /deleted_at/i.test(error.message)) {
+    if (project.deletedAt) {
+      return {
+        ok: false,
+        error: "Falta correr el SQL de papelera de proyectos (projects.deleted_at).",
+      }
+    }
     delete payload.deleted_at
     const retry = await supabase.from("projects").upsert(payload)
     error = retry.error
@@ -584,6 +590,19 @@ function enqueue<T>(key: string, run: () => Promise<T>): Promise<T> {
   const next = prev.catch(() => undefined).then(run)
   tails.set(key, next)
   return next
+}
+
+export async function persistProjectDeletedAt(id: string, deletedAt: string | null) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("projects").update({ deleted_at: deletedAt }).eq("id", id)
+  if (!error) return { ok: true as const }
+  if (/deleted_at/i.test(error.message)) {
+    return {
+      ok: false as const,
+      error: "Falta correr el SQL de papelera de proyectos (projects.deleted_at).",
+    }
+  }
+  return { ok: false as const, error: error.message }
 }
 
 export async function deleteProjectRow(id: string) {

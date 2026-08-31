@@ -1072,7 +1072,9 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
 
   function trashDraft(id: string, reference: string) {
     if (!window.confirm(`¿Mover ${reference} a Eliminados? Puedes recuperarla en 15 días.`)) return
-    deleteDraftQuotation(id)
+    void deleteDraftQuotation(id).then((res) => {
+      if (!res.ok) window.alert(res.error)
+    })
   }
 
   return (

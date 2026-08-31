@@ -111,19 +111,29 @@ export function recoverEmail(opts: { actionUrl: string }) {
 }
 
 export function quoteDispatchEmail(opts: {
-  greeting: string
-  intro: string
+  greeting?: string
+  intro?: string
   body: string
+  html?: string
 }): { html: string; text: string } {
-  const paragraphs = opts.body
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter(Boolean)
-    .map(
-      (block) =>
-        `<p style="margin:0 0 12px;color:#d5dbe6;font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(block)}</p>`,
-    )
-    .join("")
+  const letterHtml = opts.html?.trim()
+  const paragraphs = letterHtml
+    ? letterHtml
+    : opts.body
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .map(
+          (block) =>
+            `<p style="margin:0 0 12px;color:#d5dbe6;font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(block)}</p>`,
+        )
+        .join("")
+  const heading = !letterHtml && opts.greeting?.trim()
+    ? `<h1 style="margin:0 0 16px;color:#ffffff;font-size:22px;line-height:1.3;">${escapeHtml(opts.greeting)}</h1>`
+    : ""
+  const intro = !letterHtml && opts.intro?.trim()
+    ? `<p style="margin:0 0 16px;color:${MUTED};font-size:13px;line-height:1.6;">${escapeHtml(opts.intro)}</p>`
+    : ""
   const html = `<!doctype html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml" style="background:${NAVY};">
   <head>
@@ -144,10 +154,10 @@ export function quoteDispatchEmail(opts: {
             </tr>
             <tr>
               <td bgcolor="${CARD}" style="background-color:${CARD};border-radius:16px;padding:32px 28px;">
-                <h1 style="margin:0 0 16px;color:#ffffff;font-size:22px;line-height:1.3;">${escapeHtml(opts.greeting)}</h1>
-                <p style="margin:0 0 16px;color:${MUTED};font-size:13px;line-height:1.6;">${escapeHtml(opts.intro)}</p>
+                ${heading}
+                ${intro}
                 ${paragraphs}
-                <p style="margin:16px 0 0;color:${MUTED};font-size:13px;line-height:1.6;">El PDF va adjunto a este correo.</p>
+                ${letterHtml ? "" : `<p style="margin:16px 0 0;color:${MUTED};font-size:13px;line-height:1.6;">El PDF va adjunto a este correo.</p>`}
               </td>
             </tr>
             <tr>

@@ -110,26 +110,66 @@ export function whatsappHref(digits: string, text: string): string {
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+/** Carta al cliente: asunto, texto plano (mailto / WhatsApp) y HTML (Resend). */
 export function clientQuoteMail(opts: {
   client: Client
   reference: string
   title: string
-}): { to: string; subject: string; body: string } {
+}): { to: string; subject: string; body: string; html: string } {
   const to = opts.client.email.trim()
-  const subject = `Cotización ${opts.reference} · ${opts.client.company}`
+  const name = opts.client.contact.trim() || opts.client.company
+  const title = opts.title.trim()
+  const company = TECHNIK_COMPANY.name
+  const email = TECHNIK_COMPANY.email
+  const slogan = `${TECHNIK_COMPANY.slogan.replace(/\.$/, "")}.`
+  const corresponding = title ? `, correspondiente a la ${title}` : ""
+  const subject = `Cotización ${opts.reference} | ${company}`
   const body = [
-    `Hola ${opts.client.contact || opts.client.company},`,
+    `Estimado(a) ${name},`,
     "",
-    `Adjuntamos la cotización ${opts.reference}`,
-    opts.title ? `(${opts.title}).` : ".",
+    `Gracias por considerar a ${company}.`,
     "",
-    "El PDF va adjunto (o descárgalo desde Technik si no aparece en este correo).",
+    `Adjuntamos la cotización ${opts.reference}${corresponding}.`,
     "",
-    TECHNIK_COMPANY.name,
-    TECHNIK_COMPANY.email,
-    TECHNIK_COMPANY.phones.join(" · "),
+    "Este correo fue generado automáticamente, por favor no responda a este mensaje.",
+    "",
+    "Si tiene alguna duda, requiere alguna modificación o desea dar seguimiento a la cotización, contáctenos en:",
+    "",
+    email,
+    "",
+    "Agradecemos la oportunidad de colaborar con usted.",
+    "",
+    "Saludos cordiales,",
+    "",
+    company,
+    slogan,
   ].join("\n")
-  return { to, subject, body }
+
+  const p = "margin:0 0 14px;color:#d5dbe6;font-size:15px;line-height:1.65;"
+  const correspondingHtml = title
+    ? `, correspondiente a la <strong>${escapeHtml(title)}</strong>`
+    : ""
+  const html = [
+    `<p style="${p}">Estimado(a) ${escapeHtml(name)},</p>`,
+    `<p style="${p}">Gracias por considerar a <strong>${escapeHtml(company)}</strong>.</p>`,
+    `<p style="${p}">Adjuntamos la cotización <strong>${escapeHtml(opts.reference)}</strong>${correspondingHtml}.</p>`,
+    `<p style="${p}"><strong>Este correo fue generado automáticamente, por favor no responda a este mensaje.</strong></p>`,
+    `<p style="${p}">Si tiene alguna duda, requiere alguna modificación o desea dar seguimiento a la cotización, contáctenos en:</p>`,
+    `<p style="${p}"><a href="mailto:${escapeHtml(email)}" style="color:#00d9ea;font-weight:700;text-decoration:underline;">${escapeHtml(email)}</a></p>`,
+    `<p style="${p}">Agradecemos la oportunidad de colaborar con usted.</p>`,
+    `<p style="${p}">Saludos cordiales,</p>`,
+    `<p style="margin:0;color:#d5dbe6;font-size:15px;line-height:1.65;"><strong>${escapeHtml(company)}</strong><br />${escapeHtml(slogan)}</p>`,
+  ].join("")
+
+  return { to, subject, body, html }
 }
 
 export function supplierQuoteMail(opts: {
@@ -322,6 +362,7 @@ export async function dispatchQuoteEmail(opts: {
   cc: string[]
   subject: string
   body: string
+  html?: string
   filename: string
   pdf: Blob
   accessToken: string
@@ -333,6 +374,7 @@ export async function dispatchQuoteEmail(opts: {
   form.set("cc", JSON.stringify(opts.cc))
   form.set("subject", opts.subject)
   form.set("body", opts.body)
+  if (opts.html) form.set("html", opts.html)
   form.set("filename", opts.filename)
   form.set(
     "pdf",
