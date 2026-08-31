@@ -1,11 +1,14 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { Inbox, Plus } from "lucide-react"
+import { useEffect, useState, useMemo } from "react"
+import { Inbox, Plus, RotateCcw, Trash2 } from "lucide-react"
 import { useTechnik, quoteTotals } from "@/lib/technik/store"
 import {
+  canTrashQuotation,
   currency,
   quotationHasDepartment,
+  quotationIsTrashed,
+  quotationTrashDaysLeft,
   quotePipelineStatus,
   type QuoteStatus,
   type WorkDepartment,
@@ -20,7 +23,7 @@ import {
 import type { View } from "../app-shell"
 
 const FILTERS: {
-  id: "queue" | "all" | QuoteStatus | "sent_client" | "sent_supplier" | "waiting"
+  id: "queue" | "all" | QuoteStatus | "sent_client" | "sent_supplier" | "waiting" | "trashed"
   label: string
 }[] = [
   { id: "queue", label: "Nuevas" },
@@ -29,44 +32,63 @@ const FILTERS: {
   { id: "sent_client", label: "Enviada al cliente" },
   { id: "sent_supplier", label: "Enviada al proveedor" },
   { id: "closed", label: "Archivadas" },
+  { id: "trashed", label: "Eliminados" },
   { id: "all", label: "Todas" },
 ]
 
 export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
-  const { quotations, clients, catalog, departments } = useTechnik()
+  const {
+    quotations,
+    projects,
+    clients,
+    catalog,
+    departments,
+    user,
+    deleteDraftQuotation,
+    restoreDraftQuotation,
+    purgeExpiredTrashedDrafts,
+  } = useTechnik()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("queue")
   const [dept, setDept] = useState<"all" | WorkDepartment>("all")
   const [query, setQuery] = useState("")
 
+  useEffect(() => {
+    purgeExpiredTrashedDrafts()
+  }, [purgeExpiredTrashedDrafts])
+
   const clientName = (id: string) => clients.find((c) => c.id === id)?.company ?? id
 
-  const pending = quotations.filter((q) => quotePipelineStatus(q) === "pending_review")
-  const waitingClient = quotations.filter(
+  const live = useMemo(() => quotations.filter((q) => !quotationIsTrashed(q)), [quotations])
+  const trashed = useMemo(() => quotations.filter((q) => quotationIsTrashed(q)), [quotations])
+
+  const pending = live.filter((q) => quotePipelineStatus(q) === "pending_review")
+  const waitingClient = live.filter(
     (q) =>
       quotePipelineStatus(q) === "sent_client" &&
       (q.clientResponse ?? "en_espera") === "en_espera",
   )
   const pipelineValue = useMemo(
     () =>
-      quotations
+      live
         .filter((q) => q.status !== "draft" && q.status !== "closed")
         .reduce((sum, q) => sum + quoteTotals(q, catalog).total, 0),
-    [quotations, catalog],
+    [live, catalog],
   )
   const avgMargin = useMemo(() => {
-    const priced = quotations.filter((q) => q.status !== "draft")
+    const priced = live.filter((q) => q.status !== "draft")
     if (priced.length === 0) return 0
     return priced.reduce((s, q) => s + quoteTotals(q, catalog).marginPct, 0) / priced.length
-  }, [quotations, catalog])
+  }, [live, catalog])
 
   const list = useMemo(() => {
-    let base = quotations
-    if (filter === "queue") base = pending
+    let base = live
+    if (filter === "trashed") base = trashed
+    else if (filter === "queue") base = pending
     else if (filter === "waiting") base = waitingClient
-    else if (filter === "all") base = quotations.filter((q) => q.status !== "draft")
-    else if (filter === "sent_client") base = quotations.filter((q) => quotePipelineStatus(q) === "sent_client")
-    else if (filter === "sent_supplier") base = quotations.filter((q) => !!q.supplierSentAt)
-    else base = quotations.filter((q) => q.status === filter)
+    else if (filter === "all") base = live.filter((q) => q.status !== "draft")
+    else if (filter === "sent_client") base = live.filter((q) => quotePipelineStatus(q) === "sent_client")
+    else if (filter === "sent_supplier") base = live.filter((q) => !!q.supplierSentAt)
+    else base = live.filter((q) => q.status === filter)
 
     if (dept !== "all") base = base.filter((q) => quotationHasDepartment(q, dept))
 
@@ -82,7 +104,7 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
         item.createdBy.toLowerCase().includes(q)
       )
     })
-  }, [filter, dept, pending, waitingClient, quotations, query, clients])
+  }, [filter, dept, pending, waitingClient, live, trashed, query, clients])
 
   return (
     <div>
@@ -185,13 +207,18 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
           <p className="text-sm text-muted-foreground">
             {query.trim()
               ? "Ninguna cotización coincide con la búsqueda."
-              : "No hay nada aquí por ahora."}
+              : filter === "trashed"
+                ? "La papelera está vacía."
+                : "No hay nada aquí por ahora."}
           </p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
           {list.map((q) => {
             const company = clientName(q.clientId)
+            const inTrash = quotationIsTrashed(q)
+            const days = inTrash && q.deletedAt ? quotationTrashDaysLeft(q.deletedAt) : null
+            const linked = projects.some((p) => p.quotationId === q.id)
             return (
               <div
                 key={q.id}
@@ -199,7 +226,10 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
               >
                 <button
                   type="button"
-                  onClick={() => navigate({ name: "review", id: q.id })}
+                  onClick={() => {
+                    if (inTrash) return
+                    navigate({ name: "review", id: q.id })
+                  }}
                   className="flex min-w-0 flex-1 items-center gap-3 text-left"
                 >
                   <QuoteAuthor quotation={q} layout="avatar" />
@@ -209,12 +239,53 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
                       <p className="text-[11px] truncate text-muted-foreground mt-0.5">{q.title}</p>
                     ) : null}
                     <QuoteAuthor quotation={q} layout="name" className="mt-0.5" />
+                    {inTrash && days !== null ? (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {days <= 0 ? "se borra hoy" : `se borra en ${days} día${days === 1 ? "" : "s"}`}
+                        {linked ? " · con proyecto" : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="hidden sm:inline font-mono text-[10px] shrink-0 text-muted-foreground tabular-nums">
                     {q.reference.replace(/^TKS-Q-/, "")}
                   </span>
                 </button>
-                <QuotePipelineControls quotation={q} compact />
+                {!inTrash && <QuotePipelineControls quotation={q} compact />}
+                {!inTrash && canTrashQuotation(user, q) && (
+                  <button
+                    type="button"
+                    title="Mover a eliminados"
+                    aria-label="Eliminar cotización"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const pair = linked
+                        ? " El proyecto ligado también se mueve."
+                        : ""
+                      if (
+                        !window.confirm(
+                          `¿Mover ${q.reference} a Eliminados?${pair} Puedes recuperarla en 15 días.`,
+                        )
+                      ) {
+                        return
+                      }
+                      deleteDraftQuotation(q.id)
+                    }}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
+                {inTrash && (
+                  <button
+                    type="button"
+                    title="Recuperar"
+                    aria-label="Recuperar cotización"
+                    onClick={() => restoreDraftQuotation(q.id)}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-primary hover:border-primary/40"
+                  >
+                    <RotateCcw className="size-4" />
+                  </button>
+                )}
               </div>
             )
           })}

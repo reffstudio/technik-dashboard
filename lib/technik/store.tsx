@@ -29,8 +29,12 @@ import {
   normalizeApartadoMovement,
   quotationDepartments,
   quotationHasDepartment,
+  canRestoreQuotation,
+  canTrashQuotation,
+  canTrashProject,
   quotationIsTrashed,
   quotationTrashExpired,
+  projectTrashExpired,
   quotationCoverUrl,
   shortDepartmentLabel,
   suggestedPrice,
@@ -137,6 +141,7 @@ import {
   deleteApartadoMovementRow,
   deleteExpenseRow,
   deleteSeparadoRow,
+  deleteProjectRow,
   enqueuePersistProject,
   loadOpsWorkspace,
   persistApartadoMovement,
@@ -295,9 +300,11 @@ interface TechnikState {
   ) => { ok: true; projectId?: string } | { ok: false; error: string }
   duplicateQuotation: (id: string) => Promise<string | null>
   archiveQuotation: (id: string) => void
-  /** Manda un borrador a Eliminados (se borra del todo a los 7 días). */
+  /** Manda una cotización a Eliminados (15 días). Si hay proyecto ligado, va junto. */
   deleteDraftQuotation: (id: string) => { ok: true } | { ok: false; error: string }
   restoreDraftQuotation: (id: string) => { ok: true } | { ok: false; error: string }
+  trashProject: (id: string) => { ok: true } | { ok: false; error: string }
+  restoreProject: (id: string) => { ok: true } | { ok: false; error: string }
   purgeExpiredTrashedDrafts: () => void
   uploadVisitPhotos: (
     quotationId: string,
@@ -843,7 +850,7 @@ export function TechnikProvider({
     setProjects((prev) =>
       adoptProjects(
         prev,
-        snapshot.projects.map((p) => normalizeProject(p)),
+        snapshot.projects.map((p) => normalizeProject(p)).filter((p) => !projectTrashExpired(p)),
       ),
     )
     setPaymentEvents((prev) =>
@@ -1178,7 +1185,12 @@ export function TechnikProvider({
       )
     }
     if (projectsBackup.length > 0) {
-      setProjects((prev) => adoptProjects(prev, projectsBackup.map((p) => normalizeProject(p))))
+      setProjects((prev) =>
+        adoptProjects(
+          prev,
+          projectsBackup.map((p) => normalizeProject(p)).filter((p) => !projectTrashExpired(p)),
+        ),
+      )
     }
   }, [])
 
@@ -2305,34 +2317,59 @@ export function TechnikProvider({
     (id: string): { ok: true } | { ok: false; error: string } => {
       const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
-      if (q.status !== "draft") {
-        return { ok: false, error: "Solo se pueden borrar borradores" }
-      }
       if (quotationIsTrashed(q)) {
-        return { ok: false, error: "Ese borrador ya está en Eliminados" }
+        return { ok: false, error: "Esa cotización ya está en Eliminados" }
       }
-      if (user?.role === "empleado" && q.createdById !== user.id) {
-        return { ok: false, error: "Solo puedes borrar tus propios borradores" }
+      if (!canTrashQuotation(user, q)) {
+        return {
+          ok: false,
+          error:
+            user?.role === "empleado"
+              ? "Solo puedes eliminar tus borradores o las que enviaste a administración"
+              : "No se puede eliminar esta cotización",
+        }
       }
+      const deletedAt = new Date().toISOString()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const nextQuotations = quotations.map((x) =>
         x?.id === id
           ? {
               ...x,
-              deletedAt: new Date().toISOString(),
+              deletedAt,
               updatedAt: stamp,
               history: [...(x.history ?? []), { at: stamp, by: actor, action: "Envió a eliminados" }],
             }
           : x,
       )
+      const linked = projects.filter((p) => p.quotationId === id && !p.deletedAt)
+      const nextProjects =
+        linked.length === 0
+          ? projects
+          : projects.map((p) =>
+              p.quotationId === id && !p.deletedAt
+                ? {
+                    ...p,
+                    deletedAt,
+                    updatedAt: today(),
+                    history: [
+                      ...(p.history ?? []),
+                      { at: stamp, by: actor, action: "Envió a eliminados (con cotización)" },
+                    ],
+                  }
+                : p,
+            )
       setQuotations(nextQuotations)
+      if (linked.length > 0) setProjects(nextProjects)
       const updated = nextQuotations.find((x) => x?.id === id)
       if (updated) persistQuoteNow(updated)
-      flushPublish({ quotations: nextQuotations })
+      for (const p of nextProjects) {
+        if (p.quotationId === id && p.deletedAt === deletedAt) persistProjectNow(p)
+      }
+      flushPublish({ quotations: nextQuotations, projects: nextProjects })
       return { ok: true }
     },
-    [quotations, user, flushPublish, persistQuoteNow],
+    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow],
   )
 
   const restoreDraftQuotation = useCallback(
@@ -2340,10 +2377,10 @@ export function TechnikProvider({
       const q = quotations.find((x) => x?.id === id)
       if (!q) return { ok: false, error: "Cotización no encontrada" }
       if (!quotationIsTrashed(q)) {
-        return { ok: false, error: "Ese borrador no está en Eliminados" }
+        return { ok: false, error: "Esa cotización no está en Eliminados" }
       }
-      if (user?.role === "empleado" && q.createdById !== user.id) {
-        return { ok: false, error: "Solo puedes recuperar tus propios borradores" }
+      if (!canRestoreQuotation(user, q)) {
+        return { ok: false, error: "Solo puedes recuperar tus propias cotizaciones" }
       }
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
@@ -2357,30 +2394,143 @@ export function TechnikProvider({
             }
           : x,
       )
+      const linked = projects.filter((p) => p.quotationId === id && p.deletedAt)
+      const nextProjects =
+        linked.length === 0
+          ? projects
+          : projects.map((p) =>
+              p.quotationId === id && p.deletedAt
+                ? {
+                    ...p,
+                    deletedAt: undefined,
+                    updatedAt: today(),
+                    history: [
+                      ...(p.history ?? []),
+                      { at: stamp, by: actor, action: "Recuperó de eliminados (con cotización)" },
+                    ],
+                  }
+                : p,
+            )
       setQuotations(nextQuotations)
+      if (linked.length > 0) setProjects(nextProjects)
       const updated = nextQuotations.find((x) => x?.id === id)
       if (updated) persistQuoteNow(updated)
-      flushPublish({ quotations: nextQuotations })
+      for (const p of nextProjects) {
+        if (p.quotationId === id && !p.deletedAt && linked.some((l) => l.id === p.id)) {
+          persistProjectNow(p)
+        }
+      }
+      flushPublish({ quotations: nextQuotations, projects: nextProjects })
       return { ok: true }
     },
-    [quotations, user, flushPublish, persistQuoteNow],
+    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow],
+  )
+
+  const trashProject = useCallback(
+    (id: string): { ok: true } | { ok: false; error: string } => {
+      const p = projects.find((x) => x.id === id)
+      if (!p) return { ok: false, error: "Proyecto no encontrado" }
+      if (p.deletedAt) return { ok: false, error: "Ese proyecto ya está en Eliminados" }
+      if (!canTrashProject(user)) {
+        return { ok: false, error: "Solo administración puede eliminar proyectos" }
+      }
+      if (p.quotationId) {
+        const q = quotations.find((x) => x?.id === p.quotationId)
+        if (q && !quotationIsTrashed(q)) return deleteDraftQuotation(q.id)
+      }
+      const deletedAt = new Date().toISOString()
+      const stamp = nowStamp()
+      const actor = user?.name ?? "Usuario"
+      const nextProjects = projects.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              deletedAt,
+              updatedAt: today(),
+              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Envió a eliminados" }],
+            }
+          : x,
+      )
+      setProjects(nextProjects)
+      const updated = nextProjects.find((x) => x.id === id)
+      if (updated) persistProjectNow(updated)
+      flushPublish({ projects: nextProjects })
+      return { ok: true }
+    },
+    [projects, quotations, user, deleteDraftQuotation, persistProjectNow, flushPublish],
+  )
+
+  const restoreProject = useCallback(
+    (id: string): { ok: true } | { ok: false; error: string } => {
+      const p = projects.find((x) => x.id === id)
+      if (!p) return { ok: false, error: "Proyecto no encontrado" }
+      if (!p.deletedAt) return { ok: false, error: "Ese proyecto no está en Eliminados" }
+      if (!canTrashProject(user)) {
+        return { ok: false, error: "Solo administración puede recuperar proyectos" }
+      }
+      if (p.quotationId) {
+        const q = quotations.find((x) => x?.id === p.quotationId)
+        if (q && quotationIsTrashed(q)) return restoreDraftQuotation(q.id)
+      }
+      const stamp = nowStamp()
+      const actor = user?.name ?? "Usuario"
+      const nextProjects = projects.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              deletedAt: undefined,
+              updatedAt: today(),
+              history: [...(x.history ?? []), { at: stamp, by: actor, action: "Recuperó de eliminados" }],
+            }
+          : x,
+      )
+      setProjects(nextProjects)
+      const updated = nextProjects.find((x) => x.id === id)
+      if (updated) persistProjectNow(updated)
+      flushPublish({ projects: nextProjects })
+      return { ok: true }
+    },
+    [projects, quotations, user, restoreDraftQuotation, persistProjectNow, flushPublish],
   )
 
   const purgeExpiredTrashedDrafts = useCallback(() => {
-    setQuotations((prev) => {
-      const expired = prev.filter((q) => quotationTrashExpired(q))
-      const next = prev.filter((q) => !quotationTrashExpired(q))
-      if (next.length === prev.length) return prev
-      for (const q of expired) {
-        void deleteAllVisitPhotosRequest(q.id)
-        if (isSupabaseConfigured()) {
-          void trackPersist(`quote-del:${q.id}`, () => deleteQuotationRow(q.id))
-        }
+    const prevQ = workspaceRef.current.quotations
+    const prevP = workspaceRef.current.projects
+    const expiredQuotes = prevQ.filter((q) => quotationTrashExpired(q))
+    const expiredQuoteIds = new Set(expiredQuotes.map((q) => q.id))
+    const expiredProjects = prevP.filter(
+      (p) => projectTrashExpired(p) || Boolean(p.quotationId && expiredQuoteIds.has(p.quotationId)),
+    )
+    if (expiredQuotes.length === 0 && expiredProjects.length === 0) return
+
+    const nextQ = prevQ.filter((q) => !expiredQuoteIds.has(q.id))
+    const expiredProjectIds = new Set(expiredProjects.map((p) => p.id))
+    const nextP = prevP.filter((p) => !expiredProjectIds.has(p.id))
+    setQuotations(nextQ)
+    setProjects(nextP)
+
+    const paidProjectIds = new Set(
+      expiredProjects
+        .filter((p) => (p.installments ?? []).some((i) => i.paidAt))
+        .map((p) => p.id),
+    )
+
+    for (const p of expiredProjects) {
+      if (paidProjectIds.has(p.id)) continue
+      if (isSupabaseConfigured()) {
+        void trackPersist(`project-del:${p.id}`, () => deleteProjectRow(p.id))
       }
-      queueMicrotask(() => flushPublishRef.current({ quotations: next }))
-      return next
-    })
-  }, [])
+    }
+    for (const q of expiredQuotes) {
+      const linked = expiredProjects.filter((p) => p.quotationId === q.id)
+      if (linked.some((p) => paidProjectIds.has(p.id))) continue
+      void deleteAllVisitPhotosRequest(q.id)
+      if (isSupabaseConfigured()) {
+        void trackPersist(`quote-del:${q.id}`, () => deleteQuotationRow(q.id))
+      }
+    }
+    queueMicrotask(() => flushPublishRef.current({ quotations: nextQ, projects: nextP }))
+  }, [trackPersist])
 
   const uploadVisitPhotos = useCallback(
     async (quotationId: string, files: File[]) => {
@@ -3289,6 +3439,8 @@ export function TechnikProvider({
       archiveQuotation,
       deleteDraftQuotation,
       restoreDraftQuotation,
+      trashProject,
+      restoreProject,
       purgeExpiredTrashedDrafts,
       uploadVisitPhotos,
       removeVisitPhoto,
@@ -3373,6 +3525,8 @@ export function TechnikProvider({
       archiveQuotation,
       deleteDraftQuotation,
       restoreDraftQuotation,
+      trashProject,
+      restoreProject,
       purgeExpiredTrashedDrafts,
       uploadVisitPhotos,
       removeVisitPhoto,

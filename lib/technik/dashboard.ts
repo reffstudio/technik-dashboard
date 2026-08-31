@@ -361,9 +361,13 @@ export function quotationsForBillingEconomy(
   endIso?: string,
 ): Quotation[] {
   const ids = new Set(
-    projects.map((p) => p.quotationId).filter((id): id is string => Boolean(id)),
+    projects
+      .filter((p) => !p.deletedAt)
+      .map((p) => p.quotationId)
+      .filter((id): id is string => Boolean(id)),
   )
   return quotations.filter((q) => {
+    if (q.deletedAt) return false
     if (!ids.has(q.id)) return false
     if (startIso && endIso) {
       return inInclusiveRange(q.createdAt, startIso, endIso)

@@ -40,7 +40,9 @@ import {
   internalEconomy,
   lineTotalMxn,
   quotationDepartments,
+  quotationIsTrashed,
   isQuotationCreator,
+  canTrashQuotation,
   suggestedPublicUnitPrice,
   type Client,
   type CatalogItem,
@@ -94,6 +96,9 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     suppliers,
     departments,
     updateQuotation,
+    deleteDraftQuotation,
+    restoreDraftQuotation,
+    projects,
     user,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
@@ -266,6 +271,35 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         <button onClick={() => navigate({ name: "quotations" })} className="block mx-auto mt-4 text-primary">
           Volver
         </button>
+      </div>
+    )
+  }
+
+  if (quotationIsTrashed(q)) {
+    const linked = projects.some((p) => p.quotationId === q.id)
+    return (
+      <div className="text-center py-20 text-muted-foreground max-w-md mx-auto">
+        <p className="text-foreground font-semibold mb-2">Está en Eliminados</p>
+        <p className="text-sm mb-4">
+          Recupérala desde aquí o la lista. Se borra del todo a los 15 días.
+          {linked ? " El proyecto ligado se recupera junto." : ""}
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => restoreDraftQuotation(q.id)}
+            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
+          >
+            Recuperar
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate({ name: "quotations" })}
+            className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold"
+          >
+            Volver
+          </button>
+        </div>
       </div>
     )
   }
@@ -999,16 +1033,41 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                   <QuoteAuthor quotation={q} layout="inline" />
                 </div>
               </div>
-              <QuotePipelineControls
-                quotation={q}
-                align="end"
-                className="shrink-0 lg:max-w-[26rem]"
-                beforeApply={() => {
-                  if (q.status === "approved" || q.status === "closed") return true
-                  return persistDocument()
-                }}
-                onApplied={onPipelineApplied}
-              />
+              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 lg:max-w-[26rem]">
+                <QuotePipelineControls
+                  quotation={q}
+                  align="end"
+                  className="shrink-0"
+                  beforeApply={() => {
+                    if (q.status === "approved" || q.status === "closed") return true
+                    return persistDocument()
+                  }}
+                  onApplied={onPipelineApplied}
+                />
+                {canTrashQuotation(user, q) && (
+                  <button
+                    type="button"
+                    title="Mover a eliminados"
+                    aria-label="Eliminar cotización"
+                    onClick={() => {
+                      const linked = projects.some((p) => p.quotationId === q.id)
+                      const pair = linked ? " El proyecto ligado también se mueve." : ""
+                      if (
+                        !window.confirm(
+                          `¿Mover ${q.reference} a Eliminados?${pair} Puedes recuperarla en 15 días.`,
+                        )
+                      ) {
+                        return
+                      }
+                      const res = deleteDraftQuotation(q.id)
+                      if (res.ok) navigate({ name: "quotations" })
+                    }}
+                    className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
+              </div>
             </div>
             {isAdmin && (
               <label className="mt-3 block min-w-0">

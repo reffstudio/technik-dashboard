@@ -1,8 +1,13 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
 import {
+  canRestoreQuotation,
+  canTrashQuotation,
   isQuotationCreator,
+  quotationTrashExpired,
   quotePipelineStatus,
+  trashDaysLeft,
+  TRASH_RETENTION_DAYS,
   type Quotation,
 } from "./data"
 import {
@@ -132,5 +137,31 @@ describe("persistSentAt / persistClientResponse", () => {
 describe("mergeVisitPhotos", () => {
   it("no truena si hay huecos en el array", () => {
     assert.doesNotThrow(() => mergeVisitPhotos([undefined as never], [undefined as never]))
+  })
+})
+
+describe("papelera 15 días", () => {
+  it("retención es 15 días y un borrado de hoy no está vencido", () => {
+    assert.equal(TRASH_RETENTION_DAYS, 15)
+    const now = Date.parse("2026-08-31T12:00:00.000Z")
+    assert.equal(quotationTrashExpired({ deletedAt: "2026-08-31T11:00:00.000Z" }, now), false)
+    assert.equal(quotationTrashExpired({ deletedAt: "2026-08-16T11:59:00.000Z" }, now), true)
+    assert.equal(trashDaysLeft("2026-08-31T12:00:00.000Z", now), 15)
+  })
+
+  it("admin puede tirar cualquier status; colaborador solo draft/pending", () => {
+    const admin = { id: "a", role: "admin" as const }
+    const emp = { id: "user-1", role: "empleado" as const }
+    assert.equal(canTrashQuotation(admin, quote({ status: "approved" })), true)
+    assert.equal(canTrashQuotation(emp, quote({ status: "draft" })), true)
+    assert.equal(canTrashQuotation(emp, quote({ status: "approved" })), false)
+    assert.equal(
+      canRestoreQuotation(emp, quote({ status: "approved", deletedAt: "2026-08-31T00:00:00.000Z" })),
+      false,
+    )
+    assert.equal(
+      canRestoreQuotation(admin, quote({ status: "approved", deletedAt: "2026-08-31T00:00:00.000Z" })),
+      true,
+    )
   })
 })

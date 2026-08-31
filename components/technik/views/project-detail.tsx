@@ -11,6 +11,7 @@ import {
   FileText,
   Plus,
   Receipt,
+  RotateCcw,
   Trash2,
 } from "lucide-react"
 import {
@@ -24,7 +25,9 @@ import {
   PROJECT_STAGE_META,
   PROJECT_STAGES,
   projectBillingSummary,
+  canTrashProject,
   projectIsOverdue,
+  projectIsTrashed,
   projectTitle,
   projectCoverUrl,
   type PaymentMethod,
@@ -70,6 +73,8 @@ export function ProjectDetail({
     removeProjectInstallment,
     markInstallmentPaid,
     addPaymentCorrectionNote,
+    trashProject,
+    restoreProject,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
   const project = projects.find((p) => p.id === id)
@@ -140,7 +145,7 @@ export function ProjectDetail({
   const billing = project ? projectBillingSummary(project, totalDue) : null
 
   useEffect(() => {
-    if (!isAdmin || !project) return
+    if (!isAdmin || !project || projectIsTrashed(project)) return
     if (skipProjectSave.current) {
       skipProjectSave.current = false
       return
@@ -181,6 +186,8 @@ export function ProjectDetail({
       </div>
     )
   }
+
+  const inTrash = projectIsTrashed(project)
 
   const overdue = projectIsOverdue(project)
   const displayTitle = projectTitle(project, quote?.title)
@@ -353,14 +360,57 @@ export function ProjectDetail({
           ) : (
             <DepartmentBadges departments={project.departments} />
           )}
-          {overdue && (
+          {overdue && !inTrash && (
             <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[11px] font-semibold text-destructive">
               <AlertTriangle className="size-3" />
               Entrega taller vencida
             </span>
           )}
+          {canTrashProject(user) && !inTrash && (
+            <button
+              type="button"
+              title="Mover a eliminados"
+              aria-label="Eliminar proyecto"
+              onClick={() => {
+                const pair = project.quotationId
+                  ? " La cotización ligada también se mueve."
+                  : ""
+                if (
+                  !window.confirm(
+                    `¿Mover ${project.id} a Eliminados?${pair} Puedes recuperarlo en 15 días.`,
+                  )
+                ) {
+                  return
+                }
+                const res = trashProject(project.id)
+                if (res.ok) navigate({ name: "projects" })
+              }}
+              className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          )}
+          {inTrash && canTrashProject(user) && (
+            <button
+              type="button"
+              title="Recuperar"
+              aria-label="Recuperar proyecto"
+              onClick={() => restoreProject(project.id)}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
+            >
+              <RotateCcw className="size-3.5" />
+              Recuperar
+            </button>
+          )}
         </div>
       </PageHeader>
+
+      {inTrash && (
+        <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/5 p-3.5 text-sm text-muted-foreground">
+          Este proyecto está en Eliminados. Se borra del todo a los 15 días.
+          {project.quotationId ? " La cotización ligada va junta." : ""} Los cobros ya registrados no se tocan.
+        </div>
+      )}
 
       <section className="mb-6 rounded-2xl surface-card overflow-hidden">
         <div className="p-4 pb-3">

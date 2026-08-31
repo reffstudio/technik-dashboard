@@ -351,6 +351,11 @@ export interface Project {
   history: ProjectEvent[]
   /** Portada del listado (1 foto). */
   coverImageUrl?: string
+  /**
+   * En papelera. Si está definido, no aparece en la mesa operativa;
+   * se borra del todo a los 15 días (salvo cobros ya registrados).
+   */
+  deletedAt?: string
 }
 
 export interface Quotation {
@@ -391,8 +396,8 @@ export interface Quotation {
   supplierSentAt?: string
   supplierId?: string
   /**
-   * Borrador en papelera. Si está definido, no aparece en la mesa;
-   * se borra del todo a los 7 días.
+   * En papelera. Si está definido, no aparece en la mesa operativa;
+   * se borra del todo a los 15 días.
    */
   deletedAt?: string
   /** Foto que el admin eligió mostrar en el PDF (no se toma sola de la visita). */
@@ -695,25 +700,83 @@ export function isQuotationCreator(
   return user.id === quotation.createdById || Boolean(user.authId && user.authId === quotation.createdById)
 }
 
-export const DRAFT_TRASH_DAYS = 7
+/** Días en Eliminados antes del borrado permanente. */
+export const TRASH_RETENTION_DAYS = 15
+/** @deprecated usar TRASH_RETENTION_DAYS */
+export const DRAFT_TRASH_DAYS = TRASH_RETENTION_DAYS
+
+export function trashPurgeAt(deletedAt: string): number {
+  const t = Date.parse(deletedAt)
+  if (Number.isNaN(t)) return 0
+  return t + TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000
+}
+
+export function trashDaysLeft(deletedAt: string, now = Date.now()): number {
+  return Math.max(0, Math.ceil((trashPurgeAt(deletedAt) - now) / (24 * 60 * 60 * 1000)))
+}
+
+export function trashExpired(deletedAt: string | undefined, now = Date.now()): boolean {
+  if (!deletedAt) return false
+  return trashPurgeAt(deletedAt) <= now
+}
 
 export function quotationIsTrashed(q: Pick<Quotation, "deletedAt">): boolean {
   return Boolean(q.deletedAt)
 }
 
 export function quotationTrashPurgeAt(deletedAt: string): number {
-  const t = Date.parse(deletedAt)
-  if (Number.isNaN(t)) return 0
-  return t + DRAFT_TRASH_DAYS * 24 * 60 * 60 * 1000
+  return trashPurgeAt(deletedAt)
 }
 
 export function quotationTrashDaysLeft(deletedAt: string, now = Date.now()): number {
-  return Math.max(0, Math.ceil((quotationTrashPurgeAt(deletedAt) - now) / (24 * 60 * 60 * 1000)))
+  return trashDaysLeft(deletedAt, now)
 }
 
 export function quotationTrashExpired(q: Pick<Quotation, "deletedAt">, now = Date.now()): boolean {
-  if (!q.deletedAt) return false
-  return quotationTrashPurgeAt(q.deletedAt) <= now
+  return trashExpired(q.deletedAt, now)
+}
+
+export function projectIsTrashed(p: Pick<Project, "deletedAt">): boolean {
+  return Boolean(p.deletedAt)
+}
+
+export function projectTrashExpired(p: Pick<Project, "deletedAt">, now = Date.now()): boolean {
+  return trashExpired(p.deletedAt, now)
+}
+
+/** Proyecto oculto en listas operativas (él o su cotización están en Eliminados). */
+export function projectIsHidden(
+  p: Pick<Project, "deletedAt" | "quotationId">,
+  quotations: Pick<Quotation, "id" | "deletedAt">[],
+): boolean {
+  if (projectIsTrashed(p)) return true
+  if (!p.quotationId) return false
+  const q = quotations.find((x) => x.id === p.quotationId)
+  return Boolean(q && quotationIsTrashed(q))
+}
+
+export function canTrashQuotation(
+  user: Pick<User, "id" | "authId" | "role"> | null | undefined,
+  q: Pick<Quotation, "createdById" | "status" | "deletedAt">,
+): boolean {
+  if (!user || quotationIsTrashed(q)) return false
+  if (user.role === "admin") return true
+  if (!isQuotationCreator(user, q)) return false
+  return q.status === "draft" || q.status === "pending_review"
+}
+
+export function canRestoreQuotation(
+  user: Pick<User, "id" | "authId" | "role"> | null | undefined,
+  q: Pick<Quotation, "createdById" | "status" | "deletedAt">,
+): boolean {
+  if (!user || !quotationIsTrashed(q)) return false
+  if (user.role === "admin") return true
+  if (!isQuotationCreator(user, q)) return false
+  return q.status === "draft" || q.status === "pending_review"
+}
+
+export function canTrashProject(user: Pick<User, "role"> | null | undefined): boolean {
+  return user?.role === "admin"
 }
 
 /** Status de envío al cliente (columna Status del Excel). */

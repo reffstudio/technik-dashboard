@@ -4,6 +4,8 @@ import { useMemo, useState } from "react"
 import { Plus, ChevronRight, ClipboardList, Send, Trash2, RotateCcw } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import {
+  canRestoreQuotation,
+  canTrashQuotation,
   isQuotationCreator,
   quotationIsTrashed,
   quotationTrashDaysLeft,
@@ -19,7 +21,8 @@ const FILTERS = [
 ] as const
 
 export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
-  const { quotations, clients, user, deleteDraftQuotation, restoreDraftQuotation } = useTechnik()
+  const { quotations, projects, clients, user, deleteDraftQuotation, restoreDraftQuotation } =
+    useTechnik()
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("mine")
   const [query, setQuery] = useState("")
 
@@ -38,7 +41,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
-          q?.id && isQuotationCreator(user, q) && q.status === "draft" && quotationIsTrashed(q),
+          q?.id && isQuotationCreator(user, q) && quotationIsTrashed(q),
       ),
     [quotations, user],
   )
@@ -134,7 +137,9 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
             const client = clients.find((c) => c.id === q.clientId)
             const inTrash = quotationIsTrashed(q)
             const editable = q.status === "draft" && !inTrash
+            const canTrash = canTrashQuotation(user, q)
             const days = inTrash && q.deletedAt ? quotationTrashDaysLeft(q.deletedAt) : null
+            const linked = projects.some((p) => p.quotationId === q.id)
             return (
               <div
                 key={q.id}
@@ -174,14 +179,21 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                     <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary shrink-0" />
                   )}
                 </button>
-                {editable && (
+                {canTrash && (
                   <button
                     type="button"
                     title="Mover a eliminados"
-                    aria-label="Eliminar borrador"
+                    aria-label="Eliminar cotización"
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (!window.confirm(`¿Mover ${q.reference} a Eliminados? Puedes recuperarla en 7 días.`)) return
+                      const pair = linked ? " El proyecto ligado también se mueve." : ""
+                      if (
+                        !window.confirm(
+                          `¿Mover ${q.reference} a Eliminados?${pair} Puedes recuperarla en 15 días.`,
+                        )
+                      ) {
+                        return
+                      }
                       deleteDraftQuotation(q.id)
                     }}
                     className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
@@ -189,11 +201,11 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                     <Trash2 className="size-4" />
                   </button>
                 )}
-                {inTrash && (
+                {inTrash && canRestoreQuotation(user, q) && (
                   <button
                     type="button"
                     title="Recuperar"
-                    aria-label="Recuperar borrador"
+                    aria-label="Recuperar cotización"
                     onClick={() => restoreDraftQuotation(q.id)}
                     className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-primary hover:border-primary/40"
                   >

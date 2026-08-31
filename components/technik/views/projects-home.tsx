@@ -1,24 +1,30 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   CalendarDays,
   ChevronDown,
   FolderKanban,
   Plus,
+  RotateCcw,
   Search,
+  Trash2,
 } from "lucide-react"
 import {
   PROJECT_STAGE_META,
   PROJECT_STAGES,
+  canTrashProject,
   projectBillingSummary,
   projectHasOverdueInstallment,
+  projectIsHidden,
   projectIsOverdue,
+  projectIsTrashed,
   projectTitle,
   quotationHasDepartment,
   projectCoverUrl,
   isQuotationCreator,
+  trashDaysLeft,
   type Project,
   type ProjectStage,
   type WorkDepartment,
@@ -50,9 +56,22 @@ const STAGE_ACCENT: Record<ProjectStage, string> = {
 }
 
 export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
-  const { projects, quotations, clients, departments, user, createManualProject } =
-    useTechnik()
+  const {
+    projects,
+    quotations,
+    clients,
+    departments,
+    user,
+    createManualProject,
+    trashProject,
+    restoreProject,
+    purgeExpiredTrashedDrafts,
+  } = useTechnik()
   const isAdmin = user?.role === "admin"
+
+  useEffect(() => {
+    purgeExpiredTrashedDrafts()
+  }, [purgeExpiredTrashedDrafts])
   const [stage, setStage] = useState<"all" | ProjectStage>("all")
   const [dept, setDept] = useState<"all" | WorkDepartment>("all")
   const [query, setQuery] = useState("")
@@ -66,8 +85,9 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
   const [manualStage, setManualStage] = useState<ProjectStage>("en_proceso")
   const [manualDue, setManualDue] = useState("")
   const [manualNotes, setManualNotes] = useState("")
+  const [folder, setFolder] = useState<"active" | "trashed">("active")
 
-  const scoped = useMemo(() => {
+  const scopedAll = useMemo(() => {
     if (isAdmin) return projects
     return projects.filter((p) => {
       if (user && (p.createdById === user.id || p.createdById === user.authId)) return true
@@ -77,12 +97,22 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
     })
   }, [projects, quotations, isAdmin, user])
 
-  const activeCount = scoped.filter((p) => p.stage !== "completado").length
+  const liveScoped = useMemo(
+    () => scopedAll.filter((p) => !projectIsHidden(p, quotations)),
+    [scopedAll, quotations],
+  )
+  const trashScoped = useMemo(
+    () => scopedAll.filter((p) => projectIsTrashed(p) || projectIsHidden(p, quotations)),
+    [scopedAll, quotations],
+  )
+  const scoped = folder === "trashed" ? trashScoped : liveScoped
+
+  const activeCount = liveScoped.filter((p) => p.stage !== "completado").length
   /** Retraso operativo: etapa “atrasado” o fecha de entrega de taller vencida. */
-  const overdueCount = scoped.filter(
+  const overdueCount = liveScoped.filter(
     (p) => p.stage === "atrasado" || projectIsOverdue(p),
   ).length
-  const doneCount = scoped.filter((p) => p.stage === "completado").length
+  const doneCount = liveScoped.filter((p) => p.stage === "completado").length
 
   const list = useMemo(() => {
     let base = scoped
@@ -304,7 +334,28 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           tone="loss"
         />
         <Stat label="Completados" value={String(doneCount)} hint="Entregados" tone="gain" />
-        <Stat label="Total" value={String(scoped.length)} hint="Todos los proyectos" tone="neutral" />
+        <Stat label="Total" value={String(liveScoped.length)} hint="Todos los proyectos" tone="neutral" />
+      </div>
+
+      <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border w-full sm:w-fit mb-4">
+        <button
+          type="button"
+          onClick={() => setFolder("active")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+            folder === "active" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Activos
+        </button>
+        <button
+          type="button"
+          onClick={() => setFolder("trashed")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+            folder === "trashed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Eliminados
+        </button>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-2 mb-5">
@@ -370,8 +421,9 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
         <div className="rounded-2xl border border-dashed border-border p-10 text-center">
           <FolderKanban className="size-8 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">
-            No hay proyectos con estos filtros. Se crean al aprobar una cotización, o con
-            Cargar proyecto si el trabajo ya estaba en marcha.
+            {folder === "trashed"
+              ? "La papelera de proyectos está vacía."
+              : "No hay proyectos con estos filtros. Se crean al aprobar una cotización, o con Cargar proyecto si el trabajo ya estaba en marcha."}
           </p>
         </div>
       ) : (
@@ -381,6 +433,28 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
               key={p.id}
               project={p}
               onOpen={() => navigate({ name: "project", id: p.id })}
+              onTrash={
+                canTrashProject(user) && !projectIsTrashed(p)
+                  ? () => {
+                      const pair = p.quotationId
+                        ? " La cotización ligada también se mueve."
+                        : ""
+                      if (
+                        !window.confirm(
+                          `¿Mover ${p.id} a Eliminados?${pair} Puedes recuperarlo en 15 días.`,
+                        )
+                      ) {
+                        return
+                      }
+                      trashProject(p.id)
+                    }
+                  : undefined
+              }
+              onRestore={
+                projectIsTrashed(p) && canTrashProject(user)
+                  ? () => restoreProject(p.id)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -392,9 +466,13 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
 function ProjectTile({
   project,
   onOpen,
+  onTrash,
+  onRestore,
 }: {
   project: Project
   onOpen: () => void
+  onTrash?: () => void
+  onRestore?: () => void
 }) {
   const { quotations, clients, catalog } = useTechnik()
   const quote = project.quotationId
@@ -409,13 +487,13 @@ function ProjectTile({
   const cobroVencido =
     billing.status === "vencido" || projectHasOverdueInstallment(project)
   const cover = projectCoverUrl(project, quote)
+  const inTrash = projectIsTrashed(project)
+  const days = inTrash && project.deletedAt ? trashDaysLeft(project.deletedAt) : null
 
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
       className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md min-h-[240px] ${
-        deliveryLate ? "ring-1 ring-destructive/35" : ""
+        deliveryLate && !inTrash ? "ring-1 ring-destructive/35" : ""
       }`}
     >
       <span
@@ -423,7 +501,7 @@ function ProjectTile({
         aria-hidden
       />
 
-      <div className="relative h-32 sm:h-36 bg-muted/50 overflow-hidden">
+      <button type="button" onClick={onOpen} className="relative h-32 sm:h-36 bg-muted/50 overflow-hidden text-left">
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -437,52 +515,81 @@ function ProjectTile({
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/35 to-transparent" />
-      </div>
+      </button>
 
       <div className="flex flex-col flex-1 p-4 gap-3">
-        <div className="flex items-start justify-between gap-2">
-          <span className="font-mono text-[11px] font-semibold text-primary">{project.id}</span>
-          {quote ? (
-            <DepartmentBadges quotation={quote} />
-          ) : (
-            <DepartmentBadges departments={project.departments} />
-          )}
-        </div>
+        <button type="button" onClick={onOpen} className="text-left">
+          <div className="flex items-start justify-between gap-2">
+            <span className="font-mono text-[11px] font-semibold text-primary">{project.id}</span>
+            {quote ? (
+              <DepartmentBadges quotation={quote} />
+            ) : (
+              <DepartmentBadges departments={project.departments} />
+            )}
+          </div>
 
-        <div className="flex-1 min-h-0">
-          <p className="text-base font-bold font-display text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
-            {projectTitle(project, quote?.title)}
-          </p>
-          <p className="mt-1.5 text-sm font-semibold text-foreground/90 line-clamp-1">
-            {client?.company ?? "—"}
-          </p>
-          <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">
-            {quote ? "Desde cotización" : "Sin cotización (N/A)"}
-          </p>
-        </div>
+          <div className="min-h-0 mt-3">
+            <p className="text-base font-bold font-display text-foreground leading-snug line-clamp-2 group-hover:text-primary transition-colors">
+              {projectTitle(project, quote?.title)}
+            </p>
+            <p className="mt-1.5 text-sm font-semibold text-foreground/90 line-clamp-1">
+              {client?.company ?? "—"}
+            </p>
+            <p className="mt-0.5 text-[11px] font-mono text-muted-foreground">
+              {quote ? "Desde cotización" : "Sin cotización (N/A)"}
+              {inTrash && days !== null
+                ? ` · ${days <= 0 ? "se borra hoy" : `se borra en ${days} día${days === 1 ? "" : "s"}`}`
+                : ""}
+            </p>
+          </div>
+        </button>
 
         <div className="mt-auto flex flex-col gap-2.5 pt-1 border-t border-border/70">
           <div className="flex flex-wrap items-center gap-1.5">
             <ProjectStageBadge stage={project.stage} />
-            {cobroVencido && <BillingStatusBadge status="vencido" />}
-            {projectIsOverdue(project) && project.stage !== "atrasado" && (
+            {cobroVencido && !inTrash && <BillingStatusBadge status="vencido" />}
+            {projectIsOverdue(project) && project.stage !== "atrasado" && !inTrash && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-destructive">
                 <AlertTriangle className="size-3" />
                 Entrega vencida
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <CalendarDays className="size-3.5 shrink-0" />
-            <span>
-              Entrega taller{" "}
-              <span className="font-mono font-semibold text-foreground">
-                {formatDate(project.dueDate)}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+              <CalendarDays className="size-3.5 shrink-0" />
+              <span>
+                Entrega taller{" "}
+                <span className="font-mono font-semibold text-foreground">
+                  {formatDate(project.dueDate)}
+                </span>
               </span>
-            </span>
+            </div>
+            {onTrash && (
+              <button
+                type="button"
+                title="Mover a eliminados"
+                aria-label="Eliminar proyecto"
+                onClick={onTrash}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+            {onRestore && (
+              <button
+                type="button"
+                title="Recuperar"
+                aria-label="Recuperar proyecto"
+                onClick={onRestore}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-primary hover:border-primary/40"
+              >
+                <RotateCcw className="size-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }

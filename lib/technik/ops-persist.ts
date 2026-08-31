@@ -11,7 +11,12 @@ import type {
   TreasurySeparado,
   User,
 } from "./data"
-import { normalizeApartadoMovement, normalizeProject, normalizeTreasurySeparado } from "./data"
+import {
+  normalizeApartadoMovement,
+  normalizeProject,
+  normalizeTreasurySeparado,
+  projectTrashExpired,
+} from "./data"
 import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl } from "./cover-image"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
@@ -57,6 +62,7 @@ type ProjectRow = {
   notes: string | null
   payment_mode: Project["paymentMode"] | null
   cover_image_path?: string | null
+  deleted_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -181,8 +187,9 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       updatedAt: (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],
       coverImageUrl: row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined,
+      deletedAt: row.deleted_at ?? undefined,
     }),
-  )
+  ).filter((p) => !projectTrashExpired(p))
 
   const paymentEvents: PaymentEvent[] = ((payRes.data ?? []) as {
     id: string
@@ -340,6 +347,7 @@ export async function persistProject(
     delivered_at: project.deliveredAt || null,
     notes: project.notes ?? null,
     payment_mode: project.paymentMode ?? null,
+    deleted_at: project.deletedAt ?? null,
   }
 
   const coverPath = project.coverImageUrl
@@ -359,6 +367,11 @@ export async function persistProject(
   let { error } = await supabase.from("projects").upsert(payload)
   if (error && /cover_image_path/i.test(error.message)) {
     delete payload.cover_image_path
+    const retry = await supabase.from("projects").upsert(payload)
+    error = retry.error
+  }
+  if (error && /deleted_at/i.test(error.message)) {
+    delete payload.deleted_at
     const retry = await supabase.from("projects").upsert(payload)
     error = retry.error
   }
@@ -571,6 +584,13 @@ function enqueue<T>(key: string, run: () => Promise<T>): Promise<T> {
   const next = prev.catch(() => undefined).then(run)
   tails.set(key, next)
   return next
+}
+
+export async function deleteProjectRow(id: string) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("projects").delete().eq("id", id)
+  if (error) return { ok: false as const, error: error.message }
+  return { ok: true as const }
 }
 
 export function enqueuePersistProject(project: Project, ctx: { actorAuthId?: string; users: User[] }) {

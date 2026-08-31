@@ -24,6 +24,7 @@ import {
   currencyPrecise,
   installmentIsPaid,
   PAYMENT_METHOD_LABEL,
+  projectIsHidden,
   projectTitle,
 } from "@/lib/technik/data"
 import {
@@ -88,13 +89,17 @@ export function BillingHome({
     () => sumPaidInRange(projects, rangeBounds.start, rangeBounds.end),
     [projects, rangeBounds],
   )
+  const liveProjects = useMemo(
+    () => projects.filter((p) => !projectIsHidden(p, quotations)),
+    [projects, quotations],
+  )
   const expectedInRange = useMemo(
-    () => sumExpectedInRange(projects, rangeBounds.start, rangeBounds.end),
-    [projects, rangeBounds],
+    () => sumExpectedInRange(liveProjects, rangeBounds.start, rangeBounds.end),
+    [liveProjects, rangeBounds],
   )
   const activeProjects = useMemo(
-    () => projects.filter((p) => p.stage !== "completado"),
-    [projects],
+    () => liveProjects.filter((p) => p.stage !== "completado"),
+    [liveProjects],
   )
   const openBalance = useMemo(
     () => openBalancesTotal(activeProjects, totalDueByProject),

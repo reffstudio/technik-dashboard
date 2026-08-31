@@ -11,7 +11,7 @@ import type {
   VisitPhoto,
   WorkDepartment,
 } from "./data"
-import { quotationTrashExpired } from "./data"
+import { projectTrashExpired, quotationTrashExpired } from "./data"
 import { isDuplicateQuoteKey, persistClientResponse, persistSentAt } from "./quotation-guards"
 import { nextQuotationCode } from "./codes"
 import { nextServerCode } from "./core-persist"
@@ -174,7 +174,7 @@ export function readOpsBackup(): { quotations: Quotation[]; projects: Project[] 
     const projects = Array.isArray(parsed.projects) ? (parsed.projects as Project[]) : []
     return {
       quotations: quotations.filter((q) => q?.id && q?.reference && !quotationTrashExpired(q)),
-      projects: projects.filter((p) => p?.id),
+      projects: projects.filter((p) => p?.id && !projectTrashExpired(p)),
     }
   } catch {
     return { quotations: [], projects: [] }

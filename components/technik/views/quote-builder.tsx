@@ -242,7 +242,7 @@ export function QuoteBuilder({
       <div className="text-center py-20 text-muted-foreground max-w-md mx-auto">
         <p className="text-foreground font-semibold mb-2">Está en Eliminados</p>
         <p className="text-sm mb-4">
-          Recupérala desde el resumen o la lista para seguir editándola. Se borra del todo a los 7 días.
+          Recupérala desde el resumen o la lista para seguir editándola. Se borra del todo a los 15 días.
         </p>
         <button
           type="button"
@@ -368,7 +368,7 @@ export function QuoteBuilder({
 
   function handleDeleteDraft() {
     if (!draftId) return
-    if (!window.confirm("¿Mover este borrador a Eliminados? Puedes recuperarlo en 7 días.")) return
+    if (!window.confirm("¿Mover este borrador a Eliminados? Puedes recuperarlo en 15 días.")) return
     const res = deleteDraftQuotation(draftId)
     if (res.ok) navigate({ name: "quotations" })
   }

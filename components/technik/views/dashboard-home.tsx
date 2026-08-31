@@ -30,6 +30,7 @@ import {
 import {
   currencyMxn,
   isQuotationCreator,
+  projectIsHidden,
   projectNextInstallment,
   quotationIsTrashed,
   quotePipelineStatus,
@@ -155,8 +156,21 @@ export function DashboardHome({ navigate }: { navigate: (v: View) => void }) {
 }
 
 function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
-  const { quotations, clients, catalog, user, projects, expenses, treasuryMonths, inboxEvents } =
-    useTechnik()
+  const {
+    quotations,
+    clients,
+    catalog,
+    user,
+    projects,
+    expenses,
+    treasuryMonths,
+    inboxEvents,
+    purgeExpiredTrashedDrafts,
+  } = useTechnik()
+
+  useEffect(() => {
+    purgeExpiredTrashedDrafts()
+  }, [purgeExpiredTrashedDrafts])
   const [yearMonth, setYearMonth] = useState(() =>
     yearMonthFromIso(new Date().toISOString().slice(0, 10)),
   )
@@ -179,7 +193,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   const pending = useMemo(
     () =>
       quotations
-        .filter((q) => quotePipelineStatus(q) === "pending_review")
+        .filter((q) => !quotationIsTrashed(q) && quotePipelineStatus(q) === "pending_review")
         .sort((a, b) => {
           const d = quotationReviewQueuedMs(b, inboxEvents) - quotationReviewQueuedMs(a, inboxEvents)
           if (d !== 0) return d
@@ -191,14 +205,19 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     () =>
       quotations.filter(
         (q) =>
+          !quotationIsTrashed(q) &&
           quotePipelineStatus(q) === "sent_client" &&
           (q.clientResponse ?? "en_espera") === "en_espera",
       ),
     [quotations],
   )
+  const liveProjects = useMemo(
+    () => projects.filter((p) => !projectIsHidden(p, quotations)),
+    [projects, quotations],
+  )
   const activeProjects = useMemo(
-    () => projects.filter((p) => p.stage !== "completado"),
-    [projects],
+    () => liveProjects.filter((p) => p.stage !== "completado"),
+    [liveProjects],
   )
 
   const totalDueByProject = useMemo(() => {
@@ -224,8 +243,8 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     [projects, rangeBounds],
   )
   const expectedInRange = useMemo(
-    () => sumExpectedInRange(projects, rangeBounds.start, rangeBounds.end),
-    [projects, rangeBounds],
+    () => sumExpectedInRange(liveProjects, rangeBounds.start, rangeBounds.end),
+    [liveProjects, rangeBounds],
   )
   const openBalance = useMemo(
     () => openBalancesTotal(activeProjects, totalDueByProject),
@@ -1052,7 +1071,7 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
     : null
 
   function trashDraft(id: string, reference: string) {
-    if (!window.confirm(`¿Mover ${reference} a Eliminados? Puedes recuperarla en 7 días.`)) return
+    if (!window.confirm(`¿Mover ${reference} a Eliminados? Puedes recuperarla en 15 días.`)) return
     deleteDraftQuotation(id)
   }
 
