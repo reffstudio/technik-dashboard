@@ -316,11 +316,28 @@ html {
 .animate-gradient { animation: gradient-shift 8s ease-in-out infinite; background-size: 200% 200%; }
 
 .scrollbar-none {
-  -ms-overflow-style: none;
   scrollbar-width: none;
 }
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
+
+.hero-mask-half {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.15) 18%,
+    rgba(0, 0, 0, 0.55) 42%,
+    black 68%,
+    black 100%
+  );
+}
+
+.hero-mask-two-fifths {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(0, 0, 0, 0.2) 22%,
+    rgba(0, 0, 0, 0.65) 55%,
+    black 82%
+  );
 }
 
 .safe-bottom {

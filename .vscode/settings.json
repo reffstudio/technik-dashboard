@@ -15,8 +15,13 @@
     "**/.next/cache": true,
     "**/.next/server": true,
     "**/.next/static": true,
-    "**/.next/dev": true
+    "**/.next/dev/cache": true,
+    "**/.next/dev/server": true,
+    "**/.next/dev/static": true
   },
+  "css.lint.unknownAtRules": "ignore",
+  "css.lint.vendorPrefix": "ignore",
+  "css.lint.unknownVendorSpecificProperties": "ignore",
   "typescript.tsserver.maxTsServerMemory": 1536,
   "typescript.disableAutomaticTypeAcquisition": true,
   "typescript.tsserver.watchOptions": {

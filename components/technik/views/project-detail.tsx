@@ -38,7 +38,6 @@ import { clientPublicItemsForQuote, quoteClientDue, quoteTotals, useTechnik } fr
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import {
   DepartmentBadges,
-  PageHeader,
   ProjectStageBadge,
   ToneBadge,
   inputCls,
@@ -341,77 +340,6 @@ export function ProjectDetail({
         Proyectos
       </button>
 
-      <PageHeader
-        title={displayTitle}
-        subtitle={
-          quote
-            ? project.id
-            : `${project.id} · Sin cotización (N/A)`
-        }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <ProjectStageBadge stage={project.stage} />
-          {billing && (
-            <ToneBadge
-              label={BILLING_STATUS_META[billing.status].label}
-              tone={BILLING_STATUS_META[billing.status].tone}
-            />
-          )}
-          {quote ? (
-            <DepartmentBadges quotation={quote} />
-          ) : (
-            <DepartmentBadges departments={project.departments} />
-          )}
-          {overdue && !inTrash && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[11px] font-semibold text-destructive">
-              <AlertTriangle className="size-3" />
-              Entrega taller vencida
-            </span>
-          )}
-          {canTrashProject(user) && !inTrash && (
-            <button
-              type="button"
-              title="Mover a eliminados"
-              aria-label="Eliminar proyecto"
-              onClick={() => {
-                const pair = project.quotationId
-                  ? " La cotización ligada también se mueve."
-                  : ""
-                if (
-                  !window.confirm(
-                    `¿Mover ${project.id} a Eliminados?${pair} Puedes recuperarlo en 15 días.`,
-                  )
-                ) {
-                  return
-                }
-                void trashProject(project.id).then((res) => {
-                  if (!res.ok) setToast(res.error)
-                })
-              }}
-              className="flex size-9 items-center justify-center rounded-xl border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
-            >
-              <Trash2 className="size-4" />
-            </button>
-          )}
-          {inTrash && canTrashProject(user) && (
-            <button
-              type="button"
-              title="Recuperar"
-              aria-label="Recuperar proyecto"
-              onClick={() => {
-                void restoreProject(project.id).then((res) => {
-                  if (!res.ok) setToast(res.error)
-                })
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-primary hover:border-primary/40"
-            >
-              <RotateCcw className="size-3.5" />
-              Recuperar
-            </button>
-          )}
-        </div>
-      </PageHeader>
-
       {inTrash && (
         <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/5 p-3.5 text-sm text-muted-foreground">
           Este proyecto está en Eliminados. Se borra del todo a los 15 días.
@@ -419,20 +347,82 @@ export function ProjectDetail({
         </div>
       )}
 
-      <section className="mb-6 rounded-2xl surface-card overflow-hidden">
-        <div className="p-4 pb-3">
-          <h2 className="text-sm font-bold font-display">Foto de portada</h2>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            Una sola foto. Se ve en el listado de proyectos y aquí.
-          </p>
-        </div>
-        <div className="px-4 pb-4">
-          <CoverPhotoField
-            imageUrl={projectCoverUrl(project, quote)}
-            onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
-            hint="Empleado y admin pueden subirla"
-          />
-        </div>
+      <section className="mb-6">
+        <CoverPhotoField
+          imageUrl={projectCoverUrl(project, quote)}
+          onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
+          canRemove={Boolean(project.coverImageUrl)}
+        >
+          <div className="flex justify-end">
+            {canTrashProject(user) && !inTrash && (
+              <button
+                type="button"
+                onClick={() => {
+                  const pair = project.quotationId
+                    ? " La cotización ligada también se mueve."
+                    : ""
+                  if (
+                    !window.confirm(
+                      `¿Mover ${project.id} a Eliminados?${pair} Puedes recuperarlo en 15 días.`,
+                    )
+                  ) {
+                    return
+                  }
+                  void trashProject(project.id).then((res) => {
+                    if (!res.ok) setToast(res.error)
+                  })
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-destructive/80"
+              >
+                <Trash2 className="size-3.5" />
+                Eliminar proyecto
+              </button>
+            )}
+            {inTrash && canTrashProject(user) && (
+              <button
+                type="button"
+                onClick={() => {
+                  void restoreProject(project.id).then((res) => {
+                    if (!res.ok) setToast(res.error)
+                  })
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/15"
+              >
+                <RotateCcw className="size-3.5" />
+                Recuperar proyecto
+              </button>
+            )}
+          </div>
+
+          <div className="mt-auto max-w-[min(100%,36rem)] pb-12 sm:pb-0 sm:pr-40">
+            <p className="font-mono text-[11px] font-semibold tracking-wide text-white/75">
+              {quote ? project.id : `${project.id} · Sin cotización`}
+            </p>
+            <h1 className="mt-1 text-2xl font-bold font-display tracking-tight text-white sm:text-3xl text-balance">
+              {displayTitle}
+            </h1>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <ProjectStageBadge stage={project.stage} />
+              {billing && (
+                <ToneBadge
+                  label={BILLING_STATUS_META[billing.status].label}
+                  tone={BILLING_STATUS_META[billing.status].tone}
+                />
+              )}
+              {quote ? (
+                <DepartmentBadges quotation={quote} />
+              ) : (
+                <DepartmentBadges departments={project.departments} />
+              )}
+              {overdue && !inTrash && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-destructive/40 bg-destructive/20 px-2.5 py-1 text-[11px] font-semibold text-white">
+                  <AlertTriangle className="size-3" />
+                  Entrega taller vencida
+                </span>
+              )}
+            </div>
+          </div>
+        </CoverPhotoField>
       </section>
 
       <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">

@@ -182,6 +182,16 @@ export function readOpsBackup(): { quotations: Quotation[]; projects: Project[] 
 }
 
 /** Nunca guarda un array vacío encima de un backup con datos. */
+export function clearOpsBackup() {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(OPS_BACKUP_KEY)
+    window.localStorage.removeItem("technik-workspace-v1")
+  } catch {
+    /* ignore */
+  }
+}
+
 export function writeOpsBackup(quotations: Quotation[], projects: Project[] = []) {
   if (typeof window === "undefined") return
   try {
@@ -573,9 +583,6 @@ async function persistQuotationOnce(
     error = retry.error
   }
   if (error && /deleted_at/i.test(error.message)) {
-    if (q.deletedAt) {
-      return { ok: false, error: "No se pudo marcar la cotización como eliminada." }
-    }
     delete row.deleted_at
     const retry = await writeQuote(row)
     error = retry.error

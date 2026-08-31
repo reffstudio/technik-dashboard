@@ -396,14 +396,8 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
         className="rounded-[1.75rem] surface-card mb-4 relative overflow-hidden isolate min-h-[200px] sm:min-h-[220px]"
       >
         <div
-          className="pointer-events-none absolute inset-y-0 right-0 w-1/2 z-0"
+          className="hero-mask-half pointer-events-none absolute inset-y-0 right-0 w-1/2 z-0"
           aria-hidden
-          style={{
-            WebkitMaskImage:
-              "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.15) 18%, rgba(0,0,0,0.55) 42%, black 68%, black 100%)",
-            maskImage:
-              "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.15) 18%, rgba(0,0,0,0.55) 42%, black 68%, black 100%)",
-          }}
         >
           <Image
             src="/brand/overview-hero.png"
@@ -1101,14 +1095,8 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
           className="rounded-[1.75rem] surface-card relative overflow-hidden isolate min-h-[220px] sm:min-h-[260px]"
         >
           <div
-            className="pointer-events-none absolute inset-y-0 right-0 w-2/5 z-0"
+            className="hero-mask-two-fifths pointer-events-none absolute inset-y-0 right-0 w-2/5 z-0"
             aria-hidden
-            style={{
-              WebkitMaskImage:
-                "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.2) 22%, rgba(0,0,0,0.65) 55%, black 82%)",
-              maskImage:
-                "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.2) 22%, rgba(0,0,0,0.65) 55%, black 82%)",
-            }}
           >
             <Image
               src="/brand/overview-hero.png"

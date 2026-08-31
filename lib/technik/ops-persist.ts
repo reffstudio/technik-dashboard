@@ -371,12 +371,6 @@ export async function persistProject(
     error = retry.error
   }
   if (error && /deleted_at/i.test(error.message)) {
-    if (project.deletedAt) {
-      return {
-        ok: false,
-        error: "Falta correr el SQL de papelera de proyectos (projects.deleted_at).",
-      }
-    }
     delete payload.deleted_at
     const retry = await supabase.from("projects").upsert(payload)
     error = retry.error
@@ -602,7 +596,15 @@ export async function persistProjectDeletedAt(id: string, deletedAt: string | nu
       error: "Falta correr el SQL de papelera de proyectos (projects.deleted_at).",
     }
   }
-  return { ok: false as const, error: error.message }
+  const upsert = await supabase.from("projects").upsert({ id, deleted_at: deletedAt })
+  if (!upsert.error) return { ok: true as const }
+  if (/deleted_at/i.test(upsert.error.message)) {
+    return {
+      ok: false as const,
+      error: "Falta correr el SQL de papelera de proyectos (projects.deleted_at).",
+    }
+  }
+  return { ok: false as const, error: upsert.error.message }
 }
 
 export async function deleteProjectRow(id: string) {

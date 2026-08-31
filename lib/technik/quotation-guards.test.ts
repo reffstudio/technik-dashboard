@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   canRestoreQuotation,
   canTrashQuotation,
+  deletedAtFromHistory,
   isQuotationCreator,
   quotationTrashExpired,
   quotePipelineStatus,
@@ -160,6 +161,59 @@ describe("preferDeletedAt", () => {
     })
     const live = quote({ status: "approved", updatedAt: "2026-08-31 12:00" })
     assert.equal(preferQuote(trashed, live).deletedAt, "2026-08-31T12:00:00.000Z")
+  })
+
+  it("un refresh más nuevo sin deletedAt no destapa", () => {
+    assert.equal(
+      preferDeletedAt(
+        {
+          deletedAt: "2026-08-31T12:00:00.000Z",
+          updatedAt: "2026-08-31 12:00",
+          history: [{ action: "Envió a eliminados" }],
+        },
+        { updatedAt: "2026-08-31 12:01" },
+      ),
+      "2026-08-31T12:00:00.000Z",
+    )
+  })
+
+  it("sí destapa si el lado vivo es más nuevo y recuperó", () => {
+    assert.equal(
+      preferDeletedAt(
+        {
+          deletedAt: "2026-08-31T12:00:00.000Z",
+          updatedAt: "2026-08-31 12:00",
+          history: [{ action: "Envió a eliminados" }],
+        },
+        {
+          updatedAt: "2026-08-31 12:01",
+          history: [{ action: "Recuperó de eliminados" }],
+        },
+      ),
+      undefined,
+    )
+  })
+})
+
+describe("deletedAtFromHistory", () => {
+  it("usa el último envío si no hubo recuperar", () => {
+    assert.equal(
+      deletedAtFromHistory([
+        { at: "2026-08-30T10:00:00.000Z", action: "Envió a eliminados" },
+        { at: "2026-08-31T12:00:00.000Z", action: "Envió a eliminados (con cotización)" },
+      ]),
+      "2026-08-31T12:00:00.000Z",
+    )
+  })
+
+  it("queda vacío después de recuperar", () => {
+    assert.equal(
+      deletedAtFromHistory([
+        { at: "2026-08-31T12:00:00.000Z", action: "Envió a eliminados" },
+        { at: "2026-08-31T13:00:00.000Z", action: "Recuperó de eliminados" },
+      ]),
+      undefined,
+    )
   })
 })
 

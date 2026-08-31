@@ -582,6 +582,7 @@ export function normalizeProject(
     id,
     quotationId,
     installments,
+    deletedAt: rest.deletedAt,
   }
 }
 
@@ -718,6 +719,28 @@ export function trashDaysLeft(deletedAt: string, now = Date.now()): number {
 export function trashExpired(deletedAt: string | undefined, now = Date.now()): boolean {
   if (!deletedAt) return false
   return trashPurgeAt(deletedAt) <= now
+}
+
+const TRASH_ACTION = /envi[oó] a eliminados/i
+const RESTORE_ACTION = /recuper[oó] de eliminados/i
+
+export function historyHasRestore(
+  history: Array<{ action?: string }> | undefined,
+): boolean {
+  return (history ?? []).some((h) => RESTORE_ACTION.test(h.action ?? ""))
+}
+
+/** Si falta `deleted_at` en la fila, el último evento de papelera lo reconstruye. */
+export function deletedAtFromHistory(
+  history: Array<{ at?: string; action?: string }> | undefined,
+): string | undefined {
+  let stamp: string | undefined
+  for (const h of history ?? []) {
+    const action = h.action ?? ""
+    if (TRASH_ACTION.test(action) && h.at) stamp = h.at
+    if (RESTORE_ACTION.test(action)) stamp = undefined
+  }
+  return stamp
 }
 
 export function quotationIsTrashed(q: Pick<Quotation, "deletedAt">): boolean {

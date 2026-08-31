@@ -447,12 +447,9 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
                       ) {
                         return
                       }
+                      setFolder("trashed")
                       void trashProject(p.id).then((res) => {
-                        if (!res.ok) {
-                          window.alert(res.error)
-                          return
-                        }
-                        setFolder("trashed")
+                        if (!res.ok) window.alert(res.error)
                       })
                     }
                   : undefined

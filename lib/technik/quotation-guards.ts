@@ -1,4 +1,5 @@
 import type { ClientResponse, Quotation, QuoteStatus } from "./data"
+import { historyHasRestore } from "./data"
 import { parseActivityMs } from "./notifications"
 import { mergeActivityHistory } from "./activity-history"
 
@@ -98,16 +99,21 @@ export function preferQuote(a: Quotation, b: Quotation): Quotation {
   }
 }
 
-/** En empate de fecha, no se “destapa” un eliminado por un refresh sin deleted_at. */
+/**
+ * La papelera es pegajosa: un refresh sin `deleted_at` no destapa.
+ * Solo se limpia si el lado vivo es más nuevo y trae “Recuperó de eliminados”.
+ */
 export function preferDeletedAt(
-  a: { deletedAt?: string; updatedAt?: string },
-  b: { deletedAt?: string; updatedAt?: string },
+  a: { deletedAt?: string; updatedAt?: string; history?: Array<{ action?: string }> },
+  b: { deletedAt?: string; updatedAt?: string; history?: Array<{ action?: string }> },
 ): string | undefined {
   const aHas = Boolean(a.deletedAt)
   const bHas = Boolean(b.deletedAt)
   if (aHas === bHas) return a.deletedAt || b.deletedAt
-  const aMs = parseActivityMs(a.updatedAt ?? "")
-  const bMs = parseActivityMs(b.updatedAt ?? "")
-  if (aMs !== bMs) return aMs > bMs ? a.deletedAt : b.deletedAt
-  return a.deletedAt || b.deletedAt
+  const trashed = aHas ? a : b
+  const live = aHas ? b : a
+  const liveMs = parseActivityMs(live.updatedAt ?? "")
+  const trashMs = parseActivityMs(trashed.updatedAt ?? "")
+  if (liveMs > trashMs && historyHasRestore(live.history)) return undefined
+  return trashed.deletedAt
 }

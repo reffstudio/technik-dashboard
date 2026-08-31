@@ -135,6 +135,7 @@ import {
   persistQuotationDeletedAt,
   loadQuotations,
   quotesSignature,
+  clearOpsBackup,
   readOpsBackup,
   writeOpsBackup,
 } from "./quotation-persist"
@@ -750,45 +751,25 @@ export function TechnikProvider({
   const applyLoadedOps = useCallback(
     (ops: Extract<Awaited<ReturnType<typeof loadOpsWorkspace>>, { ok: true }>) => {
       if (!ops.projectsError) {
-        setProjects((prev) => adoptProjects(prev, ops.projects))
+        setProjects(ops.projects)
       }
       if (!ops.paymentEventsError) {
-        setPaymentEvents((prev) =>
-          adoptById(prev, ops.paymentEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
-        )
+        setPaymentEvents(ops.paymentEvents)
       }
       if (!ops.inboxEventsError) {
-        setInboxEvents((prev) =>
-          adoptById(prev, ops.inboxEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
-        )
+        setInboxEvents(ops.inboxEvents)
       }
       if (!ops.expensesError) {
-        setExpenses((prev) =>
-          adoptById(prev, ops.expenses, (a, b) =>
-            (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
-          ),
-        )
+        setExpenses(ops.expenses)
       }
       if (!ops.treasuryMonthsError) {
-        setTreasuryMonths((prev) =>
-          adoptByKey(prev, ops.treasuryMonths, (m) => m.yearMonth, (_a, b) => b),
-        )
+        setTreasuryMonths(ops.treasuryMonths)
       }
       if (!ops.treasurySeparadosError) {
-        setTreasurySeparados((prev) =>
-          adoptById(
-            prev,
-            ops.treasurySeparados.filter(isManualReserve),
-            (a, b) => ((a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b),
-          ),
-        )
+        setTreasurySeparados(ops.treasurySeparados.filter(isManualReserve))
       }
       if (!ops.apartadoMovementsError) {
-        setApartadoMovements((prev) =>
-          adoptById(prev, ops.apartadoMovements, (a, b) =>
-            (a.createdAt ?? "") >= (b.createdAt ?? "") ? a : b,
-          ),
-        )
+        setApartadoMovements(ops.apartadoMovements)
       }
     },
     [],
@@ -800,13 +781,13 @@ export function TechnikProvider({
         setDepartments((prev) => adoptById(prev, core.departments, (_a, b) => b))
       }
       if (!core.clientsError) {
-        setClients((prev) => adoptById(prev, core.clients, (_a, b) => b))
+        setClients(core.clients)
       }
       if (!core.suppliersError) {
-        setSuppliers((prev) => adoptById(prev, core.suppliers, (_a, b) => b))
+        setSuppliers(core.suppliers)
       }
       if (!core.catalogError) {
-        setCatalog((prev) => adoptById(prev, core.catalog, (_a, b) => b))
+        setCatalog(core.catalog)
       }
     },
     [],
@@ -1052,31 +1033,10 @@ export function TechnikProvider({
       const quotesRes = await loadQuotations(workspaceRef.current.users)
       if (cancelled) return
       if (quotesRes.ok) {
-        const remote = quotesRes.quotations
-        const inbox = workspaceRef.current.inboxEvents
-        const merged = adoptQuotations(
-          workspaceRef.current.quotations,
-          remote,
-          inbox,
-        ).filter((q) => !quotationTrashExpired(q))
-        const remoteIds = new Set(remote.filter((q) => q?.id).map((q) => q.id))
-        const authId = userAuthIdRef.current
-        for (const q of merged) {
-          if (!q?.id || remoteIds.has(q.id)) continue
-          const owner = workspaceRef.current.users.find(
-            (u) => u && (u.id === q.createdById || u.authId === q.createdById),
-          )
-          const mine = Boolean(authId && (owner?.authId === authId || q.createdById === authId))
-          if (mine) {
-            void persistQuoteNowAsync(q)
-          }
-        }
-        setQuotations((live) => {
-          const next = adoptQuotations(live, remote, inbox).filter(
-            (q) => !quotationTrashExpired(q),
-          )
-          return quotesSignature(live) === quotesSignature(next) ? live : next
-        })
+        const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
+        setQuotations((live) =>
+          quotesSignature(live) === quotesSignature(remote) ? live : remote,
+        )
       }
       const ops = await loadOpsWorkspace(workspaceRef.current.users)
       if (cancelled) return
@@ -1174,9 +1134,13 @@ export function TechnikProvider({
       if (channel) void getSupabaseBrowser().removeChannel(channel)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice, persistQuoteNowAsync])
+  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice])
 
   useEffect(() => {
+    if (isSupabaseConfigured()) {
+      clearOpsBackup()
+      return
+    }
     const backup = readOpsBackup()
     const legacy = loadWorkspace()
     const quotes = [...backup.quotations, ...(legacy?.quotations ?? [])]
@@ -1197,6 +1161,7 @@ export function TechnikProvider({
   }, [])
 
   useEffect(() => {
+    if (isSupabaseConfigured()) return
     writeOpsBackup(quotations, projects)
   }, [quotations, projects])
 
@@ -1550,16 +1515,10 @@ export function TechnikProvider({
           const quotesRes = await loadQuotations(roster)
           if (logoutIntentRef.current || gen !== authHydrateGen.current) return
           if (quotesRes.ok) {
-            setQuotations((prev) => {
-              const adopted = adoptQuotations(
-                prev,
-                quotesRes.quotations,
-                workspaceRef.current.inboxEvents,
-              ).filter(
-                (q) => !quotationTrashExpired(q),
-              )
-              return quotesSignature(prev) === quotesSignature(adopted) ? prev : adopted
-            })
+            const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
+            setQuotations((prev) =>
+              quotesSignature(prev) === quotesSignature(remote) ? prev : remote,
+            )
           }
           const ops = await loadOpsWorkspace(roster)
           if (logoutIntentRef.current || gen !== authHydrateGen.current) return
@@ -2353,8 +2312,6 @@ export function TechnikProvider({
       const deletedAt = new Date().toISOString()
       const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
-      const prevQuotations = quotations
-      const prevProjects = projects
       const nextQuotations = quotations.map((x) =>
         x?.id === id
           ? {
@@ -2389,12 +2346,7 @@ export function TechnikProvider({
         updated ? [{ id: updated.id, deletedAt }] : [],
         linked.map((p) => ({ id: p.id, deletedAt })),
       )
-      if (!saved.ok) {
-        setQuotations(prevQuotations)
-        setProjects(prevProjects)
-        setSaveError(saved.error)
-        return saved
-      }
+      if (!saved.ok) setSaveError(saved.error)
       if (updated) persistQuoteNow(updated)
       for (const p of nextProjects) {
         if (p.quotationId === id && p.deletedAt === deletedAt) persistProjectNow(p)
@@ -2417,8 +2369,6 @@ export function TechnikProvider({
       }
       const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
-      const prevQuotations = quotations
-      const prevProjects = projects
       const nextQuotations = quotations.map((x) =>
         x?.id === id
           ? {
@@ -2453,12 +2403,7 @@ export function TechnikProvider({
         updated ? [{ id: updated.id, deletedAt: undefined }] : [],
         linked.map((p) => ({ id: p.id, deletedAt: undefined })),
       )
-      if (!saved.ok) {
-        setQuotations(prevQuotations)
-        setProjects(prevProjects)
-        setSaveError(saved.error)
-        return saved
-      }
+      if (!saved.ok) setSaveError(saved.error)
       if (updated) persistQuoteNow(updated)
       for (const p of nextProjects) {
         if (p.quotationId === id && !p.deletedAt && linked.some((l) => l.id === p.id)) {
@@ -2486,7 +2431,6 @@ export function TechnikProvider({
       const deletedAt = new Date().toISOString()
       const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
-      const prevProjects = projects
       const nextProjects = projects.map((x) =>
         x.id === id
           ? {
@@ -2499,11 +2443,7 @@ export function TechnikProvider({
       )
       setProjects(nextProjects)
       const saved = await persistTrashFlags([], [{ id, deletedAt }])
-      if (!saved.ok) {
-        setProjects(prevProjects)
-        setSaveError(saved.error)
-        return saved
-      }
+      if (!saved.ok) setSaveError(saved.error)
       const updated = nextProjects.find((x) => x.id === id)
       if (updated) persistProjectNow(updated)
       flushPublish({ projects: nextProjects })
@@ -2526,7 +2466,6 @@ export function TechnikProvider({
       if (!p.deletedAt) return { ok: false, error: "Ese proyecto no está en Eliminados" }
       const stamp = fieldStamp()
       const actor = user?.name ?? "Usuario"
-      const prevProjects = projects
       const nextProjects = projects.map((x) =>
         x.id === id
           ? {
@@ -2539,11 +2478,7 @@ export function TechnikProvider({
       )
       setProjects(nextProjects)
       const saved = await persistTrashFlags([], [{ id, deletedAt: undefined }])
-      if (!saved.ok) {
-        setProjects(prevProjects)
-        setSaveError(saved.error)
-        return saved
-      }
+      if (!saved.ok) setSaveError(saved.error)
       const updated = nextProjects.find((x) => x.id === id)
       if (updated) persistProjectNow(updated)
       flushPublish({ projects: nextProjects })

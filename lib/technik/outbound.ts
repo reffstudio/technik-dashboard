@@ -172,30 +172,31 @@ export function clientQuoteMail(opts: {
   return { to, subject, body, html }
 }
 
+/** Mensaje al proveedor al pedir cotización de materiales (correo y WhatsApp). */
+export function supplierRequestMessage() {
+  return [
+    "Hola, buen día.",
+    "",
+    "Te comparto el documento adjunto con los materiales que necesitamos cotizar. ¿Me podrías enviar la cotización por este mismo chat, incluyendo precio, disponibilidad y tiempo de entrega?",
+    "",
+    "¡Gracias!",
+  ].join("\n")
+}
+
 export function supplierQuoteMail(opts: {
   supplier: Supplier
   reference: string
 }): { to: string; subject: string; body: string } {
   const to = opts.supplier.email.trim()
   const subject = `Solicitud de materiales ${opts.reference} · ${TECHNIK_COMPANY.name}`
-  const body = [
-    `Hola ${opts.supplier.contact || opts.supplier.name},`,
-    "",
-    `Te enviamos la solicitud de materiales de la cotización ${opts.reference}.`,
-    "El PDF (sin costos) va adjunto.",
-    "",
-    TECHNIK_COMPANY.name,
-    TECHNIK_COMPANY.email,
-  ].join("\n")
-  return { to, subject, body }
+  return { to, subject, body: supplierRequestMessage() }
 }
 
-export function supplierWhatsAppText(opts: {
+export function supplierWhatsAppText(_opts: {
   supplier: Supplier
   reference: string
 }): string {
-  const name = opts.supplier.contact || opts.supplier.name
-  return `Hola ${name}, te envío la solicitud de materiales ${opts.reference} de ${TECHNIK_COMPANY.name}. Adjunto el PDF.`
+  return supplierRequestMessage()
 }
 
 export function clientWhatsAppNumber(client: Client): string {
