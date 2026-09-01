@@ -22,8 +22,6 @@ import {
   PAYMENT_METHOD_LABEL,
   PAYMENT_METHODS,
   PAYMENT_MODE_LABEL,
-  PROJECT_STAGE_META,
-  PROJECT_STAGES,
   projectBillingSummary,
   canTrashProject,
   projectIsHidden,
@@ -43,6 +41,7 @@ import {
   inputCls,
 } from "../ui"
 import { CoverPhotoField } from "../cover-photo-field"
+import { WorkshopStageTrack } from "../workshop-stage-track"
 import type { View } from "../app-shell"
 
 function formatDate(iso?: string) {
@@ -1220,29 +1219,11 @@ export function ProjectDetail({
             <p className="text-[11px] text-muted-foreground mb-3">
               Avance operativo. No cambia si un abono del cliente está vencido.
             </p>
-            {isAdmin ? (
-              <div className="flex flex-col gap-1.5">
-                {PROJECT_STAGES.map((s) => {
-                  const active = project.stage === s
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setProjectStage(project.id, s)}
-                      className={`rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition-colors ${
-                        active
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                      }`}
-                    >
-                      {PROJECT_STAGE_META[s].label}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <ProjectStageBadge stage={project.stage} />
-            )}
+            <WorkshopStageTrack
+              stage={project.stage}
+              disabled={!isAdmin}
+              onChange={(next) => setProjectStage(project.id, next)}
+            />
           </section>
 
           <section className="rounded-2xl surface-card p-5">
