@@ -28,6 +28,7 @@ import {
   Trash2,
   ImagePlus,
   Lock,
+  RotateCcw,
   ChevronDown,
   Download,
   Share2,
@@ -41,8 +42,10 @@ import {
   lineTotalMxn,
   quotationDepartments,
   quotationIsTrashed,
+  quotationTrashDaysLeft,
   isQuotationCreator,
   canTrashQuotation,
+  canRestoreQuotation,
   DEFAULT_COVER_IMAGE,
   suggestedPublicUnitPrice,
   type Client,
@@ -277,37 +280,6 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
     )
   }
 
-  if (quotationIsTrashed(q)) {
-    const linked = projects.some((p) => p.quotationId === q.id)
-    return (
-      <div className="text-center py-20 text-muted-foreground max-w-md mx-auto">
-        <p className="text-foreground font-semibold mb-2">Está en Eliminados</p>
-        <p className="text-sm mb-4">
-          Recupérala desde aquí o la lista. Se borra del todo a los 15 días.
-          {linked ? " El proyecto ligado se recupera junto." : ""}
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              void restoreDraftQuotation(q.id)
-            }}
-            className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
-          >
-            Recuperar
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate({ name: "quotations" })}
-            className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold"
-          >
-            Volver
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   if (!isAdmin && q.status !== "draft" && q.status !== "pending_review") {
     return (
       <div className="text-center py-20 text-muted-foreground">
@@ -320,7 +292,11 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
   }
 
   const client = clients.find((c) => c.id === q.clientId)
+  const inTrash = quotationIsTrashed(q)
+  const trashDays = inTrash && q.deletedAt ? quotationTrashDaysLeft(q.deletedAt) : null
+  const linkedTrash = inTrash && projects.some((p) => p.quotationId === q.id)
   const coverEditable =
+    !inTrash &&
     !sentLocked &&
     (isAdmin ||
       (user?.role === "empleado" &&
@@ -1028,18 +1004,37 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               <ArrowLeft className="size-3.5" />
               Volver
             </button>
-            <QuotePipelineControls
-              quotation={q}
-              align="end"
-              className="shrink-0"
-              beforeApply={() => {
-                if (q.status === "approved" || q.status === "closed") return true
-                return persistDocument()
-              }}
-              onApplied={onPipelineApplied}
-            />
+            {inTrash ? (
+              canRestoreQuotation(user, q) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void restoreDraftQuotation(q.id).then((res) => {
+                      if (!res.ok) {
+                        setToast({ icon: XCircle, title: "No se pudo recuperar", msg: res.error })
+                      }
+                    })
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+                >
+                  <RotateCcw className="size-3.5" />
+                  Recuperar
+                </button>
+              ) : null
+            ) : (
+              <QuotePipelineControls
+                quotation={q}
+                align="end"
+                className="shrink-0"
+                beforeApply={() => {
+                  if (q.status === "approved" || q.status === "closed") return true
+                  return persistDocument()
+                }}
+                onApplied={onPipelineApplied}
+              />
+            )}
           </div>
-          {isAdmin && (
+          {isAdmin && !inTrash && (
             <label className="mt-2 block min-w-0">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Notas internas
@@ -1055,6 +1050,19 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
         </div>
       </div>
 
+      {inTrash && (
+        <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border bg-muted/50 p-3.5">
+          <p className="flex-1 text-sm text-muted-foreground">
+            Esta cotización está en Eliminados
+            {trashDays !== null
+              ? ` · ${trashDays <= 0 ? "se borra hoy" : `se borra en ${trashDays} día${trashDays === 1 ? "" : "s"}`}`
+              : "."}
+            {linkedTrash ? " El proyecto ligado se recupera junto." : ""}
+          </p>
+        </div>
+      )}
+
+      <div className={inTrash ? "opacity-60 grayscale pointer-events-none select-none" : undefined}>
       <section className="mb-6">
         <CoverPhotoField
           imageUrl={q.coverImageUrl || DEFAULT_COVER_IMAGE}
@@ -1063,7 +1071,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
           disabled={!coverEditable}
         >
           <div className="flex justify-end">
-            {canTrashQuotation(user, q) && (
+            {canTrashQuotation(user, q) && !inTrash && (
               <button
                 type="button"
                 onClick={() => {
@@ -1572,6 +1580,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
             })}
           </ul>
         )}
+      </div>
       </div>
 
       <AnimatePresence>

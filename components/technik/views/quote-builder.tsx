@@ -17,9 +17,10 @@ import {
   Camera,
   X,
   Trash2,
+  RotateCcw,
 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
-import { quotationIsTrashed, type CatalogItem, type QuoteLine, type WorkDepartment } from "@/lib/technik/data"
+import { canRestoreQuotation, quotationIsTrashed, type CatalogItem, type QuoteLine, type WorkDepartment } from "@/lib/technik/data"
 import { Field, inputCls, PageHeader } from "../ui"
 import { VisitPhotosSection } from "../visit-photos-section"
 import type { View } from "../app-shell"
@@ -56,6 +57,7 @@ export function QuoteBuilder({
     addClient,
     addCatalogItem,
     deleteDraftQuotation,
+    restoreDraftQuotation,
     user,
   } = useTechnik()
   const isAdmin = user?.role === "admin"
@@ -242,15 +244,31 @@ export function QuoteBuilder({
       <div className="text-center py-20 text-muted-foreground max-w-md mx-auto">
         <p className="text-foreground font-semibold mb-2">Está en Eliminados</p>
         <p className="text-sm mb-4">
-          Recupérala desde el resumen o la lista para seguir editándola. Se borra del todo a los 15 días.
+          Recupérala para seguir editándola, o ábrela en resumen para ver los datos en gris.
         </p>
-        <button
-          type="button"
-          onClick={() => navigate({ name: "quotations" })}
-          className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
-        >
-          Ir a mis cotizaciones
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {canRestoreQuotation(user, existing) && (
+            <button
+              type="button"
+              onClick={() => {
+                void restoreDraftQuotation(existing.id).then((res) => {
+                  if (!res.ok) window.alert(res.error)
+                })
+              }}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground"
+            >
+              <RotateCcw className="size-4" />
+              Recuperar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => navigate({ name: "review", id: existing.id })}
+            className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold"
+          >
+            Ver datos
+          </button>
+        </div>
       </div>
     )
   }

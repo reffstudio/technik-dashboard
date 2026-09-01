@@ -109,18 +109,27 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
             </button>
           </div>
         ) : (
-        <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border w-full sm:w-fit overflow-x-auto">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                filter === f.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border min-w-0 flex-1 overflow-x-auto">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  filter === f.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilter("trashed")}
+            className="shrink-0 text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
+          >
+            Eliminados{trashed.length > 0 ? ` (${trashed.length})` : ""}
+          </button>
         </div>
         )}
       </div>
@@ -158,16 +167,21 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
               <div
                 key={q.id}
                 className={`group flex items-center gap-2 rounded-2xl bg-muted/50 px-3 py-2.5 transition-colors ${
-                  inTrash ? "opacity-60 grayscale" : "hover:bg-accent"
+                  inTrash ? "" : "hover:bg-accent"
                 }`}
               >
                 <button
                   type="button"
                   onClick={() => {
-                    if (inTrash) return
-                    navigate(editable ? { name: "builder", id: q.id } : { name: "review", id: q.id })
+                    navigate(
+                      inTrash || !editable
+                        ? { name: "review", id: q.id }
+                        : { name: "builder", id: q.id },
+                    )
                   }}
-                  className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  className={`flex flex-1 items-center gap-3 text-left min-w-0 ${
+                    inTrash ? "opacity-60 grayscale" : ""
+                  }`}
                 >
                   <div
                     className={`flex size-9 items-center justify-center rounded-xl shrink-0 ${
@@ -191,9 +205,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                         : ""}
                     </p>
                   </div>
-                  {!inTrash && (
-                    <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary shrink-0" />
-                  )}
+                  <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary shrink-0" />
                 </button>
                 {canTrash && (
                   <button
@@ -229,7 +241,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
                         if (!res.ok) window.alert(res.error)
                       })
                     }}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-border text-primary hover:border-primary/40"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     <RotateCcw className="size-4" />
                   </button>
@@ -237,18 +249,6 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
               </div>
             )
           })}
-        </div>
-      )}
-
-      {filter !== "trashed" && (
-        <div className="mt-8 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setFilter("trashed")}
-            className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
-          >
-            Eliminados{trashed.length > 0 ? ` (${trashed.length})` : ""}
-          </button>
         </div>
       )}
     </div>

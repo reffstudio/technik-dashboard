@@ -386,35 +386,44 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
       </div>
 
       {folder !== "trashed" && (
-      <div className="flex flex-wrap items-center gap-2 mb-5" role="group" aria-label="Filtrar por departamento">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1" role="group" aria-label="Filtrar por departamento">
+          <button
+            type="button"
+            onClick={() => setDept("all")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              dept === "all"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Todos
+          </button>
+          {departments.map((d) => {
+            const active = dept === d.id
+            return (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => setDept(active ? "all" : d.id)}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  active
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {d.label}
+              </button>
+            )
+          })}
+        </div>
         <button
           type="button"
-          onClick={() => setDept("all")}
-          className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-            dept === "all"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "border-border text-muted-foreground hover:text-foreground"
-          }`}
+          onClick={() => setFolder("trashed")}
+          className="shrink-0 text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
         >
-          Todos
+          Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
         </button>
-        {departments.map((d) => {
-          const active = dept === d.id
-          return (
-            <button
-              key={d.id}
-              type="button"
-              onClick={() => setDept(active ? "all" : d.id)}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                active
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {d.label}
-            </button>
-          )
-        })}
       </div>
       )}
 
@@ -466,18 +475,6 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           ))}
         </div>
       )}
-
-      {folder !== "trashed" && (
-        <div className="mt-8 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setFolder("trashed")}
-            className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
-          >
-            Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
-          </button>
-        </div>
-      )}
     </div>
   )
 }
@@ -516,7 +513,7 @@ function ProjectTile({
     <div
       className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden min-h-[240px] ${
         inTrash
-          ? "opacity-60 grayscale"
+          ? ""
           : `transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md ${
               deliveryLate ? "ring-1 ring-destructive/35" : ""
             }`
@@ -527,7 +524,7 @@ function ProjectTile({
         aria-hidden
       />
 
-      <button type="button" onClick={onOpen} className="relative h-32 sm:h-36 bg-muted/50 overflow-hidden text-left">
+      <button type="button" onClick={onOpen} className={`relative h-32 sm:h-36 bg-muted/50 overflow-hidden text-left ${inTrash ? "opacity-60 grayscale" : ""}`}>
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -544,7 +541,7 @@ function ProjectTile({
       </button>
 
       <div className="flex flex-col flex-1 p-4 gap-3">
-        <button type="button" onClick={onOpen} className="text-left">
+        <button type="button" onClick={onOpen} className={`text-left ${inTrash ? "opacity-60 grayscale" : ""}`}>
           <div className="flex items-start justify-between gap-2">
             <span className="font-mono text-[11px] font-semibold text-primary">{project.id}</span>
             {quote ? (
@@ -571,7 +568,7 @@ function ProjectTile({
         </button>
 
         <div className="mt-auto flex flex-col gap-2.5 pt-1 border-t border-border/70">
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className={`flex flex-wrap items-center gap-1.5 ${inTrash ? "opacity-60 grayscale" : ""}`}>
             <ProjectStageBadge stage={project.stage} />
             {cobroVencido && !inTrash && <BillingStatusBadge status="vencido" />}
             {projectIsOverdue(project) && project.stage !== "atrasado" && !inTrash && (
@@ -582,7 +579,7 @@ function ProjectTile({
             )}
           </div>
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+            <div className={`flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0 ${inTrash ? "opacity-60 grayscale" : ""}`}>
               <CalendarDays className="size-3.5 shrink-0" />
               <span>
                 Entrega taller{" "}
@@ -608,7 +605,7 @@ function ProjectTile({
                 title="Recuperar"
                 aria-label="Recuperar proyecto"
                 onClick={onRestore}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border text-primary hover:border-primary/40"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <RotateCcw className="size-3.5" />
               </button>

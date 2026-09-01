@@ -29,6 +29,7 @@ import {
   projectIsTrashed,
   projectTitle,
   projectCoverUrl,
+  trashDaysLeft,
   type PaymentMethod,
   type PaymentMode,
 } from "@/lib/technik/data"
@@ -188,6 +189,10 @@ export function ProjectDetail({
   }
 
   const inTrash = projectIsTrashed(project) || projectIsHidden(project, quotations)
+  const trashDays =
+    inTrash && (project.deletedAt || quote?.deletedAt)
+      ? trashDaysLeft(project.deletedAt || quote?.deletedAt || "")
+      : null
 
   const overdue = projectIsOverdue(project)
   const displayTitle = projectTitle(project, quote?.title)
@@ -340,17 +345,38 @@ export function ProjectDetail({
       </button>
 
       {inTrash && (
-        <div className="mb-5 rounded-xl border border-destructive/25 bg-destructive/5 p-3.5 text-sm text-muted-foreground">
-          Este proyecto está en Eliminados. Se borra del todo a los 15 días.
-          {project.quotationId ? " La cotización ligada va junta." : ""} Los cobros ya registrados no se tocan.
+        <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border bg-muted/50 p-3.5">
+          <p className="flex-1 text-sm text-muted-foreground">
+            Este proyecto está en Eliminados
+            {trashDays !== null
+              ? ` · ${trashDays <= 0 ? "se borra hoy" : `se borra en ${trashDays} día${trashDays === 1 ? "" : "s"}`}`
+              : "."}
+            {project.quotationId ? " La cotización ligada va junta." : ""}
+          </p>
+          {canTrashProject(user) && (
+            <button
+              type="button"
+              onClick={() => {
+                void restoreProject(project.id).then((res) => {
+                  if (!res.ok) setToast(res.error)
+                })
+              }}
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+            >
+              <RotateCcw className="size-3.5" />
+              Recuperar
+            </button>
+          )}
         </div>
       )}
 
+      <div className={inTrash ? "opacity-60 grayscale pointer-events-none select-none" : undefined}>
       <section className="mb-6">
         <CoverPhotoField
           imageUrl={projectCoverUrl(project, quote)}
           onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
           canRemove={Boolean(project.coverImageUrl)}
+          disabled={inTrash}
         >
           <div className="flex justify-end">
             {canTrashProject(user) && !inTrash && (
@@ -379,20 +405,6 @@ export function ProjectDetail({
               >
                 <Trash2 className="size-3.5" />
                 Eliminar proyecto
-              </button>
-            )}
-            {inTrash && canTrashProject(user) && (
-              <button
-                type="button"
-                onClick={() => {
-                  void restoreProject(project.id).then((res) => {
-                    if (!res.ok) setToast(res.error)
-                  })
-                }}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-white/15"
-              >
-                <RotateCcw className="size-3.5" />
-                Recuperar proyecto
               </button>
             )}
           </div>
@@ -1308,6 +1320,7 @@ export function ProjectDetail({
             ))}
           </ul>
         )}
+      </div>
       </div>
 
       {toast && (
