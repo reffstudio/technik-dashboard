@@ -376,7 +376,7 @@ export function BillingHome({
         <Stat
           label="Por cobrar (plan)"
           value={currencyMxn(expectedInRange)}
-          hint="Incluye vencidos de meses previos"
+          hint="Todos los abonos pendientes"
           tone="amber"
           icon={Clock3}
         />

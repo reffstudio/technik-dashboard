@@ -146,6 +146,7 @@ import {
   deleteSeparadoRow,
   deleteProjectRow,
   enqueuePersistProject,
+  enqueueDeleteProjectInstallment,
   persistProjectDeletedAt,
   loadOpsWorkspace,
   persistApartadoMovement,
@@ -769,11 +770,12 @@ export function TechnikProvider({
         const projectSaveOpen =
           savePendingRef.current > 0 ||
           [...saveJobsRef.current.keys()].some((k) => k.startsWith("project:"))
-        if (projectSaveOpen) {
-          setProjects((prev) => adoptOpsProjects(prev, ops.projects))
-        } else {
-          setProjects(ops.projects)
-        }
+        setProjects((prev) => {
+          const merged = adoptOpsProjects(prev, ops.projects)
+          if (projectSaveOpen) return merged
+          const incomingIds = new Set(ops.projects.map((p) => p.id))
+          return merged.filter((p) => incomingIds.has(p.id))
+        })
       }
       if (!ops.paymentEventsError) {
         setPaymentEvents(ops.paymentEvents)
@@ -3103,6 +3105,11 @@ export function TechnikProvider({
           return next
         }),
       )
+      if (isSupabaseConfigured()) {
+        void trackPersist(`project:${projectId}`, () =>
+          enqueueDeleteProjectInstallment(projectId, installmentId),
+        )
+      }
       announce(`${actor} · Cuota eliminada · ${projectId}`, "except_self", {
         id: `inst-del-${projectId}-${stamp}`,
         kind: "activity",
@@ -3112,7 +3119,7 @@ export function TechnikProvider({
       })
       return { ok: true as const }
     },
-    [user, announce, projects],
+    [user, announce, projects, persistProjectNow, trackPersist],
   )
 
   const markInstallmentPaid = useCallback(

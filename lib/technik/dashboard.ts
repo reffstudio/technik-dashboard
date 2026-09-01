@@ -7,7 +7,7 @@ import {
   DEFAULT_ISR_RETENTION_RATE,
   DEFAULT_TAX_RATE,
 } from "./company"
-import { MONTH_SHORT_ES, formatDisplayDate, isoDay, todayLocalIso } from "./dates"
+import { MONTH_SHORT_ES, isoDay, todayLocalIso } from "./dates"
 import {
   installmentIsPaid,
   internalEconomy,
@@ -30,9 +30,14 @@ function inYearMonth(iso: string, year: number, month: number): boolean {
 }
 
 function addDaysIso(iso: string, days: number): string {
-  const d = new Date(`${iso}T12:00:00`)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+  const day = isoDay(iso) || iso
+  const [y, m, d] = day.split("-").map(Number)
+  if (!y || !m || !d) return day
+  const dt = new Date(y, m - 1, d + days)
+  const yy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, "0")
+  const dd = String(dt.getDate()).padStart(2, "0")
+  return `${yy}-${mm}-${dd}`
 }
 
 function daysBetween(startIso: string, endIso: string): number {
@@ -41,8 +46,26 @@ function daysBetween(startIso: string, endIso: string): number {
   return Math.max(0, Math.round((b - a) / 86400000))
 }
 
+/** Etiqueta corta para el eje X (SEP/01/2026 no cabe y aplasta la gráfica). */
+function formatChartTick(iso: string, bucket: "day" | "week" | "month"): string {
+  const day = isoDay(iso) || iso
+  if (bucket === "month") {
+    const [y, m] = day.split("-")
+    const mi = Number(m)
+    const mon = Number.isInteger(mi) && mi >= 1 && mi <= 12 ? MONTH_SHORT_ES[mi - 1] : m
+    return `${mon}/${y ?? ""}`
+  }
+  if (bucket === "week") {
+    const d = Number(day.slice(8, 10))
+    const mi = Number(day.slice(5, 7))
+    const mon = Number.isInteger(mi) && mi >= 1 && mi <= 12 ? MONTH_SHORT_ES[mi - 1] : day.slice(5, 7)
+    return `${mon} ${d}`
+  }
+  return String(Number(day.slice(8, 10)) || day.slice(8, 10))
+}
+
 function formatShortLabel(iso: string): string {
-  return formatDisplayDate(iso, iso)
+  return formatChartTick(iso, "day")
 }
 
 function inInclusiveRange(iso: string, startIso: string, endIso: string): boolean {
@@ -113,21 +136,21 @@ export function sumPaidInRange(
 }
 
 /**
- * Pendiente por cobrar hasta el fin del rango: cuotas del mes + vencidas
- * de meses anteriores (proyectos no completados). No incluye fechas futuras.
+ * Pendiente por cobrar: todas las cuotas no pagadas de proyectos activos,
+ * sin importar si la fecha cae en el mes visto.
  */
 export function sumExpectedInRange(
   projects: Project[],
-  _startIso: string,
-  endIso: string,
+  _startIso?: string,
+  _endIso?: string,
 ): number {
   let sum = 0
   for (const p of projects) {
     if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
       if (installmentIsPaid(inst)) continue
-      const due = isoDay(inst.dueDate)
-      if (due && due <= endIso) sum += inst.amount || 0
+      const amount = Number(inst.amount) || 0
+      if (amount > 0) sum += amount
     }
   }
   return roundMxn(sum)
@@ -176,13 +199,7 @@ export function cashflowSeriesInRange(
   }
 
   function bucketLabel(key: string): string {
-    if (bucket === "month") {
-      const [y, m] = key.split("-")
-      const mi = Number(m)
-      const mon = Number.isInteger(mi) && mi >= 1 && mi <= 12 ? MONTH_SHORT_ES[mi - 1] : m
-      return `${mon}/${y ?? ""}`
-    }
-    return formatShortLabel(key)
+    return formatChartTick(key, bucket)
   }
 
   if (bucket === "day") {
@@ -203,13 +220,18 @@ export function cashflowSeriesInRange(
       if (p.stage === "completado") continue
       if (installmentIsPaid(inst)) continue
       const due = isoDay(inst.dueDate)
-      if (!due) continue
-      const inMonth = inInclusiveRange(due, startIso, endIso)
-      const overdueCarry = due < startIso
-      if (!inMonth && !overdueCarry) continue
-      const key = bucketKey(inMonth ? due : startIso)
+      const amount = Number(inst.amount) || 0
+      if (amount <= 0) continue
+      const plot = !due
+        ? startIso
+        : due < startIso
+          ? startIso
+          : due > endIso
+            ? endIso
+            : due
+      const key = bucketKey(plot)
       const row = map.get(key) ?? { cobrado: 0, esperado: 0, label: bucketLabel(key) }
-      row.esperado += inst.amount || 0
+      row.esperado += amount
       map.set(key, row)
     }
   }

@@ -523,15 +523,15 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
               </div>
 
               <div className="text-right">
-                <p className="text-[11px] text-muted-foreground">Por cobrar en el mes</p>
+                <p className="text-[11px] text-muted-foreground">Por cobrar</p>
                 <p className="font-mono text-sm font-bold text-chart-3">
                   {currencyMxn(expectedInRange)}
                 </p>
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 w-full mb-3">
-              {series.every((p) => p.cobrado === 0 && p.esperado === 0) ? (
+            <div className="flex-1 min-h-[160px] w-full mb-3">
+              {series.every((p) => p.cobrado === 0 && p.esperado === 0) && series.length === 0 ? (
                 <div className="h-full flex items-center justify-center rounded-2xl border border-dashed border-border text-sm text-muted-foreground">
                   Sin movimientos de cobranza en este mes.
                 </div>
@@ -572,6 +572,10 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         borderRadius: 12,
                         fontSize: 12,
                       }}
+                      labelFormatter={(_, payload) => {
+                        const date = payload?.[0]?.payload?.date as string | undefined
+                        return date ? formatDisplayDate(date) : ""
+                      }}
                       formatter={(value: number, name: string) => [
                         currencyMxn(value),
                         name === "cobrado" ? "Cobrado" : "Por cobrar",
@@ -606,7 +610,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="size-2 rounded-full bg-chart-3" />
-                  Por cobrar (fecha plan)
+                  Por cobrar
                 </span>
               </div>
               <button

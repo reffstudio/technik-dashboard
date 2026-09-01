@@ -17,6 +17,7 @@ import {
   YAxis,
 } from "recharts"
 import { currencyMxn, projectIsHidden } from "@/lib/technik/data"
+import { formatDisplayDate } from "@/lib/technik/dates"
 import {
   cashflowSeriesInRange,
   sumExpectedInRange,
@@ -195,8 +196,8 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
                 )}
               </div>
 
-              <div className="min-h-0 flex-1 w-full">
-                {chartEmpty ? (
+              <div className="min-h-[160px] flex-1 w-full">
+                {chartEmpty && series.length === 0 ? (
                   <div className="h-full flex items-center justify-center rounded-2xl border border-dashed border-border text-sm text-muted-foreground">
                     Sin movimientos de cobranza en este mes.
                   </div>
@@ -240,6 +241,10 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
                           border: "1px solid var(--border)",
                           borderRadius: 12,
                           fontSize: 12,
+                        }}
+                        labelFormatter={(_, payload) => {
+                          const date = payload?.[0]?.payload?.date as string | undefined
+                          return date ? formatDisplayDate(date) : ""
                         }}
                         formatter={(value: number, name: string) => [
                           currencyMxn(value),

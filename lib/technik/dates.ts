@@ -1,8 +1,16 @@
-/** YYYY-MM-DD desde ISO o timestamp de Postgres. */
-export function isoDay(value?: string | null): string {
-  if (!value) return ""
-  const match = String(value).trim().match(/^(\d{4}-\d{2}-\d{2})/)
-  return match?.[1] ?? ""
+/** YYYY-MM-DD desde ISO, timestamp de Postgres o Date. */
+export function isoDay(value?: string | number | Date | null): string {
+  if (value == null || value === "") return ""
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getUTCFullYear()
+    const m = String(value.getUTCMonth() + 1).padStart(2, "0")
+    const d = String(value.getUTCDate()).padStart(2, "0")
+    return `${y}-${m}-${d}`
+  }
+  const raw = String(value).trim()
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (iso) return iso[1]
+  return ""
 }
 
 /** Hoy en el calendario local (no UTC). */

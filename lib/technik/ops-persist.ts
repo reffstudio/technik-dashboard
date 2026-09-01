@@ -410,21 +410,30 @@ async function persistProjectInner(
     .from("project_installments")
     .select("id, paid_at")
     .eq("project_id", project.id)
-  const nextIds = new Set((project.installments ?? []).filter((i) => i?.id).map((i) => i.id))
-  for (const row of (existingInst ?? []) as { id: string; paid_at: string | null }[]) {
-    if (nextIds.has(row.id)) continue
-    if (row.paid_at) continue
-    await supabase.from("project_installments").delete().eq("id", row.id)
+  const incomingUnpaid = (project.installments ?? []).filter((i) => i?.id && !i.paidAt)
+  // No borrar cuotas si el snapshot viene vacío: un persist viejo (crear proyecto /
+  // cambiar etapa) se comía el abono recién programado.
+  const allowDeleteUnpaid =
+    incomingUnpaid.length > 0 || (project.installments ?? []).some((i) => i?.paidAt)
+  if (allowDeleteUnpaid) {
+    const nextIds = new Set((project.installments ?? []).filter((i) => i?.id).map((i) => i.id))
+    for (const row of (existingInst ?? []) as { id: string; paid_at: string | null }[]) {
+      if (nextIds.has(row.id)) continue
+      if (row.paid_at) continue
+      await supabase.from("project_installments").delete().eq("id", row.id)
+    }
   }
 
   for (const [i, inst] of (project.installments ?? []).entries()) {
-    if (!inst || !(inst.amount > 0) || !isoDay(inst.dueDate)) continue
+    const amount = Number(inst?.amount)
+    const due = isoDay(inst?.dueDate) || String(inst?.dueDate ?? "").slice(0, 10)
+    if (!inst || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}/.test(due)) continue
     const paid = Boolean(inst.paidAt)
     const { error: iErr } = await supabase.from("project_installments").upsert({
       id: inst.id,
       project_id: project.id,
-      amount: inst.amount,
-      due_date: isoDay(inst.dueDate),
+      amount,
+      due_date: due.slice(0, 10),
       note: inst.note ?? null,
       invoice_uuid: inst.invoiceUuid ?? null,
       invoice_date: isoDay(inst.invoiceDate) || null,
@@ -635,6 +644,17 @@ export async function deleteProjectRow(id: string) {
   return { ok: true as const }
 }
 
+export async function deleteProjectInstallmentRow(id: string) {
+  const supabase = getSupabaseBrowser()
+  const { error } = await supabase.from("project_installments").delete().eq("id", id)
+  if (error) return { ok: false as const, error: error.message }
+  return { ok: true as const }
+}
+
 export function enqueuePersistProject(project: Project, ctx: { actorAuthId?: string; users: User[] }) {
   return enqueue(`project:${project.id}`, () => persistProject(project, ctx))
+}
+
+export function enqueueDeleteProjectInstallment(projectId: string, installmentId: string) {
+  return enqueue(`project:${projectId}`, () => deleteProjectInstallmentRow(installmentId))
 }
