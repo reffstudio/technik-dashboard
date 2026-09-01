@@ -553,10 +553,29 @@ export function sumReservedPaid(resolved: ResolvedSeparado[]): number {
   )
 }
 
+/** Fondos de arranque de reservas abiertas. No salen de banco/efectivo. */
+export function sumOpeningOpen(resolved: ResolvedSeparado[]): number {
+  return roundMxn(
+    resolved
+      .filter((s) => s.status === "open")
+      .reduce((sum, s) => sum + (s.openingBalance ?? 0), 0),
+  )
+}
+
+/** Caja operativa (banco + efectivo) más fondos iniciales de apartados. */
+export function cajaConFondos(availableTotal: number, openingOpen: number): number {
+  return roundMxn(availableTotal + openingOpen)
+}
+
+/**
+ * Para usar: caja con fondos menos el saldo de apartados.
+ * Como los fondos iniciales están en ambos lados, no recortan lo operativo;
+ * sí se aparta lo acumulado por % / monto y los movimientos.
+ */
 export function disponibleTrasApartados(
-  availableTotal: number,
+  cajaIncluyendoFondos: number,
   reservedOpen: number,
 ): number {
-  return roundMxn(availableTotal - reservedOpen)
+  return roundMxn(cajaIncluyendoFondos - reservedOpen)
 }
 

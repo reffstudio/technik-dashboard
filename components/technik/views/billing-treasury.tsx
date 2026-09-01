@@ -21,12 +21,14 @@ import {
 import { formatDisplayDate } from "@/lib/technik/dates"
 import {
   buildApartadoHistory,
+  cajaConFondos,
   disponibleTrasApartados,
   formatYearMonthLabel,
   monthCashSummary,
   monthIncomeTotalsMap,
   monthLedger,
   resolveMonthSeparados,
+  sumOpeningOpen,
   sumReservedOpen,
   yearMonthFromIso,
 } from "@/lib/technik/treasury"
@@ -159,9 +161,14 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     [treasurySeparados, yearMonth, monthIncomeTotal, apartadoMovements, incomeByMonth],
   )
   const reservedOpen = useMemo(() => sumReservedOpen(resolvedSeparados), [resolvedSeparados])
+  const openingOpen = useMemo(() => sumOpeningOpen(resolvedSeparados), [resolvedSeparados])
+  const cajaTotal = useMemo(
+    () => cajaConFondos(summary.availableTotal, openingOpen),
+    [summary.availableTotal, openingOpen],
+  )
   const afterApartados = useMemo(
-    () => disponibleTrasApartados(summary.availableTotal, reservedOpen),
-    [summary.availableTotal, reservedOpen],
+    () => disponibleTrasApartados(cajaTotal, reservedOpen),
+    [cajaTotal, reservedOpen],
   )
 
   const detailSeparado = useMemo(
@@ -340,7 +347,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
             className={`${inputCls} mt-1 font-mono`}
           />
           <span className="mt-1 block text-[10px] text-muted-foreground leading-snug">
-            Lo que ya tenían apartado al empezar. No es un movimiento del mes.
+            Lo que ya tenían en esa reserva al empezar. Entra a En caja; no se resta de Para usar.
           </span>
         </label>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
@@ -466,10 +473,16 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
               <dt className="text-muted-foreground">Efectivo</dt>
               <dd className="font-mono font-semibold">{currencyMxn(summary.availableCash)}</dd>
             </div>
+            {openingOpen > 0 && (
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Fondos iniciales</dt>
+                <dd className="font-mono font-semibold">{currencyMxn(openingOpen)}</dd>
+              </div>
+            )}
             <div className="flex justify-between gap-2 border-t border-border pt-1.5 mt-1.5">
               <dt className="text-muted-foreground">En caja</dt>
               <dd className="font-mono font-semibold">
-                {currencyMxn(summary.availableTotal)}
+                {currencyMxn(cajaTotal)}
               </dd>
             </div>
             <div className="flex justify-between gap-2">
@@ -484,7 +497,8 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
             </div>
           </dl>
           <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
-            El apartado no sale del banco; es lo que no debes gastar.
+            El fondo inicial ya estaba en las reservas: se suma a En caja y no recorta Para usar.
+            El % o monto de cada mes sí se aparta de lo operativo.
             {summary.openingCarriedFrom
               ? ` Banco y efectivo se cortan el último día de ${formatYearMonthLabel(summary.openingCarriedFrom)} y pasan a este mes.`
               : ""}
@@ -827,8 +841,8 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
             </h3>
             <p className="text-[11px] text-muted-foreground mt-1">
               Reservas que defines tú: un % de ingresos (IVA, ISR u otro) o un
-              monto fijo. No sustituye contabilidad CFDI. El apartado no sale
-              del banco; “para usar” está arriba en Dinero.
+              monto fijo. El fondo inicial es dinero que ya tenían; el % de cada
+              mes se aparta de lo operativo. “Para usar” está arriba en Dinero.
             </p>
           </div>
           {isAdmin && apartadoDraft === null && (
@@ -1031,7 +1045,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
                     className={`${inputCls} mt-1 font-mono`}
                   />
                   <span className="mt-1 block text-[10px] text-muted-foreground leading-snug">
-                    Lo que ya tenían apartado al empezar. No es un movimiento del mes.
+                    Lo que ya tenían en esa reserva al empezar. Entra a En caja; no se resta de Para usar.
                   </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
