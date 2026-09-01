@@ -460,7 +460,8 @@ export function resolveMonthSeparados(
       const movs = movementsForApartado(movements, s.id, endDate)
       const movementNet = netMovementsAmount(movs)
       const accrual = apartadoAccrualThrough(s, yearMonth, incomeMap)
-      const balance = roundMxn(Math.max(0, accrual + movementNet))
+      const opening = s.openingBalance ?? 0
+      const balance = roundMxn(Math.max(0, opening + accrual + movementNet))
       return {
         ...s,
         monthAmount,
@@ -472,7 +473,7 @@ export function resolveMonthSeparados(
 
 export type ApartadoHistoryLine = {
   id: string
-  kind: "accrual" | "in" | "out"
+  kind: "opening" | "accrual" | "in" | "out"
   amount: number
   date: string
   label: string
@@ -480,7 +481,7 @@ export type ApartadoHistoryLine = {
   expenseId?: string
 }
 
-/** Historial: acumulaciones por mes (sintéticas) + movimientos reales. */
+/** Historial: saldo inicial + acumulaciones por mes (sintéticas) + movimientos reales. */
 export function buildApartadoHistory(
   separado: TreasurySeparado,
   throughYearMonth: string,
@@ -489,6 +490,18 @@ export function buildApartadoHistory(
 ): ApartadoHistoryLine[] {
   const endDate = monthBounds(throughYearMonth).end
   const lines: ApartadoHistoryLine[] = []
+
+  const opening = separado.openingBalance ?? 0
+  if (opening > 0) {
+    const openingDate = separado.createdAt.slice(0, 10) || `${throughYearMonth}-01`
+    lines.push({
+      id: `opening-${separado.id}`,
+      kind: "opening",
+      amount: opening,
+      date: openingDate,
+      label: "Saldo inicial",
+    })
+  }
 
   const fromYm = yearMonthFromIso(separado.createdAt.slice(0, 10) || throughYearMonth)
   const start = fromYm <= throughYearMonth ? fromYm : throughYearMonth

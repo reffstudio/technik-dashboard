@@ -7,6 +7,7 @@ import {
   DEFAULT_ISR_RETENTION_RATE,
   DEFAULT_TAX_RATE,
 } from "./company"
+import { MONTH_SHORT_ES, formatDisplayDate, isoDay, todayLocalIso } from "./dates"
 import {
   installmentIsPaid,
   internalEconomy,
@@ -21,10 +22,10 @@ import {
 } from "./data"
 
 function inYearMonth(iso: string, year: number, month: number): boolean {
-  // iso YYYY-MM-DD
-  if (!iso || iso.length < 7) return false
-  const y = Number(iso.slice(0, 4))
-  const m = Number(iso.slice(5, 7))
+  const day = isoDay(iso)
+  if (!day || day.length < 7) return false
+  const y = Number(day.slice(0, 4))
+  const m = Number(day.slice(5, 7))
   return y === year && m === month
 }
 
@@ -41,20 +42,18 @@ function daysBetween(startIso: string, endIso: string): number {
 }
 
 function formatShortLabel(iso: string): string {
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-  return `${months[Number(m) - 1] ?? m} ${Number(d)}`
+  return formatDisplayDate(iso, iso)
 }
 
 function inInclusiveRange(iso: string, startIso: string, endIso: string): boolean {
-  return !!iso && iso >= startIso && iso <= endIso
+  const day = isoDay(iso)
+  return !!day && day >= startIso && day <= endIso
 }
 
 /** Inicio del rango “últimos N días” (incluye hoy). */
 export function rangeStartForDays(
   days: number,
-  todayIso = new Date().toISOString().slice(0, 10),
+  todayIso = todayLocalIso(),
 ): string {
   return addDaysIso(todayIso, -(days - 1))
 }
@@ -114,23 +113,21 @@ export function sumPaidInRange(
 }
 
 /**
- * Pendiente por cobrar con `dueDate` en el rango (proyectos no completados).
+ * Pendiente por cobrar hasta el fin del rango: cuotas del mes + vencidas
+ * de meses anteriores (proyectos no completados). No incluye fechas futuras.
  */
 export function sumExpectedInRange(
   projects: Project[],
-  startIso: string,
+  _startIso: string,
   endIso: string,
 ): number {
   let sum = 0
   for (const p of projects) {
     if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
-      if (
-        !installmentIsPaid(inst) &&
-        inInclusiveRange(inst.dueDate, startIso, endIso)
-      ) {
-        sum += inst.amount || 0
-      }
+      if (installmentIsPaid(inst)) continue
+      const due = isoDay(inst.dueDate)
+      if (due && due <= endIso) sum += inst.amount || 0
     }
   }
   return roundMxn(sum)
@@ -142,7 +139,7 @@ export function sumExpectedInRange(
 export function cashflowSeries(
   projects: Project[],
   days = 14,
-  todayIso = new Date().toISOString().slice(0, 10),
+  todayIso = todayLocalIso(),
 ): CashflowPoint[] {
   const start = rangeStartForDays(days, todayIso)
   return cashflowSeriesInRange(projects, start, todayIso)
@@ -181,21 +178,9 @@ export function cashflowSeriesInRange(
   function bucketLabel(key: string): string {
     if (bucket === "month") {
       const [y, m] = key.split("-")
-      const months = [
-        "Ene",
-        "Feb",
-        "Mar",
-        "Abr",
-        "May",
-        "Jun",
-        "Jul",
-        "Ago",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dic",
-      ]
-      return `${months[Number(m) - 1] ?? m} ${y?.slice(2) ?? ""}`
+      const mi = Number(m)
+      const mon = Number.isInteger(mi) && mi >= 1 && mi <= 12 ? MONTH_SHORT_ES[mi - 1] : m
+      return `${mon}/${y ?? ""}`
     }
     return formatShortLabel(key)
   }
@@ -210,20 +195,22 @@ export function cashflowSeriesInRange(
   for (const p of projects) {
     for (const inst of p.installments ?? []) {
       if (inst.paidAt && inInclusiveRange(inst.paidAt, startIso, endIso)) {
-        const key = bucketKey(inst.paidAt)
+        const key = bucketKey(isoDay(inst.paidAt) || inst.paidAt)
         const row = map.get(key) ?? { cobrado: 0, esperado: 0, label: bucketLabel(key) }
         row.cobrado += inst.amount || 0
         map.set(key, row)
       }
-      if (
-        !installmentIsPaid(inst) &&
-        inInclusiveRange(inst.dueDate, startIso, endIso)
-      ) {
-        const key = bucketKey(inst.dueDate)
-        const row = map.get(key) ?? { cobrado: 0, esperado: 0, label: bucketLabel(key) }
-        row.esperado += inst.amount || 0
-        map.set(key, row)
-      }
+      if (p.stage === "completado") continue
+      if (installmentIsPaid(inst)) continue
+      const due = isoDay(inst.dueDate)
+      if (!due) continue
+      const inMonth = inInclusiveRange(due, startIso, endIso)
+      const overdueCarry = due < startIso
+      if (!inMonth && !overdueCarry) continue
+      const key = bucketKey(inMonth ? due : startIso)
+      const row = map.get(key) ?? { cobrado: 0, esperado: 0, label: bucketLabel(key) }
+      row.esperado += inst.amount || 0
+      map.set(key, row)
     }
   }
 
@@ -247,24 +234,25 @@ export type UpcomingCollection = {
   installment: ProjectInstallment
 }
 
-/** Próximas cuotas pendientes (vencidas primero), proyectos no completados. */
+/** Cuotas pendientes (vencidas primero), proyectos no completados. Sin tope si `limit` omitido. */
 export function upcomingCollections(
   projects: Project[],
-  limit = 8,
-  todayIso = new Date().toISOString().slice(0, 10),
+  limit?: number,
+  todayIso = todayLocalIso(),
 ): UpcomingCollection[] {
   const rows: UpcomingCollection[] = []
   for (const p of projects) {
     if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
       if (installmentIsPaid(inst)) continue
+      const due = isoDay(inst.dueDate) || inst.dueDate || ""
       rows.push({
         projectId: p.id,
         installmentId: inst.id,
         amount: inst.amount,
-        dueDate: inst.dueDate,
+        dueDate: due,
         note: inst.note,
-        overdue: inst.dueDate < todayIso,
+        overdue: Boolean(due) && due < todayIso,
         installment: inst,
       })
     }
@@ -273,7 +261,7 @@ export function upcomingCollections(
     if (a.overdue !== b.overdue) return a.overdue ? -1 : 1
     return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0
   })
-  return rows.slice(0, limit)
+  return limit != null ? rows.slice(0, limit) : rows
 }
 
 /** Σ saldos abiertos de proyectos no completados (total PDF o totalDue − pagado). */
@@ -307,7 +295,7 @@ export type PaymentLedgerRow = {
 /** Movimientos de cobranza (cobrados + pendientes), más recientes / urgentes primero. */
 export function paymentLedger(
   projects: Project[],
-  todayIso = new Date().toISOString().slice(0, 10),
+  todayIso = todayLocalIso(),
 ): PaymentLedgerRow[] {
   const rows: PaymentLedgerRow[] = []
   for (const p of projects) {
@@ -317,9 +305,9 @@ export function paymentLedger(
         projectId: p.id,
         installmentId: inst.id,
         amount: inst.amount,
-        date: paid ? (inst.paidAt as string) : inst.dueDate,
+        date: paid ? isoDay(inst.paidAt) || (inst.paidAt as string) : isoDay(inst.dueDate) || inst.dueDate,
         paid,
-        overdue: !paid && inst.dueDate < todayIso,
+        overdue: !paid && isoDay(inst.dueDate) < todayIso,
         note: inst.note,
         invoiceUuid: inst.invoiceUuid,
         paymentComplement: inst.paymentComplement,
@@ -338,7 +326,7 @@ export function paymentLedger(
 /** Cobrado en el mes calendario actual vs el mes anterior (para deltas tipo banco). */
 export function monthPaidDelta(
   projects: Project[],
-  todayIso = new Date().toISOString().slice(0, 10),
+  todayIso = todayLocalIso(),
 ): { current: number; previous: number } {
   const y = Number(todayIso.slice(0, 4))
   const m = Number(todayIso.slice(5, 7))

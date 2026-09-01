@@ -18,6 +18,7 @@ import {
   type CashChannel,
   type SeparadoKind,
 } from "@/lib/technik/data"
+import { formatDisplayDate } from "@/lib/technik/dates"
 import {
   buildApartadoHistory,
   disponibleTrasApartados,
@@ -30,16 +31,10 @@ import {
   yearMonthFromIso,
 } from "@/lib/technik/treasury"
 import { useIsAdmin, useTechnik } from "@/lib/technik/store"
-import { inputCls } from "../ui"
+import { DecimalInput, inputCls } from "../ui"
 import type { View } from "../app-shell"
 
 const EASE = [0.16, 1, 0.3, 1] as const
-
-function formatShortDate(iso: string): string {
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${d}/${m}/${y.slice(2)}`
-}
 
 function moneyCell(n: number | undefined) {
   if (n === undefined || n === 0) return "—"
@@ -93,6 +88,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
   const [sepName, setSepName] = useState("")
   const [sepKind, setSepKind] = useState<SeparadoKind>("percent")
   const [sepValue, setSepValue] = useState("")
+  const [sepOpening, setSepOpening] = useState(0)
   /** `null` = cerrado; `"new"` = crear reserva en lista */
   const [apartadoDraft, setApartadoDraft] = useState<null | "new">(null)
   const [sepToast, setSepToast] = useState<string | null>(null)
@@ -194,6 +190,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setSepName("")
     setSepKind("percent")
     setSepValue("")
+    setSepOpening(0)
     setApartadoDraft(null)
   }
 
@@ -202,6 +199,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setSepName("")
     setSepKind("percent")
     setSepValue("")
+    setSepOpening(0)
     setApartadoDraft("new")
   }
 
@@ -215,6 +213,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
       name,
       kind: sepKind,
       value,
+      openingBalance: sepOpening,
       category: "custom",
       status: "open",
     })
@@ -230,6 +229,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     setSepName(s.name)
     setSepKind(s.kind)
     setSepValue(String(s.value))
+    setSepOpening(s.openingBalance ?? 0)
     setMovKind("out")
     setMovAmount("")
     setMovDate(todayIso)
@@ -249,7 +249,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     const name = sepName.trim()
     if (!name) return
     if (sepKind === "percent" && value > 100) return
-    updateTreasurySeparado(s.id, { name, kind: sepKind, value })
+    updateTreasurySeparado(s.id, { name, kind: sepKind, value, openingBalance: sepOpening })
     flashSep("Apartado actualizado")
   }
 
@@ -329,6 +329,19 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
             className={`${inputCls} mt-1`}
             required
           />
+        </label>
+        <label className="block text-xs min-w-0 sm:col-span-2">
+          <span className="text-muted-foreground">Saldo inicial (MXN)</span>
+          <DecimalInput
+            value={sepOpening}
+            min={0}
+            ariaLabel="Saldo inicial"
+            onChange={setSepOpening}
+            className={`${inputCls} mt-1 font-mono`}
+          />
+          <span className="mt-1 block text-[10px] text-muted-foreground leading-snug">
+            Lo que ya tenían apartado al empezar. No es un movimiento del mes.
+          </span>
         </label>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
           <button
@@ -721,7 +734,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
                           {row.description}
                         </p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {formatShortDate(row.date)}
+                          {formatDisplayDate(row.date)}
                           {isIncome ? " · cobro" : " · egreso"}
                         </p>
                       </td>
@@ -939,6 +952,14 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
                   {currencyMxn(detailSeparado.monthAmount)}
                 </dd>
               </div>
+              <div className="rounded-xl border border-border bg-muted/20 px-3 py-2 col-span-2">
+                <dt className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                  Saldo inicial
+                </dt>
+                <dd className="font-mono font-bold mt-0.5">
+                  {currencyMxn(detailSeparado.openingBalance ?? 0)}
+                </dd>
+              </div>
             </dl>
 
             {isAdmin ? (
@@ -999,6 +1020,19 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
                     className={`${inputCls} mt-1`}
                     required
                   />
+                </label>
+                <label className="block text-xs">
+                  <span className="text-muted-foreground">Saldo inicial (MXN)</span>
+                  <DecimalInput
+                    value={sepOpening}
+                    min={0}
+                    ariaLabel="Saldo inicial"
+                    onChange={setSepOpening}
+                    className={`${inputCls} mt-1 font-mono`}
+                  />
+                  <span className="mt-1 block text-[10px] text-muted-foreground leading-snug">
+                    Lo que ya tenían apartado al empezar. No es un movimiento del mes.
+                  </span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -1161,12 +1195,14 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
                           {line.label}
                         </p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {formatShortDate(line.date)}
-                          {line.kind === "accrual"
-                            ? " · acumulación"
-                            : line.kind === "in"
-                              ? " · entrada"
-                              : " · salida"}
+                          {formatDisplayDate(line.date)}
+                          {line.kind === "opening"
+                            ? " · saldo inicial"
+                            : line.kind === "accrual"
+                              ? " · acumulación"
+                              : line.kind === "in"
+                                ? " · entrada"
+                                : " · salida"}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">

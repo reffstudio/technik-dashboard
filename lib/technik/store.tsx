@@ -87,6 +87,7 @@ import {
   liveNoticeVisibleToRole,
   adoptQuotations,
   adoptProjects,
+  adoptOpsProjects,
   adoptById,
   adoptByKey,
   loadWorkspace,
@@ -741,18 +742,38 @@ export function TechnikProvider({
 
   const persistProjectNow = useCallback((project: Project) => {
     if (!isSupabaseConfigured()) return
-    void trackPersist(`project:${project.id}`, () =>
-      enqueuePersistProject(project, {
-        actorAuthId: userAuthIdRef.current,
-        users: workspaceRef.current.users,
-      }),
-    )
+    const id = project.id
+    void trackPersist(`project:${id}`, () => {
+      const fromStore = workspaceRef.current.projects.find((p) => p.id === id)
+      const base = fromStore ?? project
+      const installments = new Map<string, ProjectInstallment>()
+      for (const inst of project.installments ?? []) {
+        if (inst?.id) installments.set(inst.id, inst)
+      }
+      for (const inst of fromStore?.installments ?? []) {
+        if (inst?.id) installments.set(inst.id, inst)
+      }
+      return enqueuePersistProject(
+        { ...base, installments: Array.from(installments.values()) },
+        {
+          actorAuthId: userAuthIdRef.current,
+          users: workspaceRef.current.users,
+        },
+      )
+    })
   }, [trackPersist])
 
   const applyLoadedOps = useCallback(
     (ops: Extract<Awaited<ReturnType<typeof loadOpsWorkspace>>, { ok: true }>) => {
       if (!ops.projectsError) {
-        setProjects(ops.projects)
+        const projectSaveOpen =
+          savePendingRef.current > 0 ||
+          [...saveJobsRef.current.keys()].some((k) => k.startsWith("project:"))
+        if (projectSaveOpen) {
+          setProjects((prev) => adoptOpsProjects(prev, ops.projects))
+        } else {
+          setProjects(ops.projects)
+        }
       }
       if (!ops.paymentEventsError) {
         setPaymentEvents(ops.paymentEvents)
@@ -1103,7 +1124,12 @@ export function TechnikProvider({
       const refresh = () => {
         window.clearTimeout(debounce)
         debounce = setTimeout(() => {
-          if (!cancelled && !pushingRef.current) void pullFromSupabase()
+          if (cancelled || pushingRef.current) return
+          if (savePendingRef.current > 0) {
+            debounce = setTimeout(refresh, 500)
+            return
+          }
+          void pullFromSupabase()
         }, 280)
       }
       channel = supabase

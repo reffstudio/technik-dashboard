@@ -33,6 +33,7 @@ import {
   type PaymentMethod,
   type PaymentMode,
 } from "@/lib/technik/data"
+import { formatDisplayDate, todayLocalIso } from "@/lib/technik/dates"
 import { clientPublicItemsForQuote, quoteClientDue, quoteTotals, useTechnik } from "@/lib/technik/store"
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import {
@@ -44,13 +45,6 @@ import {
 import { CoverPhotoField } from "../cover-photo-field"
 import { WorkshopStageTrack } from "../workshop-stage-track"
 import type { View } from "../app-shell"
-
-function formatDate(iso?: string) {
-  if (!iso) return "—"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
-}
 
 export function ProjectDetail({
   id,
@@ -84,7 +78,7 @@ export function ProjectDetail({
   const clientId = quote?.clientId ?? project?.clientId
   const client = clientId ? clients.find((c) => c.id === clientId) : undefined
 
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = todayLocalIso()
   const [notes, setNotes] = useState(project?.notes ?? "")
   const [dueDate, setDueDate] = useState(project?.dueDate ?? "")
   const [deliveredAt, setDeliveredAt] = useState(project?.deliveredAt ?? "")
@@ -705,7 +699,7 @@ export function ProjectDetail({
                     Próximo cobro
                   </p>
                   <p className="font-mono text-sm font-bold mt-0.5">
-                    {billing.nextDue ? formatDate(billing.nextDue) : "—"}
+                    {billing.nextDue ? formatDisplayDate(billing.nextDue) : "—"}
                   </p>
                 </div>
               </div>
@@ -758,7 +752,7 @@ export function ProjectDetail({
                 {billing.nextDue && (
                   <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                     <Bell className="size-3.5" />
-                    Recordatorio: {formatDate(billing.nextDue)}
+                    Recordatorio: {formatDisplayDate(billing.nextDue)}
                   </span>
                 )}
               </div>
@@ -795,7 +789,7 @@ export function ProjectDetail({
                               <p className="text-xs text-muted-foreground mt-0.5">
                                 Cobrar:{" "}
                                 <span className="font-mono font-semibold text-foreground">
-                                  {formatDate(inst.dueDate)}
+                                  {formatDisplayDate(inst.dueDate)}
                                 </span>
                                 {inst.note ? ` · ${inst.note}` : ""}
                               </p>
@@ -808,7 +802,7 @@ export function ProjectDetail({
                                   <p className="text-[11px] text-muted-foreground mt-0.5">
                                     Día generada:{" "}
                                     <span className="font-mono font-semibold text-foreground">
-                                      {formatDate(inst.invoiceDate)}
+                                      {formatDisplayDate(inst.invoiceDate)}
                                     </span>
                                   </p>
                                 </>
@@ -820,7 +814,7 @@ export function ProjectDetail({
                               )}
                               {paid && (
                                 <p className="text-[11px] text-fin-gain mt-1">
-                                  Cobrado {formatDate(inst.paidAt)}
+                                  Cobrado {formatDisplayDate(inst.paidAt)}
                                   {inst.method
                                     ? ` · ${PAYMENT_METHOD_LABEL[inst.method]}`
                                     : ""}
@@ -947,7 +941,7 @@ export function ProjectDetail({
                                   {" · "}
                                   Cobrar:{" "}
                                   <span className="font-mono font-semibold text-foreground">
-                                    {formatDate(inst.dueDate)}
+                                    {formatDisplayDate(inst.dueDate)}
                                   </span>
                                   {inst.note ? ` · ${inst.note}` : ""}
                                 </div>
@@ -1272,7 +1266,7 @@ export function ProjectDetail({
               />
             </label>
             <p className="text-[11px] text-muted-foreground mb-3">
-              Compromiso actual: {formatDate(project.dueDate)} · Real: {formatDate(project.deliveredAt)}
+              Compromiso actual: {formatDisplayDate(project.dueDate, "—")} · Real: {formatDisplayDate(project.deliveredAt, "—")}
             </p>
             <label className="block mb-4">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground">

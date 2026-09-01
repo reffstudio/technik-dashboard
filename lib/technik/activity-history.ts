@@ -1,3 +1,5 @@
+import { formatDisplayDate } from "./dates"
+
 export type ActivityStamp = { at: string; action: string; by?: string }
 
 /** Clave estable (UTC al minuto) para no duplicar historial por zona horaria. */
@@ -29,11 +31,7 @@ export function formatActivityAt(at: string): { date: string; time?: string; lab
   const iso = at.includes("T") ? at : at.replace(" ", "T")
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return { date: at, label: at }
-  const date = d.toLocaleDateString("es-MX", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
+  const date = formatDisplayDate(iso, at)
   const time = d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })
   return { date, time, label: `${date} ${time}` }
 }

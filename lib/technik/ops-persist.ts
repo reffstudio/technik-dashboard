@@ -20,6 +20,7 @@ import {
 import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl } from "./cover-image"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
+import { isoDay } from "./dates"
 
 function num(value: number | string | null | undefined, fallback = 0) {
   const n = typeof value === "number" ? value : Number(value)
@@ -138,17 +139,20 @@ export async function loadOpsWorkspace(users: User[]): Promise<
   }
 
   const instBy = new Map<string, ProjectInstallment[]>()
+  if (instRes.error) {
+    console.warn("[technik] No se pudieron leer cuotas", instRes.error.message)
+  }
   for (const row of (instRes.data ?? []) as InstRow[]) {
     const list = instBy.get(row.project_id) ?? []
     list.push({
       id: row.id,
       amount: num(row.amount),
-      dueDate: row.due_date,
+      dueDate: isoDay(row.due_date),
       note: row.note || undefined,
       invoiceUuid: row.invoice_uuid || undefined,
-      invoiceDate: row.invoice_date || undefined,
+      invoiceDate: isoDay(row.invoice_date) || undefined,
       paymentComplement: row.payment_complement ?? undefined,
-      paidAt: row.paid_at || undefined,
+      paidAt: isoDay(row.paid_at) || undefined,
       method: row.method || undefined,
     })
     instBy.set(row.project_id, list)
@@ -250,6 +254,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
     paid_expense_id: string | null
     year_month: string | null
     amount_overridden: boolean | null
+    opening_balance: number | string | null
     created_at: string
   }[]).map((row) =>
     normalizeTreasurySeparado({
@@ -263,6 +268,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       paidExpenseId: row.paid_expense_id || undefined,
       yearMonth: row.year_month || undefined,
       amountOverridden: row.amount_overridden === true,
+      openingBalance: num(row.opening_balance),
       createdAt: row.created_at,
     }),
   )
@@ -412,18 +418,18 @@ async function persistProjectInner(
   }
 
   for (const [i, inst] of (project.installments ?? []).entries()) {
-    if (!inst || !(inst.amount > 0) || !inst.dueDate) continue
+    if (!inst || !(inst.amount > 0) || !isoDay(inst.dueDate)) continue
     const paid = Boolean(inst.paidAt)
     const { error: iErr } = await supabase.from("project_installments").upsert({
       id: inst.id,
       project_id: project.id,
       amount: inst.amount,
-      due_date: inst.dueDate,
+      due_date: isoDay(inst.dueDate),
       note: inst.note ?? null,
       invoice_uuid: inst.invoiceUuid ?? null,
-      invoice_date: inst.invoiceDate || null,
+      invoice_date: isoDay(inst.invoiceDate) || null,
       payment_complement: inst.paymentComplement ?? "na",
-      paid_at: inst.paidAt || null,
+      paid_at: isoDay(inst.paidAt) || null,
       method: paid ? inst.method ?? "otro" : null,
       sort_order: i,
     })
@@ -525,6 +531,7 @@ export async function persistSeparado(sep: TreasurySeparado) {
     paid_expense_id: sep.paidExpenseId ?? null,
     year_month: sep.yearMonth ?? null,
     amount_overridden: sep.amountOverridden === true,
+    opening_balance: sep.openingBalance ?? 0,
     created_at: sep.createdAt,
   })
   if (error) return { ok: false as const, error: error.message }

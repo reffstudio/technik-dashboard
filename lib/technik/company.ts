@@ -1,3 +1,5 @@
+import { formatDisplayDate } from "./dates"
+
 /** Datos de membrete para cotizaciones al cliente (formato imprimible). */
 export const TECHNIK_COMPANY = {
   name: "Technik Solutions",
@@ -45,7 +47,5 @@ export const DEFAULT_QUOTE_TERMS = `1.- Esta cotización tiene una vigencia de 1
 4.- Cualquier cambio de alcance puede modificar tiempos y costos.`
 
 export function formatQuoteDate(iso: string): string {
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
+  return formatDisplayDate(iso, iso)
 }

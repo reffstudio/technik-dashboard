@@ -36,6 +36,7 @@ import {
   quotePipelineStatus,
   type Quotation,
 } from "@/lib/technik/data"
+import { formatDisplayDate, todayLocalIso } from "@/lib/technik/dates"
 import {
   cashflowSeriesInRange,
   openBalancesTotal,
@@ -62,13 +63,6 @@ import {
 import type { View } from "../app-shell"
 
 const EASE = [0.16, 1, 0.3, 1] as const
-
-function formatDate(iso?: string) {
-  if (!iso) return "—"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
-}
 
 function greetingForHour(hour: number): string {
   if (hour < 12) return "Buenos días"
@@ -171,14 +165,12 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   useEffect(() => {
     purgeExpiredTrashedDrafts()
   }, [purgeExpiredTrashedDrafts])
-  const [yearMonth, setYearMonth] = useState(() =>
-    yearMonthFromIso(new Date().toISOString().slice(0, 10)),
-  )
+  const [yearMonth, setYearMonth] = useState(() => yearMonthFromIso(todayLocalIso()))
   const [finanzasPane, setFinanzasPane] = useState<"F" | "B">("F")
   const [finanzasPaused, setFinanzasPaused] = useState(false)
 
   const now = new Date()
-  const todayIso = now.toISOString().slice(0, 10)
+  const todayIso = todayLocalIso()
   const { start: monthStart, end: monthEnd } = monthBounds(yearMonth)
   const monthLabel = formatYearMonthLabel(yearMonth)
 
@@ -255,7 +247,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     [liveProjects, rangeBounds],
   )
   const agenda = useMemo(
-    () => upcomingCollections(activeProjects, 5, todayIso),
+    () => upcomingCollections(activeProjects, undefined, todayIso),
     [activeProjects, todayIso],
   )
   const treasuryYearMonth = yearMonth
@@ -323,7 +315,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
             : waiting.length > 0
               ? `${waiting[0] ? clients.find((c) => c.id === waiting[0]!.clientId)?.company ?? "Cliente" : ""} esperando respuesta`
               : agenda[0]
-                ? `Próximo cobro ${currencyMxn(agenda[0].amount)} · ${formatDate(agenda[0].dueDate)}`
+                ? `Próximo cobro ${currencyMxn(agenda[0].amount)} · ${formatDisplayDate(agenda[0].dueDate)}`
                 : "Sin pendientes de seguimiento ni cobro",
         icon: Hourglass,
         tone: overdueCollections > 0 ? "text-destructive" : "text-chart-3",
@@ -892,11 +884,11 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                 <Receipt className="size-3 text-primary" />
                 Agenda de cobros
               </p>
-              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden">
+              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto">
                 {agenda.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">Sin cobros programados.</p>
                 ) : (
-                  agenda.slice(0, 3).map((row) => {
+                  agenda.map((row) => {
                     const project = projects.find((p) => p.id === row.projectId)
                     const quote = project?.quotationId
                       ? quotations.find((q) => q.id === project.quotationId)
@@ -928,7 +920,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                             )}
                           </div>
                           <p className="text-[10px] text-muted-foreground truncate">
-                            {client?.company ?? "—"} · {formatDate(row.dueDate)}
+                            {client?.company ?? "—"} · {formatDisplayDate(row.dueDate)}
                           </p>
                         </div>
                         <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
@@ -1014,7 +1006,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                           Cobro:{" "}
                           <span className="font-mono text-foreground">
                             {next
-                              ? `${currencyMxn(next.amount)} · ${formatDate(next.dueDate)}`
+                              ? `${currencyMxn(next.amount)} · ${formatDisplayDate(next.dueDate)}`
                               : "—"}
                           </span>
                         </span>

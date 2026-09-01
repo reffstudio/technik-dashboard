@@ -64,6 +64,7 @@ import {
 } from "@/lib/technik/company"
 import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls, StatusBadge, DecimalInput } from "../ui"
 import { formatActivityAt } from "@/lib/technik/activity-history"
+import { formatDisplayDate } from "@/lib/technik/dates"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
 import { CoverPhotoField } from "../cover-photo-field"
@@ -1565,7 +1566,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
               const when = formatActivityAt(h.at)
               return (
                 <li key={`${h.at}-${h.action}-${i}`} className="flex gap-3 text-sm">
-                  <div className="shrink-0 w-[7.5rem] pt-0.5">
+                  <div className="shrink-0 w-[8.5rem] pt-0.5">
                     <p className="font-mono text-[11px] text-muted-foreground">{when.date}</p>
                     {when.time && (
                       <p className="font-mono text-[11px] text-muted-foreground">{when.time}</p>
@@ -1797,7 +1798,7 @@ function ActionsPanel({
             {q.clientSentAt && (
               <div className="flex items-center gap-2 rounded-lg border border-fin-gain/25 bg-fin-gain/10 px-3 py-2 text-xs font-semibold text-fin-gain">
                 <CheckCircle2 className="size-3.5 shrink-0" />
-                Enviado el {q.clientSentAt}
+                Enviado el {formatDisplayDate(q.clientSentAt)}
               </div>
             )}
 
@@ -1889,7 +1890,7 @@ function ActionsPanel({
             {q.supplierSentAt && (
               <div className="flex items-center gap-2 rounded-lg border border-fin-gain/25 bg-fin-gain/10 px-3 py-2 text-xs font-semibold text-fin-gain">
                 <CheckCircle2 className="size-3.5 shrink-0" />
-                Enviado el {q.supplierSentAt}
+                Enviado el {formatDisplayDate(q.supplierSentAt)}
               </div>
             )}
 

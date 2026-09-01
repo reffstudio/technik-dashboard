@@ -268,6 +268,8 @@ export type TreasurySeparado = {
   yearMonth?: string
   /** Si true, el admin ya fijó `value` y no se resetea al refrescar la sugerencia. */
   amountOverridden?: boolean
+  /** Stock de arranque (lo que ya tenían apartado). No es un movimiento del mes. */
+  openingBalance?: number
   createdAt: string
 }
 
@@ -292,6 +294,7 @@ export function normalizeTreasurySeparado(
     paidExpenseId: raw.paidExpenseId,
     yearMonth: raw.yearMonth,
     amountOverridden: raw.amountOverridden,
+    openingBalance: Number.isFinite(raw.openingBalance) ? Math.max(0, raw.openingBalance!) : 0,
     createdAt: raw.createdAt,
   }
 }

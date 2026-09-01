@@ -4,6 +4,7 @@ import { useState, type ElementType } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Landmark, Receipt } from "lucide-react"
 import { yearMonthFromIso } from "@/lib/technik/treasury"
+import { todayLocalIso } from "@/lib/technik/dates"
 import type { View } from "../app-shell"
 import { MonthSwitcher } from "../ui"
 import { BillingHome } from "./billing-home"
@@ -41,7 +42,7 @@ const SECTIONS: {
 
 export function FinancesHome({ section, navigate }: Props) {
   const [yearMonth, setYearMonth] = useState(() =>
-    yearMonthFromIso(new Date().toISOString().slice(0, 10)),
+    yearMonthFromIso(todayLocalIso()),
   )
 
   return (

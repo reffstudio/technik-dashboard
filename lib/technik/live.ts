@@ -6,6 +6,7 @@ import type {
   ApartadoMovement,
   PaymentEvent,
   Project,
+  ProjectInstallment,
   Quotation,
   Supplier,
   TreasuryMonth,
@@ -292,6 +293,44 @@ export function adoptProjects(local: Project[], incoming: Project[]): Project[] 
     const winner = preferByUpdatedAt(a, b)
     return {
       ...winner,
+      deletedAt: preferDeletedAt(a, b),
+      history: mergeActivityHistory(a.history, b.history),
+    }
+  })
+}
+
+function mergeInstallmentLists(
+  local: ProjectInstallment[] | undefined,
+  incoming: ProjectInstallment[] | undefined,
+): ProjectInstallment[] {
+  const map = new Map<string, ProjectInstallment>()
+  for (const inst of incoming ?? []) {
+    if (inst?.id) map.set(inst.id, inst)
+  }
+  for (const inst of local ?? []) {
+    if (!inst?.id) continue
+    const remote = map.get(inst.id)
+    if (!remote) {
+      map.set(inst.id, inst)
+      continue
+    }
+    if (Boolean(inst.paidAt) !== Boolean(remote.paidAt)) {
+      map.set(inst.id, inst.paidAt ? inst : remote)
+      continue
+    }
+    map.set(inst.id, inst)
+  }
+  return Array.from(map.values())
+}
+
+/** Une proyectos de Supabase con el estado local para no perder cuotas en vuelo. */
+export function adoptOpsProjects(local: Project[], incoming: Project[]): Project[] {
+  return adoptById(local, incoming, (a, b) => {
+    const winner = preferByUpdatedAt(a, b)
+    return {
+      ...winner,
+      paymentMode: winner.paymentMode || a.paymentMode || b.paymentMode,
+      installments: mergeInstallmentLists(a.installments, b.installments),
       deletedAt: preferDeletedAt(a, b),
       history: mergeActivityHistory(a.history, b.history),
     }

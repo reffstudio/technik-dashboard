@@ -22,21 +22,21 @@ import {
 import {
   currencyMxn,
   currencyPrecise,
-  installmentIsPaid,
   PAYMENT_METHOD_LABEL,
   projectIsHidden,
   projectTitle,
 } from "@/lib/technik/data"
+import { formatDisplayDate, todayLocalIso } from "@/lib/technik/dates"
 import {
   aggregateInternalEconomy,
   aggregatePublicTaxTotals,
   aggregateTaxOnPaidInRange,
   openBalancesTotal,
   paymentLedger,
+  upcomingCollections,
   quotationsForBillingEconomy,
   sumExpectedInRange,
   sumPaidInRange,
-  type UpcomingCollection,
 } from "@/lib/technik/dashboard"
 import { formatYearMonthLabel, monthBounds } from "@/lib/technik/treasury"
 import { quoteClientDue, useTechnik } from "@/lib/technik/store"
@@ -44,13 +44,6 @@ import { SearchField, Stat } from "../ui"
 import type { View } from "../app-shell"
 
 const EASE = [0.16, 1, 0.3, 1] as const
-
-function formatDate(iso?: string) {
-  if (!iso) return "—"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
-}
 
 export function BillingHome({
   navigate,
@@ -63,7 +56,7 @@ export function BillingHome({
   const [agendaQuery, setAgendaQuery] = useState("")
   const [paidQuery, setPaidQuery] = useState("")
 
-  const todayIso = new Date().toISOString().slice(0, 10)
+  const todayIso = todayLocalIso()
   const { start: monthStart, end: monthEnd } = monthBounds(yearMonth)
   const monthLabel = formatYearMonthLabel(yearMonth)
 
@@ -105,29 +98,10 @@ export function BillingHome({
     () => openBalancesTotal(activeProjects, totalDueByProject),
     [activeProjects, totalDueByProject],
   )
-  const agenda = useMemo(() => {
-    const rows: UpcomingCollection[] = []
-    for (const p of activeProjects) {
-      for (const inst of p.installments ?? []) {
-        if (installmentIsPaid(inst)) continue
-        if (inst.dueDate < monthStart || inst.dueDate > monthEnd) continue
-        rows.push({
-          projectId: p.id,
-          installmentId: inst.id,
-          amount: inst.amount,
-          dueDate: inst.dueDate,
-          note: inst.note,
-          overdue: inst.dueDate < todayIso,
-          installment: inst,
-        })
-      }
-    }
-    rows.sort((a, b) => {
-      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1
-      return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0
-    })
-    return rows
-  }, [activeProjects, todayIso, monthStart, monthEnd])
+  const agenda = useMemo(
+    () => upcomingCollections(activeProjects, undefined, todayIso),
+    [activeProjects, todayIso],
+  )
   const ledger = useMemo(() => paymentLedger(liveProjects, todayIso), [liveProjects, todayIso])
   const monthPaid = useMemo(
     () => ledger.filter((r) => r.paid && r.date >= monthStart && r.date <= monthEnd),
@@ -261,7 +235,7 @@ export function BillingHome({
           transition={{ duration: 0.4, ease: EASE, delay: 0.08 }}
           className="rounded-[1.75rem] surface-card p-5 flex flex-col min-h-[360px]"
         >
-          <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <h2 className="text-sm font-bold font-display uppercase tracking-[0.08em] flex items-center gap-2">
               <Hourglass className="size-4 text-chart-3" />
               Agenda de cobros
@@ -270,16 +244,19 @@ export function BillingHome({
               {filteredAgenda.length}
             </span>
           </div>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            Pendientes por cobrar · vencidos primero
+          </p>
           <SearchField
             value={agendaQuery}
             onChange={setAgendaQuery}
             placeholder="Buscar cliente, folio o monto…"
             className="mb-3 py-1.5"
           />
-          <div className="flex flex-col gap-2 flex-1">
+          <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
             {agenda.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Sin cobros con fecha en este mes.
+                Sin cobros pendientes. Programa un abono en el proyecto.
               </p>
             ) : filteredAgenda.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
@@ -315,7 +292,7 @@ export function BillingHome({
                         {meta.company} · {meta.folio}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        {formatDate(row.dueDate)}
+                        {formatDisplayDate(row.dueDate)}
                         {row.note ? ` · ${row.note}` : ""}
                       </p>
                     </div>
@@ -334,10 +311,13 @@ export function BillingHome({
           transition={{ duration: 0.4, ease: EASE, delay: 0.1 }}
           className="rounded-[1.75rem] surface-card p-5 flex flex-col min-h-[360px]"
         >
-          <h2 className="text-sm font-bold font-display uppercase tracking-[0.08em] flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-bold font-display uppercase tracking-[0.08em] flex items-center gap-2 mb-1">
             <Receipt className="size-4 text-primary" />
             Cobros del mes
           </h2>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            Ya marcados como pagados en {monthLabel}
+          </p>
           <SearchField
             value={paidQuery}
             onChange={setPaidQuery}
@@ -368,7 +348,7 @@ export function BillingHome({
                         +{currencyMxn(row.amount)}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {meta.company} · {formatDate(row.date)}
+                        {meta.company} · {formatDisplayDate(row.date)}
                       </p>
                       {row.method && (
                         <p className="text-[11px] text-muted-foreground">
@@ -396,7 +376,7 @@ export function BillingHome({
         <Stat
           label="Por cobrar (plan)"
           value={currencyMxn(expectedInRange)}
-          hint="Cuotas con fecha en el mes"
+          hint="Incluye vencidos de meses previos"
           tone="amber"
           icon={Clock3}
         />
@@ -410,7 +390,7 @@ export function BillingHome({
         <Stat
           label="Cobros vencidos"
           value={String(overdueCount)}
-          hint="Agenda con fecha pasada"
+          hint="Pendientes con fecha pasada"
           tone={overdueCount > 0 ? "loss" : "neutral"}
           icon={AlertTriangle}
         />

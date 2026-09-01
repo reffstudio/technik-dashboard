@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { Camera, ImagePlus, Trash2, X, Loader2, FileText } from "lucide-react"
+import { formatDisplayDate } from "@/lib/technik/dates"
 import { useTechnik } from "@/lib/technik/store"
 import { visitPhotosOf, VISIT_PHOTO_MAX } from "@/lib/technik/visit-photos"
 import { authHeaders } from "@/lib/supabase/session-token"
@@ -269,7 +270,7 @@ export function VisitPhotosSection({
         >
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <p className="text-xs text-white/80 truncate">
-              {viewer.uploadedBy} · {viewer.takenAt.slice(0, 10)} · {Math.round(viewer.bytes / 1024)} KB
+              {viewer.uploadedBy} · {formatDisplayDate(viewer.takenAt)} · {Math.round(viewer.bytes / 1024)} KB
             </p>
             <button
               type="button"

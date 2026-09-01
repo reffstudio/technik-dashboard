@@ -30,6 +30,7 @@ import {
   type ProjectStage,
   type WorkDepartment,
 } from "@/lib/technik/data"
+import { formatDisplayDate } from "@/lib/technik/dates"
 import { quoteClientDue, useTechnik } from "@/lib/technik/store"
 import {
   BillingStatusBadge,
@@ -40,13 +41,6 @@ import {
   inputCls,
 } from "../ui"
 import type { View } from "../app-shell"
-
-function formatDate(iso?: string) {
-  if (!iso) return "Sin fecha"
-  const [y, m, d] = iso.split("-")
-  if (!y || !m || !d) return iso
-  return `${Number(m)}/${Number(d)}/${y}`
-}
 
 const STAGE_ACCENT: Record<ProjectStage, string> = {
   procesando_solicitud: "bg-chart-3",
@@ -584,7 +578,7 @@ function ProjectTile({
               <span>
                 Entrega taller{" "}
                 <span className="font-mono font-semibold text-foreground">
-                  {formatDate(project.dueDate)}
+                  {formatDisplayDate(project.dueDate, "Sin fecha")}
                 </span>
               </span>
             </div>
