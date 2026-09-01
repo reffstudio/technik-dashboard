@@ -30,6 +30,7 @@ import {
 import {
   currencyMxn,
   isQuotationCreator,
+  projectCoverSources,
   projectIsHidden,
   projectNextInstallment,
   quotationIsTrashed,
@@ -60,6 +61,7 @@ import {
   QuoteAuthor,
   StatusBadge,
 } from "../ui"
+import { CoverImg } from "../cover-photo-field"
 import type { View } from "../app-shell"
 
 const EASE = [0.16, 1, 0.3, 1] as const
@@ -965,7 +967,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
               <ArrowUpRight className="size-4 text-primary opacity-70 group-hover:opacity-100" />
             </span>
           </button>
-          <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-hidden">
+          <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
             {activeProjects.length === 0 ? (
               <EmptyMini
                 icon={FolderKanban}
@@ -988,32 +990,40 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                       key={p.id}
                       type="button"
                       onClick={() => navigate({ name: "project", id: p.id })}
-                      className="rounded-2xl border border-border bg-muted/30 px-3 py-3 text-left hover:border-primary/40 transition-colors"
+                      className="flex overflow-hidden rounded-2xl border border-border bg-muted/30 text-left hover:border-primary/40 transition-colors"
                     >
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <span className="font-mono text-[11px] text-primary">{p.id}</span>
-                        <ProjectStageBadge stage={p.stage} />
+                      <div className="relative w-[4.25rem] sm:w-[4.75rem] shrink-0 self-stretch bg-muted">
+                        <CoverImg
+                          sources={projectCoverSources(p, quote)}
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
                       </div>
-                      <p className="text-sm font-semibold truncate">
-                        {quote?.title ?? p.title ?? "Sin título"}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground truncate mb-2">
-                        {client?.company ?? "—"}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        {quote ? (
-                          <DepartmentBadges quotation={quote} />
-                        ) : (
-                          <DepartmentBadges departments={p.departments} />
-                        )}
-                        <span>
-                          Cobro:{" "}
-                          <span className="font-mono text-foreground">
-                            {next
-                              ? `${currencyMxn(next.amount)} · ${formatDisplayDate(next.dueDate)}`
-                              : "—"}
+                      <div className="min-w-0 flex-1 px-3 py-2.5">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <span className="font-mono text-[11px] text-primary">{p.id}</span>
+                          <ProjectStageBadge stage={p.stage} />
+                        </div>
+                        <p className="text-sm font-semibold truncate">
+                          {quote?.title ?? p.title ?? "Sin título"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate mb-2">
+                          {client?.company ?? "—"}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          {quote ? (
+                            <DepartmentBadges quotation={quote} />
+                          ) : (
+                            <DepartmentBadges departments={p.departments} />
+                          )}
+                          <span>
+                            Cobro:{" "}
+                            <span className="font-mono text-foreground">
+                              {next
+                                ? `${currencyMxn(next.amount)} · ${formatDisplayDate(next.dueDate)}`
+                                : "—"}
+                            </span>
                           </span>
-                        </span>
+                        </div>
                       </div>
                     </button>
                   )
