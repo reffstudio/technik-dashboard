@@ -84,6 +84,7 @@ import {
   quoteDispatchRecipients,
   quotePdfFile,
   quotePdfFilename,
+  quotePdfPartyName,
   quotePdfProjectName,
   shareQuotePdf,
   supplierQuoteMail,
@@ -513,6 +514,7 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       q!.reference || q!.id,
       doc,
       quotePdfProjectName(q!),
+      quotePdfPartyName(doc, { client, supplier }),
     )
     setPdfBusy(true)
     if (!quiet) {
@@ -602,7 +604,12 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
 
     if (!lockPricesIfNeeded()) return
 
-    const filename = quotePdfFilename(reference, kind, quotePdfProjectName(q!))
+    const filename = quotePdfFilename(
+      reference,
+      kind,
+      quotePdfProjectName(q!),
+      quotePdfPartyName(kind, { client, supplier }),
+    )
     setPdfBusy(true)
     setToast({
       icon: Share2,
@@ -839,7 +846,12 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       clientCc: kind === "client" ? client?.ccEmails : undefined,
       extraCc: kind === "client" ? clientExtraCc : supplierExtraCc,
     })
-    const filename = quotePdfFilename(reference, kind, quotePdfProjectName(q!))
+    const filename = quotePdfFilename(
+      reference,
+      kind,
+      quotePdfProjectName(q!),
+      quotePdfPartyName(kind, { client, supplier }),
+    )
     setPdfBusy(true)
     setToast({
       icon: Mail,

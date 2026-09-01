@@ -46,15 +46,31 @@ export function quotePdfProjectName(quotation: {
   return fromPublic || quotation.title?.trim() || ""
 }
 
+export function quotePdfPartyName(
+  kind: QuotePdfKind,
+  opts?: {
+    client?: Pick<Client, "company" | "contact"> | null
+    supplier?: Pick<Supplier, "name" | "contact"> | null
+  },
+): string {
+  if (kind === "supplier") {
+    return opts?.supplier?.name?.trim() || opts?.supplier?.contact?.trim() || ""
+  }
+  return opts?.client?.company?.trim() || opts?.client?.contact?.trim() || ""
+}
+
 export function quotePdfFilename(
   reference: string,
   kind: QuotePdfKind,
   projectName?: string,
+  partyName?: string,
 ): string {
   const safeRef = filenameSlug(reference) || "cotizacion"
   const safeProject = projectName?.trim() ? filenameSlug(projectName.trim()) : ""
-  const base = safeProject ? `${safeRef}-${safeProject}` : safeRef
-  return kind === "client" ? `${base}-cliente.pdf` : `${base}-proveedor.pdf`
+  const safeParty = partyName?.trim() ? filenameSlug(partyName.trim()) : ""
+  const kindFallback = kind === "client" ? "cliente" : "proveedor"
+  const parts = [safeRef, safeProject, safeParty || kindFallback].filter(Boolean)
+  return `${parts.join("-")}.pdf`
 }
 
 /** Dígitos para wa.me. 10 dígitos MX → prefijo 52. */
