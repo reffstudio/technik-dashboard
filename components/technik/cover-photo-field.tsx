@@ -1,16 +1,61 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronUp, ImagePlus, Trash2 } from "lucide-react"
+import { DEFAULT_COVER_IMAGE } from "@/lib/technik/data"
+
+export function CoverImg({
+  sources,
+  className,
+  alt = "",
+}: {
+  sources: (string | undefined)[]
+  className?: string
+  alt?: string
+}) {
+  const fingerprint = sources.map((s) => s?.trim() ?? "").join("\n")
+  const list = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const url of [...fingerprint.split("\n"), DEFAULT_COVER_IMAGE]) {
+      const u = url.trim()
+      if (!u || seen.has(u)) continue
+      seen.add(u)
+      out.push(u)
+    }
+    return out
+  }, [fingerprint])
+
+  const [index, setIndex] = useState(0)
+  useEffect(() => {
+    setIndex(0)
+  }, [fingerprint])
+
+  const src = list[Math.min(index, Math.max(0, list.length - 1))]
+  if (!src) return null
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={src}
+      src={src}
+      alt={alt}
+      className={className}
+      onError={() => setIndex((i) => (i < list.length - 1 ? i + 1 : i))}
+    />
+  )
+}
 
 export function CoverPhotoField({
   imageUrl,
+  sources,
   onChange,
   disabled,
   canRemove = true,
   children,
 }: {
   imageUrl?: string
+  sources?: (string | undefined)[]
   onChange: (dataUrl: string | undefined) => void
   disabled?: boolean
   canRemove?: boolean
@@ -19,6 +64,7 @@ export function CoverPhotoField({
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const coverSources = sources ?? [imageUrl]
 
   useEffect(() => {
     if (!menuOpen) return
@@ -41,12 +87,10 @@ export function CoverPhotoField({
 
   return (
     <div className="relative isolate overflow-hidden rounded-[1.75rem] min-h-[240px] sm:min-h-[280px]">
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      ) : (
-        <div className="absolute inset-0 bg-muted" />
-      )}
+      <CoverImg
+        sources={coverSources}
+        className="absolute inset-0 h-full w-full object-cover"
+      />
       <div
         className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/25"
         aria-hidden
@@ -89,7 +133,7 @@ export function CoverPhotoField({
                 <ImagePlus className="size-3.5 text-white/80" />
                 Cambiar foto
               </button>
-              {canRemove && imageUrl && (
+              {canRemove && imageUrl && imageUrl !== DEFAULT_COVER_IMAGE && (
                 <button
                   type="button"
                   role="menuitem"

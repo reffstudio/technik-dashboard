@@ -23,7 +23,7 @@ import {
   quotationIsTrashed,
   projectTitle,
   quotationHasDepartment,
-  projectCoverUrl,
+  projectCoverSources,
   isQuotationCreator,
   trashDaysLeft,
   type Project,
@@ -40,6 +40,7 @@ import {
   Stat,
   inputCls,
 } from "../ui"
+import { CoverImg } from "../cover-photo-field"
 import type { View } from "../app-shell"
 
 const STAGE_ACCENT: Record<ProjectStage, string> = {
@@ -496,7 +497,6 @@ function ProjectTile({
   const billing = projectBillingSummary(project, totalDue)
   const cobroVencido =
     billing.status === "vencido" || projectHasOverdueInstallment(project)
-  const cover = projectCoverUrl(project, quote)
   const inTrash = projectIsTrashed(project) || Boolean(quote && quotationIsTrashed(quote))
   const days =
     inTrash && (project.deletedAt || quote?.deletedAt)
@@ -519,18 +519,10 @@ function ProjectTile({
       />
 
       <button type="button" onClick={onOpen} className={`relative h-32 sm:h-36 bg-muted/50 overflow-hidden text-left ${inTrash ? "opacity-60 grayscale" : ""}`}>
-        {cover ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={cover}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
-          />
-        ) : (
-          <div className="h-full w-full bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center">
-            <FolderKanban className="size-9 text-muted-foreground/35" />
-          </div>
-        )}
+        <CoverImg
+          sources={projectCoverSources(project, quote)}
+          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]"
+        />
         <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/35 to-transparent" />
       </button>
 

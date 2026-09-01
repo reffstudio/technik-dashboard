@@ -408,19 +408,78 @@ export interface Quotation {
   history: QuoteEvent[]
 }
 
-/** Solo la foto que el admin agregó explícitamente a la cotización. */
-export function quotationCoverUrl(q: Pick<Quotation, "coverImageUrl">) {
-  return q.coverImageUrl
-}
-
 /** Foto de fondo del pill de resumen — portada por defecto si no hay imagen. */
 export const DEFAULT_COVER_IMAGE = "/brand/overview-hero.png"
 
+function pushCover(out: string[], seen: Set<string>, url?: string) {
+  const u = url?.trim()
+  if (!u || seen.has(u)) return
+  seen.add(u)
+  out.push(u)
+}
+
+function isVisitPhotoCoverUrl(url: string) {
+  return (
+    /\/object\/sign\/visit-photos\//.test(url) ||
+    /\/object\/public\/visit-photos\//.test(url) ||
+    /\/api\/quotes\/[^/]+\/photos\//.test(url)
+  )
+}
+
+/**
+ * La portada elegida desde fotos de visita se guarda como URL firmada o ruta de API.
+ * Las firmadas caducan; si la foto sigue en la cotización, usamos su URL vigente.
+ */
+export function resolvedCoverUrl(
+  stored?: string,
+  visitPhotos?: VisitPhoto[] | null,
+): string | undefined {
+  const url = stored?.trim()
+  if (!url) return undefined
+  const match = (visitPhotos ?? []).find(
+    (p) => url === p.url || url === p.thumbUrl || (p.id && url.includes(p.id)),
+  )
+  if (match) return match.url || match.thumbUrl
+  if (isVisitPhotoCoverUrl(url)) return undefined
+  return url
+}
+
+/** Solo la foto que el admin agregó explícitamente a la cotización. */
+export function quotationCoverUrl(
+  q: Pick<Quotation, "coverImageUrl" | "visitPhotos">,
+) {
+  return resolvedCoverUrl(q.coverImageUrl, q.visitPhotos)
+}
+
+/** Candidatos de portada: proyecto → cotización → imagen por defecto. */
+export function projectCoverSources(
+  project?: Pick<Project, "coverImageUrl"> | null,
+  quote?: Pick<Quotation, "coverImageUrl" | "visitPhotos"> | null,
+): string[] {
+  const photos = quote?.visitPhotos
+  const seen = new Set<string>()
+  const out: string[] = []
+  pushCover(out, seen, resolvedCoverUrl(project?.coverImageUrl, photos))
+  pushCover(out, seen, resolvedCoverUrl(quote?.coverImageUrl, photos))
+  pushCover(out, seen, DEFAULT_COVER_IMAGE)
+  return out
+}
+
+export function quotationCoverSources(
+  q?: Pick<Quotation, "coverImageUrl" | "visitPhotos"> | null,
+): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  pushCover(out, seen, resolvedCoverUrl(q?.coverImageUrl, q?.visitPhotos))
+  pushCover(out, seen, DEFAULT_COVER_IMAGE)
+  return out
+}
+
 export function projectCoverUrl(
   project: Pick<Project, "coverImageUrl">,
-  quote?: Pick<Quotation, "coverImageUrl">,
+  quote?: Pick<Quotation, "coverImageUrl" | "visitPhotos">,
 ) {
-  return project.coverImageUrl || quote?.coverImageUrl || DEFAULT_COVER_IMAGE
+  return projectCoverSources(project, quote)[0] ?? DEFAULT_COVER_IMAGE
 }
 
 // ─── Helpers ────────────────────────────────────────────────────

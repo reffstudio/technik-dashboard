@@ -101,7 +101,6 @@ export function sumPaidInMonth(projects: Project[], year: number, month: number)
 export function sumExpectedInMonth(projects: Project[], year: number, month: number): number {
   let sum = 0
   for (const p of projects) {
-    if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
       if (!installmentIsPaid(inst) && inYearMonth(inst.dueDate, year, month)) {
         sum += inst.amount || 0
@@ -136,8 +135,7 @@ export function sumPaidInRange(
 }
 
 /**
- * Pendiente por cobrar: todas las cuotas no pagadas de proyectos activos,
- * sin importar si la fecha cae en el mes visto.
+ * Pendiente por cobrar: todas las cuotas no pagadas (incluye taller completado).
  */
 export function sumExpectedInRange(
   projects: Project[],
@@ -146,7 +144,6 @@ export function sumExpectedInRange(
 ): number {
   let sum = 0
   for (const p of projects) {
-    if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
       if (installmentIsPaid(inst)) continue
       const amount = Number(inst.amount) || 0
@@ -217,7 +214,6 @@ export function cashflowSeriesInRange(
         row.cobrado += inst.amount || 0
         map.set(key, row)
       }
-      if (p.stage === "completado") continue
       if (installmentIsPaid(inst)) continue
       const due = isoDay(inst.dueDate)
       const amount = Number(inst.amount) || 0
@@ -256,7 +252,7 @@ export type UpcomingCollection = {
   installment: ProjectInstallment
 }
 
-/** Cuotas pendientes (vencidas primero), proyectos no completados. Sin tope si `limit` omitido. */
+/** Cuotas pendientes (vencidas primero). Incluye proyectos ya entregados. */
 export function upcomingCollections(
   projects: Project[],
   limit?: number,
@@ -264,7 +260,6 @@ export function upcomingCollections(
 ): UpcomingCollection[] {
   const rows: UpcomingCollection[] = []
   for (const p of projects) {
-    if (p.stage === "completado") continue
     for (const inst of p.installments ?? []) {
       if (installmentIsPaid(inst)) continue
       const due = isoDay(inst.dueDate) || inst.dueDate || ""
@@ -286,14 +281,13 @@ export function upcomingCollections(
   return limit != null ? rows.slice(0, limit) : rows
 }
 
-/** Σ saldos abiertos de proyectos no completados (total PDF o totalDue − pagado). */
+/** Σ saldos abiertos (total PDF o totalDue − pagado), también si el taller ya cerró. */
 export function openBalancesTotal(
   projects: Project[],
   totalDueByProjectId: Record<string, number>,
 ): number {
   let sum = 0
   for (const p of projects) {
-    if (p.stage === "completado") continue
     const due = totalDueByProjectId[p.id] ?? p.totalDue ?? 0
     sum += projectBillingSummary(p, due).balance
   }

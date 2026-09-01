@@ -279,9 +279,9 @@ export function AppShell() {
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.6, opacity: 0 }}
                             transition={{ type: "spring", stiffness: 520, damping: 22 }}
-                            className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center"
+                            className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-[10px] font-bold tabular-nums leading-none text-primary-foreground flex items-center justify-center"
                           >
-                            {actionableCount > 9 ? "9+" : actionableCount}
+                            {actionableCount}
                           </motion.span>
                         )}
                       </AnimatePresence>

@@ -28,7 +28,7 @@ import {
   projectIsOverdue,
   projectIsTrashed,
   projectTitle,
-  projectCoverUrl,
+  projectCoverSources,
   trashDaysLeft,
   type PaymentMethod,
   type PaymentMode,
@@ -367,7 +367,8 @@ export function ProjectDetail({
       <div className={inTrash ? "opacity-60 grayscale pointer-events-none select-none" : undefined}>
       <section className="mb-6">
         <CoverPhotoField
-          imageUrl={projectCoverUrl(project, quote)}
+          imageUrl={project.coverImageUrl}
+          sources={projectCoverSources(project, quote)}
           onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
           canRemove={Boolean(project.coverImageUrl)}
           disabled={inTrash}

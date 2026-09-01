@@ -239,16 +239,16 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     [liveProjects, rangeBounds],
   )
   const openBalance = useMemo(
-    () => openBalancesTotal(activeProjects, totalDueByProject),
-    [activeProjects, totalDueByProject],
+    () => openBalancesTotal(liveProjects, totalDueByProject),
+    [liveProjects, totalDueByProject],
   )
   const series = useMemo(
     () => cashflowSeriesInRange(liveProjects, rangeBounds.start, rangeBounds.end),
     [liveProjects, rangeBounds],
   )
   const agenda = useMemo(
-    () => upcomingCollections(activeProjects, undefined, todayIso),
-    [activeProjects, todayIso],
+    () => upcomingCollections(liveProjects, undefined, todayIso),
+    [liveProjects, todayIso],
   )
   const treasuryYearMonth = yearMonth
   const balances = useMemo(

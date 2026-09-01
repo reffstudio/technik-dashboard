@@ -46,7 +46,7 @@ import {
   isQuotationCreator,
   canTrashQuotation,
   canRestoreQuotation,
-  DEFAULT_COVER_IMAGE,
+  quotationCoverSources,
   suggestedPublicUnitPrice,
   type Client,
   type CatalogItem,
@@ -68,6 +68,7 @@ import { formatDisplayDate } from "@/lib/technik/dates"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
 import { CoverPhotoField } from "../cover-photo-field"
+import { visitPhotoUrl } from "@/lib/technik/visit-photos"
 import type { View } from "../app-shell"
 import {
   clientQuoteMail,
@@ -1066,7 +1067,8 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
       <div className={inTrash ? "opacity-60 grayscale pointer-events-none select-none" : undefined}>
       <section className="mb-6">
         <CoverPhotoField
-          imageUrl={q.coverImageUrl || DEFAULT_COVER_IMAGE}
+          imageUrl={q.coverImageUrl}
+          sources={quotationCoverSources(q)}
           onChange={(url) => updateQuotation(q.id, { coverImageUrl: url })}
           canRemove={Boolean(q.coverImageUrl)}
           disabled={!coverEditable}
@@ -1282,7 +1284,9 @@ export function QuotationReview({ id, navigate }: { id: string; navigate: (v: Vi
                   isAdmin
                     ? (photo) => {
                         if (sentLocked) return
-                        updateQuotation(q.id, { coverImageUrl: photo?.url })
+                        updateQuotation(q.id, {
+                          coverImageUrl: photo ? visitPhotoUrl(q.id, photo.id) : undefined,
+                        })
                       }
                     : undefined
                 }

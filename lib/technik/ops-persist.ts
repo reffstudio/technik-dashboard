@@ -186,7 +186,11 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       deliveredAt: row.delivered_at || undefined,
       notes: row.notes || undefined,
       paymentMode: row.payment_mode || undefined,
-      installments: instBy.get(row.id) ?? [],
+      installments: (() => {
+        const own = instBy.get(row.id) ?? []
+        if (own.length > 0) return own
+        return row.quotation_id ? (instBy.get(row.quotation_id) ?? []) : []
+      })(),
       createdAt: (row.created_at ?? "").slice(0, 10),
       updatedAt: row.updated_at?.slice(0, 16).replace("T", " ") ?? (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],

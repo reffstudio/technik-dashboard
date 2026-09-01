@@ -90,17 +90,13 @@ export function BillingHome({
     () => sumExpectedInRange(liveProjects, rangeBounds.start, rangeBounds.end),
     [liveProjects, rangeBounds],
   )
-  const activeProjects = useMemo(
-    () => liveProjects.filter((p) => p.stage !== "completado"),
-    [liveProjects],
-  )
   const openBalance = useMemo(
-    () => openBalancesTotal(activeProjects, totalDueByProject),
-    [activeProjects, totalDueByProject],
+    () => openBalancesTotal(liveProjects, totalDueByProject),
+    [liveProjects, totalDueByProject],
   )
   const agenda = useMemo(
-    () => upcomingCollections(activeProjects, undefined, todayIso),
-    [activeProjects, todayIso],
+    () => upcomingCollections(liveProjects, undefined, todayIso),
+    [liveProjects, todayIso],
   )
   const ledger = useMemo(() => paymentLedger(liveProjects, todayIso), [liveProjects, todayIso])
   const monthPaid = useMemo(

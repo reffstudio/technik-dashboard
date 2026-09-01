@@ -35,7 +35,6 @@ import {
   quotationIsTrashed,
   quotationTrashExpired,
   projectTrashExpired,
-  quotationCoverUrl,
   shortDepartmentLabel,
   suggestedPrice,
   type Client,
@@ -2657,7 +2656,7 @@ export function TechnikProvider({
           clientId: existing.clientId ?? quote.clientId,
           title: existing.title ?? quote.title,
           departments: existing.departments?.length ? existing.departments : quote.departments,
-          coverImageUrl: existing.coverImageUrl || quotationCoverUrl(quote),
+          coverImageUrl: existing.coverImageUrl || quote.coverImageUrl,
           updatedAt: d,
           history:
             existing.totalDue === due
@@ -2686,7 +2685,7 @@ export function TechnikProvider({
         totalDue: due,
         stage: "procesando_solicitud",
         installments: [],
-        coverImageUrl: quotationCoverUrl(quote),
+        coverImageUrl: quote.coverImageUrl,
         createdById: user?.id,
         createdAt: d,
         updatedAt: d,
