@@ -55,10 +55,15 @@ export function VisitPhotosSection({
   useEffect(() => {
     if (!quotationId) return
     let cancelled = false
+    let inflight = false
+    const ac = new AbortController()
     const load = async () => {
+      if (inflight || cancelled) return
+      inflight = true
       try {
         const res = await fetch(`/api/quotes/${encodeURIComponent(quotationId)}/photos`, {
           headers: await authHeaders(),
+          signal: ac.signal,
         })
         const data = (await res.json()) as { ok?: boolean; photos?: VisitPhoto[] }
         if (!cancelled && data.ok && Array.isArray(data.photos)) {
@@ -66,19 +71,22 @@ export function VisitPhotosSection({
           hydrateVisitPhotos(quotationId, data.photos)
         }
       } catch {
-        /* el poll del workspace puede traerlas después */
+        /* abort o red: el poll del workspace puede traerlas después */
+      } finally {
+        inflight = false
       }
     }
     void load()
     const onFocus = () => void load()
     window.addEventListener("focus", onFocus)
-    const tick = window.setInterval(() => void load(), 4000)
+    const tick = window.setInterval(() => void load(), 8000)
     return () => {
       cancelled = true
+      ac.abort()
       window.removeEventListener("focus", onFocus)
       window.clearInterval(tick)
     }
-  }, [quotationId])
+  }, [hydrateVisitPhotos, quotationId])
 
   const list = mergePhotoLists(photos, remote)
   const remaining = VISIT_PHOTO_MAX - list.length

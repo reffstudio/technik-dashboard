@@ -10,8 +10,27 @@ function isOffline() {
   return typeof navigator !== "undefined" && navigator.onLine === false
 }
 
+export function isNetworkPersistError(error?: string) {
+  if (!error) return false
+  const m = error.toLowerCase()
+  return (
+    error === "offline" ||
+    m.includes("failed to fetch") ||
+    m.includes("networkerror") ||
+    m.includes("network error") ||
+    m.includes("load failed") ||
+    m.includes("fetch failed") ||
+    m.includes("err_connection") ||
+    m.includes("econnreset") ||
+    m.includes("econnrefused")
+  )
+}
+
 export function displayPersistError(error?: string) {
   if (!error) return "No se pudo guardar. Recarga e inténtalo de nuevo."
+  if (isNetworkPersistError(error)) {
+    return "No se pudo conectar. Reintenta; si sigue, recarga."
+  }
   if (/cannot read propert/i.test(error)) {
     return "No se pudo guardar. Recarga e inténtalo de nuevo."
   }
@@ -67,5 +86,5 @@ export async function runWithRetries(
 }
 
 export function persistFailedOffline(res: PersistResult) {
-  return (!res.ok && res.error === "offline") || isOffline()
+  return (!res.ok && isNetworkPersistError(res.error)) || isOffline()
 }

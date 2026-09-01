@@ -329,6 +329,20 @@ export async function persistProject(
   project: Project,
   ctx: { actorAuthId?: string; users: User[] },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    return await persistProjectInner(project, ctx)
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "No se pudo guardar el proyecto.",
+    }
+  }
+}
+
+async function persistProjectInner(
+  project: Project,
+  ctx: { actorAuthId?: string; users: User[] },
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = getSupabaseBrowser()
   const createdBy =
     ctx.users.find((u) => u && (u.id === project.createdById || u.authId === project.createdById))?.authId ||

@@ -1623,6 +1623,13 @@ export function TechnikProvider({
         password,
       })
       if (error || !data.user) {
+        const msg = error?.message ?? ""
+        if (/failed to fetch|networkerror|load failed|fetch failed/i.test(msg)) {
+          return {
+            ok: false as const,
+            error: "No se pudo conectar. Revisa internet o recarga localhost.",
+          }
+        }
         return { ok: false as const, error: "Correo o contraseña incorrectos." }
       }
       const applied = await applyAuthUser(data.user.id, data.user.email)
