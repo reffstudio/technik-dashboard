@@ -25,7 +25,7 @@ import {
 import { useTheme } from "next-themes"
 import { formatUsername } from "@/lib/technik/codes"
 import { roleLabel, useTechnik } from "@/lib/technik/store"
-import { buildAppNotifications, loadSeenNotificationIds, persistSeenNotificationIds } from "@/lib/technik/notifications"
+import { buildAppNotifications, formatNotificationWhen, loadSeenNotificationIds, persistSeenNotificationIds } from "@/lib/technik/notifications"
 import { BrandLogo } from "./brand-logo"
 import { SaveStatusChip } from "./save-status-chip"
 import { UserAvatar } from "./ui"
@@ -85,6 +85,7 @@ export function AppShell() {
   const [moreOpen, setMoreOpen] = useState<"desktop" | "mobile" | null>(null)
   const [inboxOpen, setInboxOpen] = useState(false)
   const [seenNotifIds, setSeenNotifIds] = useState<Set<string>>(() => new Set())
+  const [inboxNowMs, setInboxNowMs] = useState(() => Date.now())
   const moreDesktopRef = useRef<HTMLDivElement>(null)
   const moreMobileRef = useRef<HTMLDivElement>(null)
   const inboxRef = useRef<HTMLDivElement>(null)
@@ -92,6 +93,13 @@ export function AppShell() {
   useEffect(() => {
     setSeenNotifIds(loadSeenNotificationIds(user?.id))
   }, [user?.id])
+
+  useEffect(() => {
+    if (!inboxOpen) return
+    setInboxNowMs(Date.now())
+    const id = window.setInterval(() => setInboxNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(id)
+  }, [inboxOpen])
 
   const notifications = useMemo(
     () => (isAdmin ? buildAppNotifications({ inboxEvents }) : []),
@@ -317,6 +325,7 @@ export function AppShell() {
                           <AnimatePresence initial={false}>
                             {notifications.slice(0, 12).map((n) => {
                               const seen = seenNotifIds.has(n.id)
+                              const when = formatNotificationWhen(n.at, inboxNowMs)
                               return (
                               <motion.button
                                 key={n.id}
@@ -357,7 +366,14 @@ export function AppShell() {
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className="text-xs font-semibold text-foreground">{n.title}</p>
+                                  <p className="text-xs font-semibold text-foreground min-w-0 truncate">
+                                    {n.title}
+                                    {when ? (
+                                      <span className="ml-1.5 font-medium text-[10px] text-muted-foreground tabular-nums">
+                                        {when}
+                                      </span>
+                                    ) : null}
+                                  </p>
                                   {!seen && n.kind === "review_queue" && (
                                     <span className="shrink-0 rounded-full bg-primary/15 text-primary text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5">
                                       Nueva

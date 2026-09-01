@@ -1,4 +1,5 @@
 import type { Quotation } from "./data"
+import { formatDisplayDate } from "./dates"
 
 export type AppNotificationKind =
   | "review_queue"
@@ -85,6 +86,24 @@ export function parseActivityMs(raw: string | undefined): number {
   const ss = m[4] ?? "00"
   const n = Date.parse(`${day}T${hh}:${mm}:${ss}`)
   return Number.isNaN(n) ? 0 : n
+}
+
+/** Relativo corto para la campana: ahora / hace N min / hace N h / ayer / SEP/01/2026. */
+export function formatNotificationWhen(at: string | undefined, nowMs = Date.now()): string {
+  const ms = parseActivityMs(at)
+  if (!ms) return ""
+  const diff = Math.max(0, nowMs - ms)
+  const minutes = Math.floor(diff / 60_000)
+  if (minutes < 1) return "ahora"
+  if (minutes < 60) return `hace ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `hace ${hours} h`
+  const then = new Date(ms)
+  const now = new Date(nowMs)
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startThen = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime()
+  if (startToday - startThen === 86_400_000) return "ayer"
+  return formatDisplayDate(at) || formatDisplayDate(then.toISOString())
 }
 
 /**
