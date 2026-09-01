@@ -16,7 +16,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { currencyMxn } from "@/lib/technik/data"
+import { currencyMxn, projectIsHidden } from "@/lib/technik/data"
 import {
   cashflowSeriesInRange,
   sumExpectedInRange,
@@ -38,6 +38,10 @@ const SLIDE_MS = 7000
 export function FinancesHero({ yearMonth }: { yearMonth: string }) {
   const { projects, quotations, clients, expenses, treasuryMonths } = useTechnik()
   const { start, end } = monthBounds(yearMonth)
+  const liveProjects = useMemo(
+    () => projects.filter((p) => !projectIsHidden(p, quotations)),
+    [projects, quotations],
+  )
 
   const [slide, setSlide] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -51,21 +55,21 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
   }, [paused, slide])
 
   const series = useMemo(
-    () => cashflowSeriesInRange(projects, start, end),
-    [projects, start, end],
+    () => cashflowSeriesInRange(liveProjects, start, end),
+    [liveProjects, start, end],
   )
   const paidInRange = useMemo(
-    () => sumPaidInRange(projects, start, end),
-    [projects, start, end],
+    () => sumPaidInRange(liveProjects, start, end),
+    [liveProjects, start, end],
   )
   const expectedInRange = useMemo(
-    () => sumExpectedInRange(projects, start, end),
-    [projects, start, end],
+    () => sumExpectedInRange(liveProjects, start, end),
+    [liveProjects, start, end],
   )
   const prevBounds = monthBounds(shiftYearMonth(yearMonth, -1))
   const prevPaid = useMemo(
-    () => sumPaidInRange(projects, prevBounds.start, prevBounds.end),
-    [projects, prevBounds.start, prevBounds.end],
+    () => sumPaidInRange(liveProjects, prevBounds.start, prevBounds.end),
+    [liveProjects, prevBounds.start, prevBounds.end],
   )
   const monthChangePct =
     prevPaid > 0
@@ -77,14 +81,14 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
   const balances = useMemo(
     () =>
       monthCashSummary(
-        projects,
+        liveProjects,
         quotations,
         clients,
         expenses,
         treasuryMonths,
         yearMonth,
       ),
-    [projects, quotations, clients, expenses, treasuryMonths, yearMonth],
+    [liveProjects, quotations, clients, expenses, treasuryMonths, yearMonth],
   )
 
   const monthLabel = formatYearMonthLabel(yearMonth)

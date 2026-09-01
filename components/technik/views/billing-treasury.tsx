@@ -13,6 +13,7 @@ import {
 import {
   CASH_CHANNEL_LABEL,
   currencyMxn,
+  projectIsHidden,
   type ApartadoMovementKind,
   type CashChannel,
   type SeparadoKind,
@@ -71,6 +72,11 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     removeApartadoMovement,
   } = useTechnik()
 
+  const liveProjects = useMemo(
+    () => projects.filter((p) => !projectIsHidden(p, quotations)),
+    [projects, quotations],
+  )
+
   const todayIso = new Date().toISOString().slice(0, 10)
   const [openEdit, setOpenEdit] = useState(false)
   const [draftBank, setDraftBank] = useState("")
@@ -101,19 +107,19 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
   const summary = useMemo(
     () =>
       monthCashSummary(
-        projects,
+        liveProjects,
         quotations,
         clients,
         expenses,
         treasuryMonths,
         yearMonth,
       ),
-    [projects, quotations, clients, expenses, treasuryMonths, yearMonth],
+    [liveProjects, quotations, clients, expenses, treasuryMonths, yearMonth],
   )
 
   const ledger = useMemo(
-    () => monthLedger(projects, quotations, clients, expenses, yearMonth),
-    [projects, quotations, clients, expenses, yearMonth],
+    () => monthLedger(liveProjects, quotations, clients, expenses, yearMonth),
+    [liveProjects, quotations, clients, expenses, yearMonth],
   )
 
   const monthIncomeTotal = summary.incomeBank + summary.incomeCash
@@ -127,7 +133,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
         ? fromCandidates.reduce((a, b) => (a < b ? a : b))
         : yearMonth
     return monthIncomeTotalsMap(
-      projects,
+      liveProjects,
       quotations,
       clients,
       expenses,
@@ -137,7 +143,7 @@ export function BillingTreasury({ navigate, yearMonth }: Props) {
     )
   }, [
     treasurySeparados,
-    projects,
+    liveProjects,
     quotations,
     clients,
     expenses,

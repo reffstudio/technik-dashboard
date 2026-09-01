@@ -85,13 +85,13 @@ export function BillingHome({
     [monthStart, monthEnd],
   )
 
-  const paidInRange = useMemo(
-    () => sumPaidInRange(projects, rangeBounds.start, rangeBounds.end),
-    [projects, rangeBounds],
-  )
   const liveProjects = useMemo(
     () => projects.filter((p) => !projectIsHidden(p, quotations)),
     [projects, quotations],
+  )
+  const paidInRange = useMemo(
+    () => sumPaidInRange(liveProjects, rangeBounds.start, rangeBounds.end),
+    [liveProjects, rangeBounds],
   )
   const expectedInRange = useMemo(
     () => sumExpectedInRange(liveProjects, rangeBounds.start, rangeBounds.end),
@@ -128,7 +128,7 @@ export function BillingHome({
     })
     return rows
   }, [activeProjects, todayIso, monthStart, monthEnd])
-  const ledger = useMemo(() => paymentLedger(projects, todayIso), [projects, todayIso])
+  const ledger = useMemo(() => paymentLedger(liveProjects, todayIso), [liveProjects, todayIso])
   const monthPaid = useMemo(
     () => ledger.filter((r) => r.paid && r.date >= monthStart && r.date <= monthEnd),
     [ledger, monthStart, monthEnd],
@@ -201,12 +201,12 @@ export function BillingHome({
   const taxOnPaid = useMemo(
     () =>
       aggregateTaxOnPaidInRange(
-        projects,
+        liveProjects,
         quotations,
         rangeBounds.start,
         rangeBounds.end,
       ),
-    [projects, quotations, rangeBounds],
+    [liveProjects, quotations, rangeBounds],
   )
   const profitMarginPct =
     economy.salesTotal > 0 ? (economy.profit / economy.salesTotal) * 100 : 0

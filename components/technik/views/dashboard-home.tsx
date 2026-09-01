@@ -239,8 +239,8 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   )
 
   const paidInRange = useMemo(
-    () => sumPaidInRange(projects, rangeBounds.start, rangeBounds.end),
-    [projects, rangeBounds],
+    () => sumPaidInRange(liveProjects, rangeBounds.start, rangeBounds.end),
+    [liveProjects, rangeBounds],
   )
   const expectedInRange = useMemo(
     () => sumExpectedInRange(liveProjects, rangeBounds.start, rangeBounds.end),
@@ -251,8 +251,8 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
     [activeProjects, totalDueByProject],
   )
   const series = useMemo(
-    () => cashflowSeriesInRange(projects, rangeBounds.start, rangeBounds.end),
-    [projects, rangeBounds],
+    () => cashflowSeriesInRange(liveProjects, rangeBounds.start, rangeBounds.end),
+    [liveProjects, rangeBounds],
   )
   const agenda = useMemo(
     () => upcomingCollections(activeProjects, 5, todayIso),
@@ -262,14 +262,14 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
   const balances = useMemo(
     () =>
       monthCashSummary(
-        projects,
+        liveProjects,
         quotations,
         clients,
         expenses,
         treasuryMonths,
         treasuryYearMonth,
       ),
-    [projects, quotations, clients, expenses, treasuryMonths, treasuryYearMonth],
+    [liveProjects, quotations, clients, expenses, treasuryMonths, treasuryYearMonth],
   )
   const balancesMonthLabel = formatYearMonthLabel(treasuryYearMonth)
 

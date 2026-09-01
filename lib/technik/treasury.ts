@@ -5,6 +5,7 @@
 
 import {
   installmentIsPaid,
+  projectIsHidden,
   projectTitle,
   roundMxn,
   type ApartadoMovement,
@@ -98,6 +99,7 @@ export function monthIncomeRows(
   const rows: TreasuryIncomeRow[] = []
 
   for (const p of projects) {
+    if (projectIsHidden(p, quotations)) continue
     const quote = p.quotationId ? quoteById.get(p.quotationId) : undefined
     const clientId = quote?.clientId ?? p.clientId
     const client = clientId ? clientById.get(clientId) : undefined
