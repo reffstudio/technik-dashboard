@@ -62,7 +62,7 @@ import {
   DEFAULT_TAX_RATE,
   formatPercentLabel,
 } from "@/lib/technik/company"
-import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls, StatusBadge } from "../ui"
+import { DepartmentBadges, inputCls, SearchField, QuoteAuthor, QuotePipelineControls, StatusBadge, DecimalInput } from "../ui"
 import { formatActivityAt } from "@/lib/technik/activity-history"
 import { QuotePdfPreview, buildSupplierBomLines, type PdfDocKind } from "../quote-pdf-preview"
 import { VisitPhotosSection } from "../visit-photos-section"
@@ -2108,13 +2108,12 @@ function PublicItemsEditor({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Cant.
                 </span>
-                <input
-                  type="number"
+                <DecimalInput
+                  value={item.quantity}
                   min={0}
-                  step={1}
-                  value={item.quantity || ""}
                   disabled={locked}
-                  onChange={(e) => updateItem(item.id, { quantity: Number(e.target.value) })}
+                  ariaLabel="Cantidad"
+                  onChange={(n) => updateItem(item.id, { quantity: n })}
                   className={`${inputCls} mt-1 font-mono disabled:opacity-60`}
                 />
               </label>
@@ -2134,13 +2133,12 @@ function PublicItemsEditor({
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   P. unitario
                 </span>
-                <input
-                  type="number"
+                <DecimalInput
+                  value={item.unitPrice}
                   min={0}
-                  step="0.01"
-                  value={item.unitPrice || ""}
                   disabled={locked}
-                  onChange={(e) => updateItem(item.id, { unitPrice: Number(e.target.value) })}
+                  ariaLabel="Precio unitario"
+                  onChange={(n) => updateItem(item.id, { unitPrice: n })}
                   className={`${inputCls} mt-1 font-mono disabled:opacity-60`}
                 />
               </label>
@@ -2439,15 +2437,14 @@ function LinesTable({
                   </td>
                   <td className="px-2 py-3 text-right">
                     {qtyEditable ? (
-                      <input
-                        type="number"
+                      <DecimalInput
+                        value={qty}
                         min={0}
-                        step={labor ? 0.5 : 1}
-                        value={qty || ""}
-                        onChange={(e) =>
+                        ariaLabel="Cantidad"
+                        onChange={(n) =>
                           setQuantities((prev) => ({
                             ...prev,
-                            [line.itemId]: Number(e.target.value),
+                            [line.itemId]: n,
                           }))
                         }
                         className="w-20 rounded-lg bg-input/60 border border-border py-1.5 px-2 text-right text-sm font-mono outline-none focus:border-primary/60"
@@ -2463,13 +2460,12 @@ function LinesTable({
                       </td>
                       <td className="px-2 py-3 text-right">
                         {editable ? (
-                          <input
-                            type="number"
+                          <DecimalInput
+                            value={price}
                             min={0}
-                            step="0.01"
-                            value={price || ""}
-                            onChange={(e) =>
-                              setPrices((p) => ({ ...p, [line.itemId]: Number(e.target.value) }))
+                            ariaLabel="Precio unitario"
+                            onChange={(n) =>
+                              setPrices((p) => ({ ...p, [line.itemId]: n }))
                             }
                             className="w-24 rounded-lg bg-input/60 border border-border py-1.5 px-2 text-right text-sm font-mono outline-none focus:border-primary/60"
                           />

@@ -11,7 +11,7 @@ import {
   type CatalogKind,
 } from "@/lib/technik/data"
 import { DEFAULT_LABOR_HOURLY_RATE } from "@/lib/technik/company"
-import { Field, inputCls, PageHeader } from "../ui"
+import { Field, inputCls, PageHeader, DecimalInput } from "../ui"
 
 const KIND_OPTIONS: { id: CatalogKind; label: string }[] = [
   { id: "material", label: "Material" },
@@ -327,16 +327,12 @@ export function CatalogView() {
                     <td className="px-4 py-3.5 text-right">
                       {draft ? (
                         <div className="flex items-center justify-end gap-1">
-                          <input
-                            type="number"
+                          <DecimalInput
+                            value={draft.unitCost}
                             min={0}
-                            step="0.01"
-                            value={draft.unitCost || ""}
-                            onChange={(e) =>
-                              setEditDraft({ ...draft, unitCost: Number(e.target.value) })
-                            }
+                            ariaLabel="Costo"
+                            onChange={(n) => setEditDraft({ ...draft, unitCost: n })}
                             className="w-24 rounded-lg bg-input/60 border border-border py-1.5 px-2 text-right text-sm font-mono outline-none focus:border-primary/60"
-                            aria-label="Costo"
                           />
                           <input
                             value={draft.unit}
@@ -498,12 +494,11 @@ function AddRow({
           <input value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls} />
         </Field>
         <Field label={kind === "labor" ? "Tarifa $/h (catálogo)" : "Costo unitario ($)"}>
-          <input
-            type="number"
+          <DecimalInput
+            value={unitCost}
             min={0}
-            step="0.01"
-            value={unitCost || ""}
-            onChange={(e) => setUnitCost(Number(e.target.value))}
+            ariaLabel={kind === "labor" ? "Tarifa por hora" : "Costo unitario"}
+            onChange={setUnitCost}
             className={inputCls}
           />
         </Field>

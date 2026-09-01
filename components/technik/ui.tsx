@@ -1,6 +1,6 @@
 "use client"
 
-import type { ElementType, ReactNode } from "react"
+import { useState, type ElementType, type ReactNode } from "react"
 import {
   Archive,
   AlertTriangle,
@@ -488,6 +488,56 @@ export function Stat({
 
 export const inputCls =
   "w-full rounded-xl bg-input/60 border border-border px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/60 transition-colors"
+
+function parseDecimal(raw: string): number | null {
+  const t = raw.trim().replace(",", ".")
+  if (t === "" || t === "." || t === "-") return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Precio/cantidad con decimales: no come el punto ni convierte 0.50 en 0 al escribir. */
+export function DecimalInput({
+  value,
+  onChange,
+  className,
+  disabled,
+  min = 0,
+  ariaLabel,
+}: {
+  value: number
+  onChange: (n: number) => void
+  className?: string
+  disabled?: boolean
+  min?: number
+  ariaLabel?: string
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft ?? (Number.isFinite(value) ? String(value) : "")
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      value={shown}
+      onFocus={() => setDraft(Number.isFinite(value) ? String(value) : "")}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d.,]/g, "")
+        setDraft(raw)
+        const n = parseDecimal(raw)
+        if (n !== null && n >= min) onChange(n)
+      }}
+      onBlur={() => {
+        const n = parseDecimal(draft ?? "")
+        onChange(n !== null && n >= min ? n : min)
+        setDraft(null)
+      }}
+      className={className}
+    />
+  )
+}
 
 /** Brinca mes a mes (dinero / tesorería). */
 export function MonthSwitcher({

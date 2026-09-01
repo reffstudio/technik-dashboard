@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { useTechnik } from "@/lib/technik/store"
 import { canRestoreQuotation, quotationIsTrashed, type CatalogItem, type QuoteLine, type WorkDepartment } from "@/lib/technik/data"
-import { Field, inputCls, PageHeader } from "../ui"
+import { Field, inputCls, PageHeader, DecimalInput } from "../ui"
 import { VisitPhotosSection } from "../visit-photos-section"
 import type { View } from "../app-shell"
 
@@ -853,12 +853,12 @@ export function QuoteBuilder({
             </Field>
             {isAdmin && (
               <Field label="Costo unitario">
-                <input
-                  type="number"
-                  min={0}
-                  className={inputCls}
+                <DecimalInput
                   value={newExtra.unitCost}
-                  onChange={(e) => setNewExtra({ ...newExtra, unitCost: Number(e.target.value) })}
+                  min={0}
+                  ariaLabel="Costo unitario"
+                  onChange={(n) => setNewExtra({ ...newExtra, unitCost: n })}
+                  className={inputCls}
                 />
               </Field>
             )}
