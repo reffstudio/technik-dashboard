@@ -115,24 +115,16 @@ export function buildAppNotifications(input: {
 }): AppNotification[] {
   const items = input.inboxEvents ?? []
 
-  const rank: Record<AppNotificationKind, number> = {
-    review_queue: 0,
-    overdue_installment: 1,
-    pending_complement: 2,
-    waiting_client: 3,
-    activity: 4,
-  }
-
   const byId = new Map<string, AppNotification>()
   for (const item of items) {
     const prev = byId.get(item.id)
-    if (!prev || (prev.at ?? "") < (item.at ?? "")) byId.set(item.id, item)
+    if (!prev || parseActivityMs(prev.at) < parseActivityMs(item.at)) byId.set(item.id, item)
   }
 
   return Array.from(byId.values()).sort((a, b) => {
-    const rd = rank[a.kind] - rank[b.kind]
-    if (rd !== 0) return rd
-    return a.at < b.at ? 1 : -1
+    const delta = parseActivityMs(b.at) - parseActivityMs(a.at)
+    if (delta !== 0) return delta
+    return (b.id ?? "").localeCompare(a.id ?? "")
   })
 }
 
