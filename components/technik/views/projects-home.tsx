@@ -326,6 +326,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
         </div>
       )}
 
+      {folder !== "trashed" && (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
         <Stat label="Activos" value={String(activeCount)} hint="Sin completar" tone="teal" />
         <Stat
@@ -337,27 +338,22 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
         <Stat label="Completados" value={String(doneCount)} hint="Entregados" tone="gain" />
         <Stat label="Total" value={String(liveScoped.length)} hint="Todos los proyectos" tone="neutral" />
       </div>
+      )}
 
-      <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border w-full sm:w-fit mb-4">
-        <button
-          type="button"
-          onClick={() => setFolder("active")}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-            folder === "active" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Activos
-        </button>
-        <button
-          type="button"
-          onClick={() => setFolder("trashed")}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-            folder === "trashed" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
-        </button>
-      </div>
+      {folder === "trashed" ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <p className="text-xs text-muted-foreground">
+            Papelera · {trashScoped.length} proyecto{trashScoped.length === 1 ? "" : "s"} · 15 días
+          </p>
+          <button
+            type="button"
+            onClick={() => setFolder("active")}
+            className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            Volver
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex flex-col lg:flex-row gap-2 mb-5">
         <div className="relative flex-1 min-w-0">
@@ -369,6 +365,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
             className={`${inputCls} pl-9`}
           />
         </div>
+        {folder !== "trashed" && (
         <div className="relative shrink-0 w-full sm:w-56">
           <select
             value={stage}
@@ -385,8 +382,10 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           </select>
           <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
         </div>
+        )}
       </div>
 
+      {folder !== "trashed" && (
       <div className="flex flex-wrap items-center gap-2 mb-5" role="group" aria-label="Filtrar por departamento">
         <button
           type="button"
@@ -417,6 +416,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           )
         })}
       </div>
+      )}
 
       {list.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-10 text-center">
@@ -447,7 +447,6 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
                       ) {
                         return
                       }
-                      setFolder("trashed")
                       void trashProject(p.id).then((res) => {
                         if (!res.ok) window.alert(res.error)
                       })
@@ -465,6 +464,18 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
               }
             />
           ))}
+        </div>
+      )}
+
+      {folder !== "trashed" && (
+        <div className="mt-8 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setFolder("trashed")}
+            className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
+          >
+            Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
+          </button>
         </div>
       )}
     </div>
@@ -503,8 +514,12 @@ function ProjectTile({
 
   return (
     <div
-      className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md min-h-[240px] ${
-        deliveryLate && !inTrash ? "ring-1 ring-destructive/35" : ""
+      className={`group relative flex flex-col text-left rounded-2xl surface-card overflow-hidden min-h-[240px] ${
+        inTrash
+          ? "opacity-60 grayscale"
+          : `transition-all hover:border-primary/45 hover:-translate-y-0.5 hover:shadow-md ${
+              deliveryLate ? "ring-1 ring-destructive/35" : ""
+            }`
       }`}
     >
       <span

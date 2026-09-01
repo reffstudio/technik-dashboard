@@ -260,9 +260,7 @@ export function AppShell() {
             </nav>
 
             <div className="flex items-center gap-2 sm:gap-3 ml-auto min-w-0 flex-1 sm:flex-none sm:max-w-[min(520px,42vw)] justify-end">
-              {isAdmin && (
-                <LiveNoticeText notice={liveNotice} onDismiss={dismissLiveNotice} />
-              )}
+              <LiveNoticeText notice={liveNotice} onDismiss={dismissLiveNotice} />
               {isAdmin && (
                 <div className="relative shrink-0" ref={inboxRef}>
                   <button
@@ -645,7 +643,7 @@ function LiveNoticeText({
             transition={{ duration: 0.22 }}
             onClick={onDismiss}
             title="Cerrar"
-            className="truncate text-right text-[11px] sm:text-[12px] text-muted-foreground hover:text-foreground transition-colors max-w-full"
+            className="truncate text-right text-[11px] sm:text-[12px] font-medium text-foreground hover:text-foreground/80 transition-colors max-w-full"
           >
             {notice.text}
           </motion.button>

@@ -17,13 +17,12 @@ const FILTERS = [
   { id: "mine", label: "Todas" },
   { id: "draft", label: "Borradores" },
   { id: "pending_review", label: "Enviadas a administración" },
-  { id: "trashed", label: "Eliminados" },
 ] as const
 
 export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
   const { quotations, projects, clients, user, deleteDraftQuotation, restoreDraftQuotation } =
     useTechnik()
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("mine")
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"] | "trashed">("mine")
   const [query, setQuery] = useState("")
 
   const mine = useMemo(
@@ -96,6 +95,20 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
           placeholder="Buscar folio, título o cliente…"
           className="max-w-lg"
         />
+        {filter === "trashed" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Papelera · {trashed.length} cotizaci{trashed.length === 1 ? "ón" : "ones"} · 15 días
+            </p>
+            <button
+              type="button"
+              onClick={() => setFilter("mine")}
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              Volver
+            </button>
+          </div>
+        ) : (
         <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border w-full sm:w-fit overflow-x-auto">
           {FILTERS.map((f) => (
             <button
@@ -109,6 +122,7 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {list.length === 0 ? (
@@ -143,7 +157,9 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
             return (
               <div
                 key={q.id}
-                className="group flex items-center gap-2 rounded-2xl bg-muted/50 px-3 py-2.5 hover:bg-accent transition-colors"
+                className={`group flex items-center gap-2 rounded-2xl bg-muted/50 px-3 py-2.5 transition-colors ${
+                  inTrash ? "opacity-60 grayscale" : "hover:bg-accent"
+                }`}
               >
                 <button
                   type="button"
@@ -221,6 +237,18 @@ export function EmployeeHome({ navigate }: { navigate: (v: View) => void }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {filter !== "trashed" && (
+        <div className="mt-8 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setFilter("trashed")}
+            className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
+          >
+            Eliminados{trashed.length > 0 ? ` (${trashed.length})` : ""}
+          </button>
         </div>
       )}
     </div>

@@ -368,7 +368,11 @@ export function ProjectDetail({
                     return
                   }
                   void trashProject(project.id).then((res) => {
-                    if (!res.ok) setToast(res.error)
+                    if (!res.ok) {
+                      setToast(res.error)
+                      return
+                    }
+                    navigate({ name: "projects" })
                   })
                 }}
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-destructive/80"

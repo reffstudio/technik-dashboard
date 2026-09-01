@@ -23,7 +23,7 @@ import {
 import type { View } from "../app-shell"
 
 const FILTERS: {
-  id: "queue" | "all" | QuoteStatus | "sent_client" | "sent_supplier" | "waiting" | "trashed"
+  id: "queue" | "all" | QuoteStatus | "sent_client" | "sent_supplier" | "waiting"
   label: string
 }[] = [
   { id: "queue", label: "Nuevas" },
@@ -32,7 +32,6 @@ const FILTERS: {
   { id: "sent_client", label: "Enviada al cliente" },
   { id: "sent_supplier", label: "Enviada al proveedor" },
   { id: "closed", label: "Archivadas" },
-  { id: "trashed", label: "Eliminados" },
   { id: "all", label: "Todas" },
 ]
 
@@ -48,7 +47,7 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
     restoreDraftQuotation,
     purgeExpiredTrashedDrafts,
   } = useTechnik()
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("queue")
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"] | "trashed">("queue")
   const [dept, setDept] = useState<"all" | WorkDepartment>("all")
   const [query, setQuery] = useState("")
 
@@ -156,6 +155,20 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
           placeholder="Buscar folio, título, cliente o autor…"
           className="max-w-lg"
         />
+        {filter === "trashed" ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Papelera · {trashed.length} cotizaci{trashed.length === 1 ? "ón" : "ones"} · 15 días
+            </p>
+            <button
+              type="button"
+              onClick={() => setFilter("queue")}
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              Volver
+            </button>
+          </div>
+        ) : (
         <div className="flex items-center gap-1 p-1 rounded-xl bg-background/60 border border-border overflow-x-auto flex-1 min-w-0">
           {FILTERS.map((f) => (
             <button
@@ -169,6 +182,8 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
             </button>
           ))}
         </div>
+        )}
+        {filter !== "trashed" && (
         <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtrar por departamento">
           <button
             type="button"
@@ -199,6 +214,7 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
             )
           })}
         </div>
+        )}
       </div>
 
       {list.length === 0 ? (
@@ -222,7 +238,9 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
             return (
               <div
                 key={q.id}
-                className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 hover:bg-accent transition-colors"
+                className={`flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2.5 transition-colors ${
+                  inTrash ? "opacity-60 grayscale" : "hover:bg-accent"
+                }`}
               >
                 <button
                   type="button"
@@ -295,6 +313,18 @@ export function AdminHome({ navigate }: { navigate: (v: View) => void }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {filter !== "trashed" && (
+        <div className="mt-8 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setFilter("trashed")}
+            className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground"
+          >
+            Eliminados{trashed.length > 0 ? ` (${trashed.length})` : ""}
+          </button>
         </div>
       )}
     </div>

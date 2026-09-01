@@ -182,6 +182,7 @@ interface TechnikState {
   /** Última notificación en vivo (texto minimalista en header). */
   liveNotice: LiveNotice | null
   dismissLiveNotice: () => void
+  showNotice: (text: string) => void
   /** Hub de avisos en vivo (no es fuente de datos). */
   syncStatus: "connecting" | "live" | "offline"
   saveStatus: SaveStatus
@@ -2359,9 +2360,14 @@ export function TechnikProvider({
         if (p.quotationId === id && p.deletedAt === deletedAt) persistProjectNow(p)
       }
       flushPublish({ quotations: nextQuotations, projects: nextProjects })
+      showNotice(
+        linked.length > 0
+          ? `${q.reference} y su proyecto se movieron a Eliminados · 15 días para recuperar`
+          : `${q.reference} se movió a Eliminados · 15 días para recuperar`,
+      )
       return { ok: true }
     },
-    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow, persistTrashFlags],
+    [quotations, projects, user, flushPublish, persistQuoteNow, persistProjectNow, persistTrashFlags, showNotice],
   )
 
   const restoreDraftQuotation = useCallback(
@@ -2454,9 +2460,10 @@ export function TechnikProvider({
       const updated = nextProjects.find((x) => x.id === id)
       if (updated) persistProjectNow(updated)
       flushPublish({ projects: nextProjects })
+      showNotice(`${p.id} se movió a Eliminados · 15 días para recuperar`)
       return { ok: true }
     },
-    [projects, quotations, user, deleteDraftQuotation, persistProjectNow, persistTrashFlags, flushPublish],
+    [projects, quotations, user, deleteDraftQuotation, persistProjectNow, persistTrashFlags, flushPublish, showNotice],
   )
 
   const restoreProject = useCallback(
@@ -3395,6 +3402,7 @@ export function TechnikProvider({
       settings,
       liveNotice,
       dismissLiveNotice,
+      showNotice,
       syncStatus,
       saveStatus,
       saveError,
@@ -3481,6 +3489,7 @@ export function TechnikProvider({
       settings,
       liveNotice,
       dismissLiveNotice,
+      showNotice,
       syncStatus,
       saveStatus,
       saveError,
