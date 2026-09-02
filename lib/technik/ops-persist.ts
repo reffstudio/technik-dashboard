@@ -21,6 +21,7 @@ import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromData
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
 import { isoDay } from "./dates"
+import { resolveProjectStageForPersist } from "./live"
 
 function num(value: number | string | null | undefined, fallback = 0) {
   const n = typeof value === "number" ? value : Number(value)
@@ -359,6 +360,17 @@ async function persistProjectInner(
     ctx.actorAuthId ||
     null
 
+  const { data: dbRow } = await supabase
+    .from("projects")
+    .select("stage, updated_at, delivered_at")
+    .eq("id", project.id)
+    .maybeSingle()
+  const db = dbRow as { stage?: Project["stage"]; updated_at?: string; delivered_at?: string | null } | null
+  const stage = resolveProjectStageForPersist(project, {
+    stage: db?.stage,
+    updatedAt: db?.updated_at?.slice(0, 16).replace("T", " ") ?? db?.updated_at,
+  })
+
   const payload: Record<string, unknown> = {
     id: project.id,
     quotation_id: project.quotationId ?? null,
@@ -366,9 +378,11 @@ async function persistProjectInner(
     client_id: project.clientId ?? null,
     total_due: project.totalDue ?? null,
     created_by: createdBy,
-    stage: project.stage,
+    stage,
     due_date: project.dueDate || null,
-    delivered_at: project.deliveredAt || null,
+    delivered_at:
+      (stage === "completado" ? project.deliveredAt || db?.delivered_at || isoDay(project.updatedAt) : project.deliveredAt) ||
+      null,
     notes: project.notes ?? null,
     payment_mode: project.paymentMode ?? null,
     deleted_at: project.deletedAt ?? null,

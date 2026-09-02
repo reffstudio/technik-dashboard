@@ -88,6 +88,9 @@ import {
   adoptProjects,
   adoptOpsProjects,
   preferProjectForPersist,
+  applyProjectIntent,
+  mergeProjectIntent,
+  projectIntentSettled,
   adoptById,
   adoptByKey,
   loadWorkspace,
@@ -96,6 +99,7 @@ import {
   type LiveNoticeAudience,
   type WorkspaceSettings,
   type WorkspaceSnapshot,
+  type ProjectIntent,
 } from "./live"
 import type { InboxEvent } from "./notifications"
 import { fetchRemoteWorkspace, pushRemoteWorkspace } from "./remote-workspace"
@@ -362,7 +366,13 @@ interface TechnikState {
   markInstallmentPaid: (
     projectId: string,
     installmentId: string,
-    input: { paidAt: string; method: PaymentMethod },
+    input: {
+      paidAt: string
+      method: PaymentMethod
+      amount?: number
+      invoiceUuid?: string
+      invoiceDate?: string
+    },
   ) => void
   addPaymentCorrectionNote: (
     projectId: string,
@@ -456,6 +466,7 @@ export function TechnikProvider({
   const saveJobsRef = useRef(new Map<string, () => Promise<PersistResult>>())
   const savePendingRef = useRef(0)
   const saveDirtyRef = useRef(false)
+  const projectIntentRef = useRef(new Map<string, ProjectIntent>())
   const trackPersistRef = useRef<
     (key: string, job: () => Promise<PersistResult>) => Promise<PersistResult>
   >(async () => ({ ok: true }))
@@ -746,12 +757,30 @@ export function TechnikProvider({
     const id = project.id
     void trackPersist(`project:${id}`, () => {
       const fromStore = workspaceRef.current.projects.find((p) => p.id === id)
-      return enqueuePersistProject(preferProjectForPersist(project, fromStore), {
+      const pinned = applyProjectIntent(
+        preferProjectForPersist(project, fromStore),
+        projectIntentRef.current.get(id),
+      )
+      return enqueuePersistProject(pinned, {
         actorAuthId: userAuthIdRef.current,
         users: workspaceRef.current.users,
       })
     })
   }, [trackPersist])
+
+  const pinProjectIntent = useCallback(
+    (
+      id: string,
+      patch: {
+        stage?: ProjectStage
+        deliveredAt?: string
+        paid?: { id: string; paidAt: string; method?: PaymentMethod }
+      },
+    ) => {
+      projectIntentRef.current.set(id, mergeProjectIntent(projectIntentRef.current.get(id), patch))
+    },
+    [],
+  )
 
   const applyLoadedOps = useCallback(
     (ops: Extract<Awaited<ReturnType<typeof loadOpsWorkspace>>, { ok: true }>) => {
@@ -762,16 +791,30 @@ export function TechnikProvider({
             .map((k) => k.slice("project:".length)),
         )
         const projectSaveOpen = savePendingRef.current > 0 || inflightIds.size > 0
+        const incomingIds = new Set(ops.projects.map((row) => row.id))
+        const toRepersist: Project[] = []
         setProjects((prev) => {
           const incoming =
             inflightIds.size > 0
               ? ops.projects.filter((p) => !inflightIds.has(p.id))
               : ops.projects
-          const merged = adoptOpsProjects(prev, incoming)
-          if (projectSaveOpen) return merged
-          const incomingIds = new Set(ops.projects.map((p) => p.id))
-          return merged.filter((p) => incomingIds.has(p.id))
+          let merged = adoptOpsProjects(prev, incoming)
+          if (!projectSaveOpen) {
+            merged = merged.filter((p) => incomingIds.has(p.id))
+          }
+          return merged.map((p) => {
+            const intent = projectIntentRef.current.get(p.id)
+            if (!intent) return p
+            if (projectIntentSettled(p, intent)) {
+              projectIntentRef.current.delete(p.id)
+              return p
+            }
+            const pinned = applyProjectIntent(p, intent)
+            if (!inflightIds.has(p.id)) toRepersist.push(pinned)
+            return pinned
+          })
         })
+        for (const pinned of toRepersist) persistProjectNow(pinned)
       }
       if (!ops.paymentEventsError) {
         setPaymentEvents((prev) =>
@@ -794,7 +837,7 @@ export function TechnikProvider({
         setApartadoMovements(ops.apartadoMovements)
       }
     },
-    [],
+    [persistProjectNow],
   )
 
   const applyLoadedCore = useCallback(
@@ -2641,7 +2684,7 @@ export function TechnikProvider({
       if (!quote) return null
 
       const due = quoteClientDue(quote, catalog).total
-      const existing = projects.find(
+      const existing = workspaceRef.current.projects.find(
         (p) => p.quotationId === quotationId || p.id === quotationId || p.id === quote.reference,
       )
       const d = today()
@@ -2649,28 +2692,33 @@ export function TechnikProvider({
       const actor = user?.name ?? "Usuario"
 
       if (existing) {
-        const next: Project = {
-          ...existing,
-          totalDue: due,
-          clientId: existing.clientId ?? quote.clientId,
-          title: existing.title ?? quote.title,
-          departments: existing.departments?.length ? existing.departments : quote.departments,
-          coverImageUrl: existing.coverImageUrl || quote.coverImageUrl,
-          updatedAt: fieldStamp(),
-          history:
-            existing.totalDue === due
-              ? existing.history
-              : [
-                  ...existing.history,
-                  {
-                    at: stamp,
-                    by: actor,
-                    action: `Actualizó totales desde cotización · ${due.toLocaleString("es-MX", { style: "currency", currency: "MXN" })}`,
-                  },
-                ],
-        }
-        setProjects((prev) => prev.map((p) => (p.id === existing.id ? next : p)))
-        persistProjectNow(next)
+        let toSave: Project | null = null
+        setProjects((prev) => {
+          const current = prev.find((p) => p.id === existing.id) ?? existing
+          const next: Project = {
+            ...current,
+            totalDue: due,
+            clientId: current.clientId ?? quote.clientId,
+            title: current.title ?? quote.title,
+            departments: current.departments?.length ? current.departments : quote.departments,
+            coverImageUrl: current.coverImageUrl || quote.coverImageUrl,
+            updatedAt: fieldStamp(),
+            history:
+              current.totalDue === due
+                ? current.history
+                : [
+                    ...current.history,
+                    {
+                      at: stamp,
+                      by: actor,
+                      action: `Actualizó totales desde cotización · ${due.toLocaleString("es-MX", { style: "currency", currency: "MXN" })}`,
+                    },
+                  ],
+          }
+          toSave = next
+          return prev.map((p) => (p.id === current.id ? next : p))
+        })
+        if (toSave) persistProjectNow(toSave)
         return existing.id
       }
 
@@ -2710,7 +2758,7 @@ export function TechnikProvider({
       })
       return id
     },
-    [quotations, projects, catalog, user, announce, persistProjectNow],
+    [quotations, catalog, user, announce, persistProjectNow],
   )
 
   const setClientResponse = useCallback(
@@ -2851,6 +2899,7 @@ export function TechnikProvider({
           if (p.id !== id) return p
           const deliveredAt =
             stage === "completado" ? (p.deliveredAt ?? d) : p.deliveredAt
+          pinProjectIntent(id, { stage, deliveredAt })
           const next = {
             ...p,
             stage,
@@ -2876,7 +2925,7 @@ export function TechnikProvider({
         },
       )
     },
-    [user, announce],
+    [user, announce, persistProjectNow, pinProjectIntent],
   )
 
   const setProjectPaymentMode = useCallback(
@@ -3119,20 +3168,32 @@ export function TechnikProvider({
     (
       projectId: string,
       installmentId: string,
-      input: { paidAt: string; method: PaymentMethod },
+      input: {
+        paidAt: string
+        method: PaymentMethod
+        amount?: number
+        invoiceUuid?: string
+        invoiceDate?: string
+      },
     ) => {
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
-      const project = projects.find((p) => p.id === projectId)
+      const project = workspaceRef.current.projects.find((p) => p.id === projectId)
       const target = project?.installments?.find((x) => x.id === installmentId)
       if (!target || target.paidAt) return
-      const amountLabel = formatMoneyShort(target.amount)
+      const amount = input.amount != null && Number.isFinite(input.amount) && input.amount > 0
+        ? input.amount
+        : target.amount
+      const amountLabel = formatMoneyShort(amount)
+      pinProjectIntent(projectId, {
+        paid: { id: installmentId, paidAt: input.paidAt, method: input.method },
+      })
       const event: PaymentEvent = {
         id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         projectId,
         installmentId,
         kind: "collected",
-        amount: target.amount,
+        amount,
         method: input.method,
         paidAt: input.paidAt,
         at: stamp,
@@ -3149,7 +3210,18 @@ export function TechnikProvider({
             ...p,
             installments: (p.installments ?? []).map((inst) =>
               inst.id === installmentId
-                ? { ...inst, paidAt: input.paidAt, method: input.method }
+                ? {
+                    ...inst,
+                    amount,
+                    paidAt: input.paidAt,
+                    method: input.method,
+                    invoiceUuid: input.invoiceUuid !== undefined
+                      ? input.invoiceUuid.trim() || undefined
+                      : inst.invoiceUuid,
+                    invoiceDate: input.invoiceDate !== undefined
+                      ? input.invoiceDate || undefined
+                      : inst.invoiceDate,
+                  }
                 : inst,
             ),
             updatedAt: fieldStamp(),
@@ -3174,7 +3246,7 @@ export function TechnikProvider({
         href: { name: "project", id: projectId },
       })
     },
-    [user, announce, projects],
+    [user, announce, persistProjectNow, pinProjectIntent, trackPersist],
   )
 
   const addPaymentCorrectionNote = useCallback(

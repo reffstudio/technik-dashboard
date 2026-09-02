@@ -299,14 +299,12 @@ export function ProjectDetail({
       window.setTimeout(() => setToast(null), 2200)
       return
     }
-    updateProjectInstallment(project!.id, installmentId, {
-      amount,
-      invoiceUuid: collectUuid.trim() || undefined,
-      invoiceDate: collectInvoiceDate || undefined,
-    })
     markInstallmentPaid(project!.id, installmentId, {
       paidAt: collectDate,
       method: collectMethod,
+      amount,
+      invoiceUuid: collectUuid.trim() || undefined,
+      invoiceDate: collectInvoiceDate || undefined,
     })
     setCollectId(null)
     setCollectAmount("")

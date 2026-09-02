@@ -7,6 +7,7 @@ import type {
   PaymentEvent,
   Project,
   ProjectInstallment,
+  ProjectStage,
   Quotation,
   Supplier,
   TreasuryMonth,
@@ -357,6 +358,93 @@ export function preferProjectForPersist(captured: Project, fromStore?: Project):
     history: mergeActivityHistory(fromStore.history, captured.history),
     deletedAt: preferDeletedAt(captured, fromStore),
   }
+}
+
+/** Intención del usuario en esta pestaña: el poll no puede quitarla hasta que Supabase coincida. */
+export type ProjectIntent = {
+  stage?: ProjectStage
+  deliveredAt?: string
+  paidByInst: Record<string, { paidAt: string; method?: ProjectInstallment["method"] }>
+}
+
+export function mergeProjectIntent(
+  prev: ProjectIntent | undefined,
+  patch: {
+    stage?: ProjectStage
+    deliveredAt?: string
+    paid?: { id: string; paidAt: string; method?: ProjectInstallment["method"] }
+  },
+): ProjectIntent {
+  const next: ProjectIntent = {
+    stage: patch.stage ?? prev?.stage,
+    deliveredAt: patch.deliveredAt ?? prev?.deliveredAt,
+    paidByInst: { ...prev?.paidByInst },
+  }
+  if (patch.paid?.id && patch.paid.paidAt) {
+    next.paidByInst[patch.paid.id] = {
+      paidAt: patch.paid.paidAt,
+      method: patch.paid.method,
+    }
+  }
+  return next
+}
+
+export function applyProjectIntent(project: Project, intent?: ProjectIntent): Project {
+  if (!intent) return project
+  return {
+    ...project,
+    stage: intent.stage ?? project.stage,
+    deliveredAt: intent.deliveredAt ?? project.deliveredAt,
+    installments: (project.installments ?? []).map((inst) => {
+      const paid = intent.paidByInst[inst.id]
+      if (!paid) return inst
+      return {
+        ...inst,
+        paidAt: inst.paidAt || paid.paidAt,
+        method: inst.method ?? paid.method,
+      }
+    }),
+  }
+}
+
+export function projectIntentSettled(project: Project, intent: ProjectIntent): boolean {
+  if (intent.stage && project.stage !== intent.stage) return false
+  for (const [id, paid] of Object.entries(intent.paidByInst)) {
+    const inst = (project.installments ?? []).find((item) => item.id === id)
+    if (!inst?.paidAt && paid.paidAt) return false
+  }
+  return true
+}
+
+function utcStampMs(raw?: string): number {
+  if (!raw) return 0
+  const t = raw.trim()
+  if (!t) return 0
+  if (t.includes("T") || /(?:Z|[+-]\d{2}:?\d{2})$/i.test(t)) return parseActivityMs(t)
+  const m = t.match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/)
+  if (!m) return parseActivityMs(t)
+  return Date.parse(`${m[1]}T${m[2] ?? "00"}:${m[3] ?? "00"}:${m[4] ?? "00"}Z`)
+}
+
+/**
+ * Un persist viejo no puede bajar Completado. Solo si el snapshot es más nuevo
+ * que la fila y el historial trae un cambio de etapa que no es Completado.
+ */
+export function resolveProjectStageForPersist(
+  incoming: Project,
+  db?: { stage?: ProjectStage; updatedAt?: string },
+): ProjectStage {
+  if (db?.stage === "completado" && incoming.stage !== "completado") {
+    const last = [...(incoming.history ?? [])]
+      .reverse()
+      .find((h) => (h.action ?? "").startsWith("Etapa → "))
+    const leaving = Boolean(last && !/completado/i.test(last.action))
+    if (leaving && utcStampMs(incoming.updatedAt) >= utcStampMs(db.updatedAt)) {
+      return incoming.stage
+    }
+    return "completado"
+  }
+  return incoming.stage
 }
 
 /** Une proyectos de Supabase con el estado local para no perder cuotas en vuelo. */
