@@ -6,14 +6,7 @@ import { TechnikProvider, useTechnik } from "@/lib/technik/store"
 import { LoginScreen } from "./login-screen"
 import { SetPasswordScreen } from "./set-password-screen"
 import { AppShell } from "./app-shell"
-
-function Loading() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <p className="text-sm text-muted-foreground">Cargando…</p>
-    </div>
-  )
-}
+import { LoadingScreen } from "./loading-screen"
 
 function Gate({ forcePasswordSetup = false }: { forcePasswordSetup?: boolean }) {
   const { authed, authReady, mustSetPassword } = useTechnik()
@@ -22,8 +15,8 @@ function Gate({ forcePasswordSetup = false }: { forcePasswordSetup?: boolean }) 
 
   if (mustSetPassword) return <SetPasswordScreen />
   if (forcePasswordSetup && !authed && !authReady) return <SetPasswordScreen />
-  if (!hydrated) return forcePasswordSetup ? <SetPasswordScreen /> : <Loading />
-  if (!authReady) return <Loading />
+  if (!hydrated) return forcePasswordSetup ? <SetPasswordScreen /> : <LoadingScreen />
+  if (!authReady) return <LoadingScreen />
   return authed ? <AppShell /> : <LoginScreen />
 }
 
