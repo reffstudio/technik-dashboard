@@ -13,7 +13,7 @@ import type {
   TreasurySeparado,
   User,
 } from "./data"
-import { type InboxEvent } from "./notifications"
+import { parseActivityMs, type InboxEvent } from "./notifications"
 import { mergeActivityHistory } from "./activity-history"
 import { preferDeletedAt, preferQuote } from "./quotation-guards"
 
@@ -127,11 +127,28 @@ export function saveWorkspace(snapshot: WorkspaceSnapshot): void {
   }
 }
 
+function isDateOnlyStamp(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value.trim())
+}
+
+/**
+ * Elige el registro más reciente. `updatedAt` a veces es solo fecha (`YYYY-MM-DD`)
+ * y a veces datetime de Supabase (`YYYY-MM-DD HH:mm`): comparar strings hace que
+ * el remoto del mismo día gane y el poll revierta etapa/cobro locales.
+ * En empate (o mismo día fecha vs hora) se queda lo local.
+ */
 function preferByUpdatedAt<T extends { updatedAt?: string; id: string }>(a: T, b: T): T {
-  const aAt = a.updatedAt ?? ""
-  const bAt = b.updatedAt ?? ""
-  if (aAt !== bAt) return aAt >= bAt ? a : b
-  return b
+  const aAt = (a.updatedAt ?? "").trim()
+  const bAt = (b.updatedAt ?? "").trim()
+  if (!aAt) return b
+  if (!bAt) return a
+  if (aAt.slice(0, 10) === bAt.slice(0, 10) && isDateOnlyStamp(aAt) !== isDateOnlyStamp(bAt)) {
+    return a
+  }
+  const aMs = parseActivityMs(aAt)
+  const bMs = parseActivityMs(bAt)
+  if (aMs !== bMs) return aMs >= bMs ? a : b
+  return a
 }
 
 /** Si la campana ya registró el envío, el borrador pasa a cola de revisión. */
@@ -299,7 +316,7 @@ export function adoptProjects(local: Project[], incoming: Project[]): Project[] 
   })
 }
 
-function mergeInstallmentLists(
+export function mergeInstallmentLists(
   local: ProjectInstallment[] | undefined,
   incoming: ProjectInstallment[] | undefined,
 ): ProjectInstallment[] {
@@ -321,6 +338,25 @@ function mergeInstallmentLists(
     map.set(inst.id, inst)
   }
   return Array.from(map.values())
+}
+
+/**
+ * Snapshot a persistir: el job a veces corre antes del re-render o después de un
+ * poll viejo. Nunca desmarcar un cobro; si el store aún no tiene el cambio, gana
+ * el snapshot capturado.
+ */
+export function preferProjectForPersist(captured: Project, fromStore?: Project): Project {
+  if (!fromStore) return captured
+  const newer = preferByUpdatedAt(captured, fromStore)
+  const older = newer === captured ? fromStore : captured
+  return {
+    ...older,
+    ...newer,
+    paymentMode: newer.paymentMode || older.paymentMode,
+    installments: mergeInstallmentLists(captured.installments, fromStore.installments),
+    history: mergeActivityHistory(fromStore.history, captured.history),
+    deletedAt: preferDeletedAt(captured, fromStore),
+  }
 }
 
 /** Une proyectos de Supabase con el estado local para no perder cuotas en vuelo. */

@@ -87,6 +87,7 @@ import {
   adoptQuotations,
   adoptProjects,
   adoptOpsProjects,
+  preferProjectForPersist,
   adoptById,
   adoptByKey,
   loadWorkspace,
@@ -745,39 +746,37 @@ export function TechnikProvider({
     const id = project.id
     void trackPersist(`project:${id}`, () => {
       const fromStore = workspaceRef.current.projects.find((p) => p.id === id)
-      const base = fromStore ?? project
-      const installments = new Map<string, ProjectInstallment>()
-      for (const inst of project.installments ?? []) {
-        if (inst?.id) installments.set(inst.id, inst)
-      }
-      for (const inst of fromStore?.installments ?? []) {
-        if (inst?.id) installments.set(inst.id, inst)
-      }
-      return enqueuePersistProject(
-        { ...base, installments: Array.from(installments.values()) },
-        {
-          actorAuthId: userAuthIdRef.current,
-          users: workspaceRef.current.users,
-        },
-      )
+      return enqueuePersistProject(preferProjectForPersist(project, fromStore), {
+        actorAuthId: userAuthIdRef.current,
+        users: workspaceRef.current.users,
+      })
     })
   }, [trackPersist])
 
   const applyLoadedOps = useCallback(
     (ops: Extract<Awaited<ReturnType<typeof loadOpsWorkspace>>, { ok: true }>) => {
       if (!ops.projectsError) {
-        const projectSaveOpen =
-          savePendingRef.current > 0 ||
-          [...saveJobsRef.current.keys()].some((k) => k.startsWith("project:"))
+        const inflightIds = new Set(
+          [...saveJobsRef.current.keys()]
+            .filter((k) => k.startsWith("project:"))
+            .map((k) => k.slice("project:".length)),
+        )
+        const projectSaveOpen = savePendingRef.current > 0 || inflightIds.size > 0
         setProjects((prev) => {
-          const merged = adoptOpsProjects(prev, ops.projects)
+          const incoming =
+            inflightIds.size > 0
+              ? ops.projects.filter((p) => !inflightIds.has(p.id))
+              : ops.projects
+          const merged = adoptOpsProjects(prev, incoming)
           if (projectSaveOpen) return merged
           const incomingIds = new Set(ops.projects.map((p) => p.id))
           return merged.filter((p) => incomingIds.has(p.id))
         })
       }
       if (!ops.paymentEventsError) {
-        setPaymentEvents(ops.paymentEvents)
+        setPaymentEvents((prev) =>
+          adoptById(prev, ops.paymentEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
+        )
       }
       if (!ops.inboxEventsError) {
         setInboxEvents(ops.inboxEvents)
@@ -1111,10 +1110,10 @@ export function TechnikProvider({
 
     void pull(true)
     const timer = window.setInterval(() => {
-      if (!pushingRef.current) void pull(false)
+      if (!pushingRef.current && savePendingRef.current === 0) void pull(false)
     }, supabaseMode ? 30_000 : 4_000)
     const onFocus = () => {
-      if (!pushingRef.current) void pull(false)
+      if (!pushingRef.current && savePendingRef.current === 0) void pull(false)
     }
     window.addEventListener("focus", onFocus)
 
@@ -2657,7 +2656,7 @@ export function TechnikProvider({
           title: existing.title ?? quote.title,
           departments: existing.departments?.length ? existing.departments : quote.departments,
           coverImageUrl: existing.coverImageUrl || quote.coverImageUrl,
-          updatedAt: d,
+          updatedAt: fieldStamp(),
           history:
             existing.totalDue === due
               ? existing.history
@@ -2688,7 +2687,7 @@ export function TechnikProvider({
         coverImageUrl: quote.coverImageUrl,
         createdById: user?.id,
         createdAt: d,
-        updatedAt: d,
+        updatedAt: fieldStamp(),
         history: [
           {
             at: stamp,
@@ -2770,7 +2769,7 @@ export function TechnikProvider({
         dueDate,
         installments: [],
         createdAt: d,
-        updatedAt: d,
+        updatedAt: fieldStamp(),
         history: [
           {
             at: stamp,
@@ -2809,7 +2808,6 @@ export function TechnikProvider({
 
       if (!changed) return
 
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       setProjects((prev) =>
@@ -2821,7 +2819,7 @@ export function TechnikProvider({
             dueDate: nextDue,
             deliveredAt: nextDelivered,
             notes: nextNotes,
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: historyAction
               ? (() => {
                   const prevH = p.history ?? []
@@ -2857,7 +2855,7 @@ export function TechnikProvider({
             ...p,
             stage,
             deliveredAt,
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: [...p.history, { at: stamp, by: actor, action: `Etapa → ${label}` }],
           }
           persistProjectNow(next)
@@ -2883,7 +2881,6 @@ export function TechnikProvider({
 
   const setProjectPaymentMode = useCallback(
     (projectId: string, mode: PaymentMode) => {
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const label =
@@ -2903,7 +2900,7 @@ export function TechnikProvider({
                     ? "sent"
                     : "pending",
             })),
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: [
               ...p.history,
               { at: stamp, by: actor, action: `Plan de cobro: ${label}` },
@@ -2929,7 +2926,6 @@ export function TechnikProvider({
       projectId: string,
       installment: Omit<ProjectInstallment, "id" | "paidAt">,
     ) => {
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const amountLabel = installment.amount.toLocaleString("es-MX", {
@@ -2950,7 +2946,7 @@ export function TechnikProvider({
           const next = {
             ...p,
             installments: [...(p.installments ?? []), entry],
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: [
               ...p.history,
               {
@@ -2992,7 +2988,6 @@ export function TechnikProvider({
         >
       >,
     ) => {
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       let historyAction: string | null = null
@@ -3057,7 +3052,7 @@ export function TechnikProvider({
               }
               return next
             }),
-            updatedAt: historyAction ? d : p.updatedAt,
+            updatedAt: historyAction ? fieldStamp() : p.updatedAt,
             history: historyAction
               ? [...p.history, { at: stamp, by: actor, action: historyAction }]
               : p.history,
@@ -3081,7 +3076,6 @@ export function TechnikProvider({
           error: "No se puede eliminar un abono cobrado. Registra una nota de corrección.",
         }
       }
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const amountLabel = target.amount.toLocaleString("es-MX", {
@@ -3094,7 +3088,7 @@ export function TechnikProvider({
           const next = {
             ...p,
             installments: (p.installments ?? []).filter((x) => x.id !== installmentId),
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: [
               ...p.history,
               { at: stamp, by: actor, action: `Cuota eliminada: ${amountLabel}` },
@@ -3127,7 +3121,6 @@ export function TechnikProvider({
       installmentId: string,
       input: { paidAt: string; method: PaymentMethod },
     ) => {
-      const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const project = projects.find((p) => p.id === projectId)
@@ -3159,7 +3152,7 @@ export function TechnikProvider({
                 ? { ...inst, paidAt: input.paidAt, method: input.method }
                 : inst,
             ),
-            updatedAt: d,
+            updatedAt: fieldStamp(),
             history: [
               ...p.history,
               {
@@ -3214,7 +3207,7 @@ export function TechnikProvider({
           if (p.id !== projectId) return p
           const next = {
             ...p,
-            updatedAt: today(),
+            updatedAt: fieldStamp(),
             history: [
               ...p.history,
               { at: stamp, by: actor, action: `Nota de corrección de cobro: ${trimmed}` },

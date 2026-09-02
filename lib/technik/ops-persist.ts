@@ -428,11 +428,20 @@ async function persistProjectInner(
     }
   }
 
+  const existingPaidAt = new Map(
+    ((existingInst ?? []) as { id: string; paid_at: string | null }[]).map((row) => [
+      row.id,
+      row.paid_at,
+    ]),
+  )
+
   for (const [i, inst] of (project.installments ?? []).entries()) {
     const amount = Number(inst?.amount)
     const due = isoDay(inst?.dueDate) || String(inst?.dueDate ?? "").slice(0, 10)
     if (!inst || !(amount > 0) || !/^\d{4}-\d{2}-\d{2}/.test(due)) continue
-    const paid = Boolean(inst.paidAt)
+    const paidAt =
+      isoDay(inst.paidAt) || isoDay(existingPaidAt.get(inst.id) ?? null) || null
+    const paid = Boolean(paidAt)
     const { error: iErr } = await supabase.from("project_installments").upsert({
       id: inst.id,
       project_id: project.id,
@@ -442,7 +451,7 @@ async function persistProjectInner(
       invoice_uuid: inst.invoiceUuid ?? null,
       invoice_date: isoDay(inst.invoiceDate) || null,
       payment_complement: inst.paymentComplement ?? "na",
-      paid_at: isoDay(inst.paidAt) || null,
+      paid_at: paidAt,
       method: paid ? inst.method ?? "otro" : null,
       sort_order: i,
     })

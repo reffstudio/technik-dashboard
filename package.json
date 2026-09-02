@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint .",
-    "test": "npx --yes tsx --test lib/technik/quotation-guards.test.ts"
+    "test": "npx --yes tsx --test lib/technik/quotation-guards.test.ts lib/technik/live-ops.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
