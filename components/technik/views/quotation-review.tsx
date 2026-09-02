@@ -48,6 +48,7 @@ import {
   canRestoreQuotation,
   quotationCoverSources,
   suggestedPublicUnitPrice,
+  PUBLIC_ITEM_DESCRIPTION_MAX,
   type Client,
   type CatalogItem,
   type PublicQuoteItem,
@@ -2167,21 +2168,31 @@ function PublicItemsEditor({
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Descripción
                   </span>
-                  {!item.description.trim() && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenDesc((prev) => ({ ...prev, [item.id]: false }))
-                      }
-                      className="text-[11px] text-muted-foreground hover:text-foreground"
-                    >
-                      Cancelar
-                    </button>
-                  )}
+                  <span className="flex items-center gap-2">
+                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                      {item.description.length}/{PUBLIC_ITEM_DESCRIPTION_MAX}
+                    </span>
+                    {!item.description.trim() && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenDesc((prev) => ({ ...prev, [item.id]: false }))
+                        }
+                        className="text-[11px] text-muted-foreground hover:text-foreground"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </span>
                 </div>
                 <textarea
                   value={item.description}
-                  onChange={(e) => updateItem(item.id, { description: e.target.value })}
+                  onChange={(e) =>
+                    updateItem(item.id, {
+                      description: e.target.value.slice(0, PUBLIC_ITEM_DESCRIPTION_MAX),
+                    })
+                  }
+                  maxLength={PUBLIC_ITEM_DESCRIPTION_MAX}
                   rows={4}
                   autoFocus={!!openDesc[item.id] && !item.description.trim()}
                   className={`${inputCls} resize-y`}

@@ -690,7 +690,7 @@ function ClientLetterDocument({
                         {item.title || "Sin título"}
                       </p>
                       {item.description && (
-                        <p className="mt-1 whitespace-pre-wrap text-neutral-700 text-[10px] leading-snug line-clamp-6">
+                        <p className="mt-1 whitespace-pre-wrap text-neutral-700 text-[10px] leading-snug">
                           {item.description}
                         </p>
                       )}

@@ -109,6 +109,9 @@ export type PublicQuoteItem = {
   imageUrl?: string
 }
 
+/** Tope de la descripción pública de cada ítem (PDF + revisión). */
+export const PUBLIC_ITEM_DESCRIPTION_MAX = 1000
+
 /**
  * Foto de visita (contexto de campo).
  * Solo metadatos en la cotización / DB; los bytes viven en storage
