@@ -536,7 +536,7 @@ export const PROJECT_STAGE_META: Record<
   },
   completado: {
     label: "Completado",
-    tone: "gain",
+    tone: "done",
     icon: "stage_done",
   },
 }

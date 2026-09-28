@@ -56,6 +56,7 @@ const TONE_CLASS: Record<string, string> = {
   amber: "bg-chart-3/12 text-chart-3 border-chart-3/25",
   azure: "bg-chart-2/12 text-chart-2 border-chart-2/25",
   gain: "bg-fin-gain/12 text-fin-gain border-fin-gain/25",
+  done: "bg-emerald-500/12 text-emerald-500 border-emerald-500/30",
   teal: "bg-primary/12 text-primary border-primary/25",
   loss: "bg-destructive/12 text-destructive border-destructive/25",
 }
@@ -406,7 +407,7 @@ export function Panel({ children, className = "" }: { children: ReactNode; class
 }
 
 /** Tonos alineados a badges de estado (STATUS_META / PROJECT_STAGE_META). */
-export type StatTone = "neutral" | "amber" | "azure" | "gain" | "teal" | "loss"
+export type StatTone = "neutral" | "amber" | "azure" | "gain" | "done" | "teal" | "loss"
 
 const STAT_TONE: Record<StatTone, { value: string; card: string }> = {
   neutral: {
@@ -425,6 +426,10 @@ const STAT_TONE: Record<StatTone, { value: string; card: string }> = {
     value: "text-fin-gain",
     card: "border border-fin-gain/30 bg-fin-gain/[0.08] shadow-none",
   },
+  done: {
+    value: "text-emerald-500",
+    card: "border border-emerald-500/30 bg-emerald-500/[0.08] shadow-none",
+  },
   teal: {
     value: "text-primary",
     card: "border border-primary/30 bg-primary/[0.08] shadow-none",
@@ -440,6 +445,7 @@ const STAT_ICON_WRAP: Record<StatTone, string> = {
   amber: "bg-chart-3/15 text-chart-3",
   azure: "bg-chart-2/15 text-chart-2",
   gain: "bg-fin-gain/15 text-fin-gain",
+  done: "bg-emerald-500/15 text-emerald-500",
   teal: "bg-primary/15 text-primary",
   loss: "bg-destructive/15 text-destructive",
 }

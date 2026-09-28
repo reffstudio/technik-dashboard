@@ -469,6 +469,9 @@ function LetterChrome({
         backgroundColor: "#ffffff",
         color: "#171717",
         colorScheme: "light",
+        fontFamily: 'Arial, Helvetica, sans-serif',
+        letterSpacing: "0px",
+        wordSpacing: "0px",
       }}
     >
       <header
@@ -509,7 +512,7 @@ function LetterChrome({
 
         <div className="text-right text-[11px] leading-snug pt-0.5 space-y-1">
           {rightTitle && (
-            <p className="font-bold uppercase tracking-wide text-[10.5px] text-neutral-900">
+            <p className="font-bold uppercase text-[10.5px] text-neutral-900">
               {rightTitle}
             </p>
           )}
@@ -564,7 +567,7 @@ function LetterChrome({
             lineHeight: 1.25,
             fontStyle: "italic",
             color: "#737373",
-            letterSpacing: "0.01em",
+            letterSpacing: "0px",
             whiteSpace: "nowrap",
             textAlign: "center",
             width: "100%",
@@ -625,7 +628,7 @@ function ClientLetterDocument({
         }}
       >
         <div className="min-w-0">
-          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase text-neutral-500 mb-0.5">
             Con atención
           </p>
           <p className="text-[13px] font-semibold text-neutral-900 truncate">
@@ -633,7 +636,7 @@ function ClientLetterDocument({
           </p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase text-neutral-500 mb-0.5">
             Empresa
           </p>
           <p className="text-[13px] font-semibold text-neutral-900 truncate">
@@ -663,18 +666,19 @@ function ClientLetterDocument({
         >
           <thead>
             <tr
-              className="text-white text-[9.5px] uppercase tracking-wider"
+              className="text-white text-[9.5px] uppercase"
               style={{ backgroundColor: "#171717", color: "#ffffff" }}
             >
-              <th className="px-2 py-2 text-left font-semibold w-[70%]">Concepto</th>
-              <th className="px-2 py-2 text-right font-semibold w-[30%]">Total</th>
+              <th className="px-2 py-2 text-right font-semibold w-[12%]">Cant.</th>
+              <th className="px-2 py-2 text-left font-semibold w-[63%]">Concepto</th>
+              <th className="px-2 py-2 text-right font-semibold w-[25%]">Total</th>
             </tr>
           </thead>
           <tbody>
             {publicItems.length === 0 ? (
               <tr>
                 <td
-                  colSpan={2}
+                  colSpan={3}
                   className="px-2 py-6 text-center text-neutral-400 border border-neutral-200 text-[11px]"
                 >
                   Agrega ítems al cliente para verlos en la cotización.
@@ -685,18 +689,30 @@ function ClientLetterDocument({
                 const lineTotal = lineTotalMxn(item.quantity, item.unitPrice)
                 return (
                   <tr key={item.id} className="border border-neutral-200 align-top">
+                    <td
+                      className="px-2 py-2 text-right font-mono font-semibold tabular-nums text-[11px]"
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {item.quantity}
+                    </td>
                     <td className="px-2 py-2">
-                      <p className="font-bold text-[11.5px] uppercase tracking-tight text-neutral-900 leading-snug">
+                      <p
+                        className="font-bold text-[11.5px] uppercase text-neutral-900"
+                        style={{ letterSpacing: "0px", lineHeight: 1.35 }}
+                      >
                         {item.title || "Sin título"}
                       </p>
                       {item.description && (
-                        <p className="mt-1 whitespace-pre-wrap text-neutral-700 text-[10px] leading-snug">
+                        <p
+                          className="mt-1 whitespace-pre-wrap text-neutral-700 text-[10px]"
+                          style={{ letterSpacing: "0px", lineHeight: 1.45 }}
+                        >
                           {item.description}
                         </p>
                       )}
                       {item.imageUrl && (
                         <div className="mt-1.5">
-                          <p className="text-[8.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+                          <p className="text-[8.5px] font-semibold uppercase text-neutral-500 mb-0.5">
                             Imagen de referencia
                           </p>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -731,7 +747,7 @@ function ClientLetterDocument({
         </table>
         {coverUrl && (
           <div className="mt-2 shrink-0">
-            <p className="text-[8.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+            <p className="text-[8.5px] font-semibold uppercase text-neutral-500 mb-0.5">
               Imagen de referencia
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -766,14 +782,14 @@ function ClientLetterDocument({
       >
         <div className="min-w-0">
           <p
-            className="font-semibold uppercase tracking-wider text-neutral-500"
-            style={{ fontSize: "9.5px", marginBottom: "6px", letterSpacing: "0.08em" }}
+            className="font-semibold uppercase text-neutral-500"
+            style={{ fontSize: "9.5px", marginBottom: "6px", letterSpacing: "0px" }}
           >
             Condiciones
           </p>
           <p
             className="whitespace-pre-wrap text-neutral-700"
-            style={{ fontSize: "10px", lineHeight: 1.45 }}
+            style={{ fontSize: "10px", lineHeight: 1.55, letterSpacing: "0px" }}
           >
             {terms || DEFAULT_QUOTE_TERMS}
           </p>
@@ -865,7 +881,7 @@ function SupplierLetterDocument({
         }}
       >
         <div className="min-w-0">
-          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase text-neutral-500 mb-0.5">
             Proveedor
           </p>
           <p className="text-[13px] font-semibold text-neutral-900 truncate">
@@ -876,7 +892,7 @@ function SupplierLetterDocument({
           </p>
         </div>
         <div className="min-w-0">
-          <p className="text-[9.5px] font-semibold uppercase tracking-wider text-neutral-500 mb-0.5">
+          <p className="text-[9.5px] font-semibold uppercase text-neutral-500 mb-0.5">
             Proyecto / folio
           </p>
           <p className="text-[12px] font-semibold text-neutral-900 leading-snug line-clamp-2">
@@ -897,7 +913,7 @@ function SupplierLetterDocument({
         >
           <thead>
             <tr
-              className="text-white text-[9.5px] uppercase tracking-wider"
+              className="text-white text-[9.5px] uppercase"
               style={{ backgroundColor: "#171717", color: "#ffffff" }}
             >
               <th className="px-2 py-2 text-left font-semibold w-[14%]">Código</th>

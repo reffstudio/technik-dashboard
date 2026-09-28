@@ -411,7 +411,7 @@ export function ProjectDetail({
             </h1>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <ProjectStageBadge stage={project.stage} />
-              {billing && (
+              {isAdmin && billing && (
                 <ToneBadge
                   label={BILLING_STATUS_META[billing.status].label}
                   tone={BILLING_STATUS_META[billing.status].tone}
@@ -467,7 +467,7 @@ export function ProjectDetail({
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
                   Cotización
                 </p>
-                {quote ? (
+                {quote && isAdmin ? (
                   <button
                     type="button"
                     onClick={() => navigate({ name: "review", id: quote.id })}
@@ -477,9 +477,11 @@ export function ProjectDetail({
                     Ver cotización
                   </button>
                 ) : (
-                  <p className="font-semibold text-muted-foreground">N/A</p>
+                  <p className="font-semibold text-muted-foreground">
+                    {quote ? quote.reference : "N/A"}
+                  </p>
                 )}
-                {quote && (
+                {isAdmin && quote && (
                   <p className="text-[11px] text-muted-foreground mt-1">
                     Para cambiar totales: En revisión → actualiza → Aprobada.
                   </p>
@@ -622,7 +624,7 @@ export function ProjectDetail({
           <section className="rounded-2xl surface-card p-5 border border-primary/25">
             <div className="flex items-center justify-between gap-2 mb-3">
               <h2 className="text-sm font-bold font-display">Ítems al cliente</h2>
-              {clientTotals && (
+              {isAdmin && clientTotals && (
                 <span className="font-mono text-sm font-semibold text-primary">
                   {currencyMxn(clientTotals.total)}
                 </span>
@@ -646,7 +648,9 @@ export function ProjectDetail({
                           </p>
                         )}
                       </div>
-                      <p className="font-mono text-sm shrink-0">{currencyMxn(item.unitPrice)}</p>
+                      {isAdmin && (
+                        <p className="font-mono text-sm shrink-0">{currencyMxn(item.unitPrice)}</p>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -656,7 +660,7 @@ export function ProjectDetail({
           </>
           )}
 
-          {billing && (
+          {isAdmin && billing && (
             <section className="rounded-2xl surface-card p-5 border border-chart-2/30">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                 <h2 className="text-sm font-bold font-display flex items-center gap-2">

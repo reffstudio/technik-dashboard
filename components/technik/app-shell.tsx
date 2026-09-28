@@ -152,6 +152,7 @@ export function AppShell() {
 
   const employeePrimary: NavItem[] = [
     { id: "home", label: "Resumen", icon: LayoutDashboard, view: { name: "home" } },
+    { id: "projects", label: "Proyectos", icon: FolderKanban, view: { name: "projects" } },
     { id: "quotations", label: "Mis cotizaciones", icon: ClipboardList, view: { name: "quotations" } },
     { id: "clients", label: "Clientes", icon: Users, view: { name: "clients" } },
   ]
@@ -611,13 +612,9 @@ function renderView(view: View, navigate: (v: View) => void, isAdmin: boolean) {
         <DashboardHome navigate={navigate} />
       )
     case "projects":
-      return isAdmin ? <ProjectsHome navigate={navigate} /> : <EmployeeHome navigate={navigate} />
+      return <ProjectsHome navigate={navigate} />
     case "project":
-      return isAdmin ? (
-        <ProjectDetail id={view.id} navigate={navigate} />
-      ) : (
-        <EmployeeHome navigate={navigate} />
-      )
+      return <ProjectDetail id={view.id} navigate={navigate} />
     case "quotations":
       return isAdmin ? <AdminHome navigate={navigate} /> : <EmployeeHome navigate={navigate} />
     case "review":

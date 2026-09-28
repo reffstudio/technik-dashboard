@@ -743,12 +743,12 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
               <ArrowUpRight className="size-4 text-primary opacity-70 group-hover:opacity-100" />
             </span>
           </button>
-          <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-hidden">
+          <div className="flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5">
             {pending.length === 0 ? (
               <EmptyMini icon={CheckCircle2} text="Nada en cola. Buen momento." />
             ) : (
               <AnimatePresence initial={false} mode="popLayout">
-                {pending.slice(0, 5).map((q) => {
+                {pending.map((q) => {
                   const client = clients.find((c) => c.id === q.clientId)
                   return (
                     <motion.button
@@ -773,7 +773,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         scale: { duration: 0.85, ease: EASE },
                       }}
                       onClick={() => navigate({ name: "review", id: q.id })}
-                      className="relative flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-3 text-left transition-colors hover:bg-accent origin-top overflow-hidden"
+                      className="relative flex shrink-0 items-center gap-3 rounded-2xl bg-muted/50 px-3 py-3 text-left transition-colors hover:bg-accent origin-top overflow-hidden"
                     >
                       {/* Flash de llegada: outline + glow cyan que se apaga */}
                       <motion.span
@@ -857,18 +857,18 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
               <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground shrink-0">
                 Enviadas, esperando respuesta
               </p>
-              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-hidden">
+              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5">
                 {waiting.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">Ninguna en espera.</p>
                 ) : (
-                  waiting.slice(0, 3).map((q) => {
+                  waiting.map((q) => {
                     const client = clients.find((c) => c.id === q.clientId)
                     return (
                       <button
                         key={q.id}
                         type="button"
                         onClick={() => navigate({ name: "review", id: q.id })}
-                        className="flex items-center gap-2.5 rounded-xl bg-muted/40 border border-border px-2.5 py-2 text-left hover:border-primary/40 transition-colors"
+                        className="flex shrink-0 items-center gap-2.5 rounded-xl bg-muted/40 border border-border px-2.5 py-2 text-left hover:border-primary/40 transition-colors"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold truncate">{client?.company}</p>
@@ -890,7 +890,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                 <Receipt className="size-3 text-primary" />
                 Agenda de cobros
               </p>
-              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto">
+              <div className="flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto overscroll-contain pr-0.5">
                 {agenda.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">Sin cobros programados.</p>
                 ) : (
@@ -907,7 +907,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                         key={row.installmentId}
                         type="button"
                         onClick={() => navigate({ name: "project", id: row.projectId })}
-                        className={`flex items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors ${
+                        className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-colors ${
                           row.overdue
                             ? "border-destructive/35 bg-destructive/5 hover:border-destructive/50"
                             : "border-border bg-muted/30 hover:border-primary/40"
@@ -976,7 +976,6 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
             ) : (
               [...activeProjects]
                 .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-                .slice(0, 5)
                 .map((p) => {
                   const quote = p.quotationId
                     ? quotations.find((q) => q.id === p.quotationId)
@@ -990,7 +989,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
                       key={p.id}
                       type="button"
                       onClick={() => navigate({ name: "project", id: p.id })}
-                      className="flex overflow-hidden rounded-2xl border border-border bg-muted/30 text-left hover:border-primary/40 transition-colors"
+                      className="flex shrink-0 overflow-hidden rounded-2xl border border-border bg-muted/30 text-left hover:border-primary/40 transition-colors"
                     >
                       <div className="relative w-[4.25rem] sm:w-[4.75rem] shrink-0 self-stretch bg-muted">
                         <CoverImg
@@ -1039,6 +1038,7 @@ function AdminDashboard({ navigate }: { navigate: (v: View) => void }) {
 function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
   const {
     quotations,
+    projects,
     clients,
     user,
     deleteDraftQuotation,
@@ -1063,6 +1063,13 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
   )
   const drafts = mine.filter((q) => q.status === "draft")
   const sent = mine.filter((q) => q.status === "pending_review")
+  const activeProjects = useMemo(
+    () =>
+      projects
+        .filter((p) => !projectIsHidden(p, quotations) && p.stage !== "completado")
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
+    [projects, quotations],
+  )
   const firstName = user?.name.split(" ")[0] ?? "Equipo"
   const greet = greetingForHour(new Date().getHours())
   const nextDraft = drafts[0]
@@ -1089,7 +1096,7 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
           {greet}, {firstName}
         </motion.h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Crea nuevas cotizaciones para clientes y da seguimiento a borradores.
+          Crea nuevas cotizaciones para clientes y da seguimiento a los proyectos del taller.
         </p>
       </div>
 
@@ -1260,6 +1267,68 @@ function EmployeeDashboard({ navigate }: { navigate: (v: View) => void }) {
                   onClick={() => navigate({ name: "review", id: q.id })}
                 />
               ))
+            )}
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: EASE, delay: 0.12 }}
+          className="rounded-[1.75rem] surface-card p-5 sm:p-6 flex flex-col min-h-[260px] lg:col-span-2"
+        >
+          <button
+            type="button"
+            onClick={() => navigate({ name: "projects" })}
+            className="flex items-start justify-between gap-3 text-left mb-4 group"
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground flex items-center gap-2">
+                <FolderKanban className="size-3.5 text-primary" />
+                Proyectos
+              </p>
+              <p className="text-4xl font-mono font-bold tracking-tighter tabular-nums mt-2 leading-none text-primary">
+                {activeProjects.length}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">Activos en taller</p>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-primary opacity-80 group-hover:opacity-100">
+              Ver
+              <ArrowUpRight className="size-3.5" />
+            </span>
+          </button>
+          <div className="flex flex-col gap-2 flex-1">
+            {activeProjects.length === 0 ? (
+              <EmptyMini icon={FolderKanban} text="Sin proyectos activos." />
+            ) : (
+              activeProjects.slice(0, 5).map((p) => {
+                const quote = p.quotationId
+                  ? quotations.find((q) => q.id === p.quotationId)
+                  : undefined
+                const client = clients.find((c) => c.id === (quote?.clientId ?? p.clientId))
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => navigate({ name: "project", id: p.id })}
+                    className="group flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/25 px-3.5 py-3 text-left transition-colors hover:border-primary/40 hover:bg-accent/60"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="font-mono text-[10px] text-primary">{p.id}</span>
+                        <ProjectStageBadge stage={p.stage} />
+                      </div>
+                      <p className="text-sm font-semibold truncate">
+                        {quote?.title ?? p.title ?? "Sin título"}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {client?.company ?? "—"}
+                      </p>
+                    </div>
+                    <ChevronRight className="size-4 shrink-0 opacity-40 group-hover:opacity-80 group-hover:text-primary" />
+                  </button>
+                )
+              })
             )}
           </div>
         </motion.section>

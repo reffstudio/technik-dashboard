@@ -46,9 +46,9 @@ const STEP_TONE: Record<(typeof TRACK_STEPS)[number], { fill: string; glow: stri
     text: "text-primary",
   },
   completado: {
-    fill: "bg-fin-gain",
-    glow: "shadow-[0_0_0_4px_color-mix(in_oklab,var(--fin-gain)_32%,transparent)]",
-    text: "text-fin-gain",
+    fill: "bg-emerald-500",
+    glow: "shadow-[0_0_0_4px_rgba(16,185,129,0.32)]",
+    text: "text-emerald-500",
   },
 }
 
@@ -203,7 +203,7 @@ export function WorkshopStageTrack({
 
       <motion.div
         aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-xl bg-fin-gain/20"
+        className="pointer-events-none absolute inset-0 rounded-xl bg-emerald-500/20"
         initial={false}
         animate={{ opacity: flash ? 1 : 0 }}
         transition={{ duration: 0.35 }}

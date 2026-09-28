@@ -24,7 +24,6 @@ import {
   projectTitle,
   quotationHasDepartment,
   projectCoverSources,
-  isQuotationCreator,
   trashDaysLeft,
   type Project,
   type ProjectStage,
@@ -48,7 +47,7 @@ const STAGE_ACCENT: Record<ProjectStage, string> = {
   listo_para_iniciar: "bg-chart-2",
   en_proceso: "bg-primary",
   atrasado: "bg-destructive",
-  completado: "bg-fin-gain",
+  completado: "bg-emerald-500",
 }
 
 export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
@@ -85,13 +84,8 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
 
   const scopedAll = useMemo(() => {
     if (isAdmin) return projects
-    return projects.filter((p) => {
-      if (user && (p.createdById === user.id || p.createdById === user.authId)) return true
-      if (!p.quotationId) return false
-      const q = quotations.find((x) => x.id === p.quotationId)
-      return q ? isQuotationCreator(user, q) : false
-    })
-  }, [projects, quotations, isAdmin, user])
+    return projects.filter((p) => !projectIsHidden(p, quotations))
+  }, [projects, quotations, isAdmin])
 
   const liveScoped = useMemo(
     () => scopedAll.filter((p) => !projectIsHidden(p, quotations)),
@@ -330,7 +324,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           hint="Etapa o entrega de taller atrasada"
           tone="loss"
         />
-        <Stat label="Completados" value={String(doneCount)} hint="Entregados" tone="gain" />
+        <Stat label="Completados" value={String(doneCount)} hint="Entregados" tone="done" />
         <Stat label="Total" value={String(liveScoped.length)} hint="Todos los proyectos" tone="neutral" />
       </div>
       )}
@@ -412,6 +406,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
             )
           })}
         </div>
+        {isAdmin && (
         <button
           type="button"
           onClick={() => setFolder("trashed")}
@@ -419,6 +414,7 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
         >
           Eliminados{trashScoped.length > 0 ? ` (${trashScoped.length})` : ""}
         </button>
+        )}
       </div>
       )}
 
@@ -485,7 +481,8 @@ function ProjectTile({
   onTrash?: () => void
   onRestore?: () => void
 }) {
-  const { quotations, clients, catalog } = useTechnik()
+  const { quotations, clients, catalog, user } = useTechnik()
+  const isAdmin = user?.role === "admin"
   const quote = project.quotationId
     ? quotations.find((x) => x.id === project.quotationId)
     : undefined
@@ -556,7 +553,7 @@ function ProjectTile({
         <div className="mt-auto flex flex-col gap-2.5 pt-1 border-t border-border/70">
           <div className={`flex flex-wrap items-center gap-1.5 ${inTrash ? "opacity-60 grayscale" : ""}`}>
             <ProjectStageBadge stage={project.stage} />
-            {cobroVencido && !inTrash && <BillingStatusBadge status="vencido" />}
+            {isAdmin && cobroVencido && !inTrash && <BillingStatusBadge status="vencido" />}
             {projectIsOverdue(project) && project.stage !== "atrasado" && !inTrash && (
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-destructive">
                 <AlertTriangle className="size-3" />

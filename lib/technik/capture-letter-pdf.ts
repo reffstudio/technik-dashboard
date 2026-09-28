@@ -7,6 +7,9 @@ const LETTER_IN_H = 11
 const LETTER_PX_W = Math.round(LETTER_IN_W * 96)
 const LETTER_PX_H = Math.round(LETTER_IN_H * 96)
 
+const PDF_SANS = "Arial, Helvetica, sans-serif"
+const PDF_MONO = '"Courier New", Courier, monospace'
+
 const STYLE_PROPS = [
   "display",
   "box-sizing",
@@ -113,6 +116,14 @@ function freezeComputedStyles(source: HTMLElement, clone: HTMLElement) {
       const value = cs.getPropertyValue(prop)
       if (value) dst.style.setProperty(prop, value)
     }
+    const family = cs.getPropertyValue("font-family").toLowerCase()
+    const mono = family.includes("mono") || family.includes("jetbrains") || family.includes("courier")
+    dst.style.setProperty("font-family", mono ? PDF_MONO : PDF_SANS)
+    dst.style.setProperty("letter-spacing", "0px")
+    dst.style.setProperty("word-spacing", "0px")
+    dst.style.setProperty("font-kerning", "none")
+    dst.style.setProperty("font-variant-ligatures", "none")
+    dst.style.setProperty("font-feature-settings", '"kern" 0, "liga" 0')
     dst.style.setProperty("transform", "none")
     dst.style.setProperty("box-shadow", "none")
     dst.style.setProperty("color-scheme", "light")
@@ -208,6 +219,16 @@ export async function captureLetterPdfBlob(kind: QuotePdfKind): Promise<Blob> {
         cloned.style.colorScheme = "light"
         cloned.style.transform = "none"
         cloned.style.boxShadow = "none"
+        cloned.style.fontFamily = PDF_SANS
+        cloned.style.letterSpacing = "0px"
+        cloned.querySelectorAll<HTMLElement>("*").forEach((el) => {
+          const family = (el.style.fontFamily || "").toLowerCase()
+          const mono =
+            family.includes("mono") || family.includes("jetbrains") || family.includes("courier")
+          el.style.letterSpacing = "0px"
+          el.style.wordSpacing = "0px"
+          el.style.fontFamily = mono ? PDF_MONO : PDF_SANS
+        })
       },
     })
 
