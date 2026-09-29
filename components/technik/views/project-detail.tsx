@@ -336,6 +336,12 @@ export function ProjectDetail({
         Proyectos
       </button>
 
+      {!isAdmin && (
+        <div className="mb-5 rounded-xl border border-primary/20 bg-primary/[0.06] p-3.5 text-sm text-muted-foreground">
+          Vista de taller: etapa, cliente y fechas. Sin montos ni cambios.
+        </div>
+      )}
+
       {inTrash && (
         <div className="mb-5 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border bg-muted/50 p-3.5">
           <p className="flex-1 text-sm text-muted-foreground">
@@ -369,7 +375,7 @@ export function ProjectDetail({
           sources={projectCoverSources(project, quote)}
           onChange={(url) => updateProject(project.id, { coverImageUrl: url })}
           canRemove={Boolean(project.coverImageUrl)}
-          disabled={inTrash}
+          disabled={inTrash || !isAdmin}
         >
           <div className="flex justify-end">
             {canTrashProject(user) && !inTrash && (
@@ -418,7 +424,10 @@ export function ProjectDetail({
                 />
               )}
               {quote ? (
-                <DepartmentBadges quotation={quote} />
+                <DepartmentBadges
+                  departments={project.departments?.length ? project.departments : undefined}
+                  quotation={quote}
+                />
               ) : (
                 <DepartmentBadges departments={project.departments} />
               )}
@@ -463,11 +472,12 @@ export function ProjectDetail({
                 </p>
                 <p className="font-medium">{client?.email ?? "—"}</p>
               </div>
+              {isAdmin && (
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
                   Cotización
                 </p>
-                {quote && isAdmin ? (
+                {quote ? (
                   <button
                     type="button"
                     onClick={() => navigate({ name: "review", id: quote.id })}
@@ -477,20 +487,19 @@ export function ProjectDetail({
                     Ver cotización
                   </button>
                 ) : (
-                  <p className="font-semibold text-muted-foreground">
-                    {quote ? quote.reference : "N/A"}
-                  </p>
+                  <p className="font-semibold text-muted-foreground">N/A</p>
                 )}
-                {isAdmin && quote && (
+                {quote && (
                   <p className="text-[11px] text-muted-foreground mt-1">
                     Para cambiar totales: En revisión → actualiza → Aprobada.
                   </p>
                 )}
               </div>
+              )}
             </div>
           </section>
 
-          {quote && (
+          {isAdmin && quote && (
           <>
           <section className="rounded-2xl surface-card p-5">
             <h2 className="text-sm font-bold font-display mb-3">Materiales</h2>
@@ -1288,6 +1297,7 @@ export function ProjectDetail({
         </aside>
       </div>
 
+      {isAdmin && (
       <div className="mt-6 pt-2">
         <button
           type="button"
@@ -1318,6 +1328,7 @@ export function ProjectDetail({
           </ul>
         )}
       </div>
+      )}
       </div>
 
       {toast && (

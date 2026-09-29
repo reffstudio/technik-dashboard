@@ -166,7 +166,11 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
     <div>
       <PageHeader
         title="Proyectos"
-        subtitle="Seguimiento de proyectos activos en Technik Solutions"
+        subtitle={
+          isAdmin
+            ? "Seguimiento de proyectos activos en Technik Solutions"
+            : "Etapa e info de taller. Sin montos ni edición."
+        }
       >
         {isAdmin && (
           <button
@@ -424,7 +428,9 @@ export function ProjectsHome({ navigate }: { navigate: (v: View) => void }) {
           <p className="text-sm text-muted-foreground">
             {folder === "trashed"
               ? "La papelera de proyectos está vacía."
-              : "No hay proyectos con estos filtros. Se crean al aprobar una cotización, o con Cargar proyecto si el trabajo ya estaba en marcha."}
+              : isAdmin
+                ? "No hay proyectos con estos filtros. Se crean al aprobar una cotización, o con Cargar proyecto si el trabajo ya estaba en marcha."
+                : "No hay proyectos con estos filtros."}
           </p>
         </div>
       ) : (

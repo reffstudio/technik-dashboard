@@ -604,6 +604,16 @@ export function projectTitle(p: Project, quoteTitle?: string): string {
   return quoteTitle || p.title || p.id
 }
 
+/** Colaborador: etapa e info de taller, sin montos ni plan de cobro. */
+export function scrubProjectMoney(p: Project): Project {
+  return {
+    ...p,
+    totalDue: undefined,
+    paymentMode: undefined,
+    installments: [],
+  }
+}
+
 /** Normaliza proyectos viejos (folio interno → descartado; CFDI vive en la cuota). */
 export function normalizeProject(
   raw: Project & { invoiceFolio?: string; invoiceDate?: string },

@@ -24,6 +24,7 @@ import {
   defaultPaymentComplement,
   normalizeDepartmentColorId,
   normalizeProject,
+  scrubProjectMoney,
   normalizeTreasurySeparado,
   isManualReserve,
   normalizeApartadoMovement,
@@ -753,6 +754,7 @@ export function TechnikProvider({
   )
 
   const persistProjectNow = useCallback((project: Project) => {
+    if (userRoleRef.current !== "admin") return
     if (!isSupabaseConfigured()) return
     const id = project.id
     void trackPersist(`project:${id}`, () => {
@@ -791,13 +793,17 @@ export function TechnikProvider({
             .map((k) => k.slice("project:".length)),
         )
         const projectSaveOpen = savePendingRef.current > 0 || inflightIds.size > 0
-        const incomingIds = new Set(ops.projects.map((row) => row.id))
+        const sourced =
+          userRoleRef.current === "admin"
+            ? ops.projects
+            : ops.projects.map(scrubProjectMoney)
+        const incomingIds = new Set(sourced.map((row) => row.id))
         const toRepersist: Project[] = []
         setProjects((prev) => {
           const incoming =
             inflightIds.size > 0
-              ? ops.projects.filter((p) => !inflightIds.has(p.id))
-              : ops.projects
+              ? sourced.filter((p) => !inflightIds.has(p.id))
+              : sourced
           let merged = adoptOpsProjects(prev, incoming)
           if (!projectSaveOpen) {
             merged = merged.filter((p) => incomingIds.has(p.id))
@@ -816,7 +822,7 @@ export function TechnikProvider({
         })
         for (const pinned of toRepersist) persistProjectNow(pinned)
       }
-      if (!ops.paymentEventsError) {
+      if (!ops.paymentEventsError && userRoleRef.current === "admin") {
         setPaymentEvents((prev) =>
           adoptById(prev, ops.paymentEvents, (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b)),
         )
@@ -2799,6 +2805,7 @@ export function TechnikProvider({
       stage?: ProjectStage
       dueDate?: string
     }) => {
+      if (userRoleRef.current !== "admin") return ""
       const id = nextProjectCode(projects.map((p) => p.id))
       const d = today()
       const stamp = nowStamp()
@@ -2842,6 +2849,7 @@ export function TechnikProvider({
 
   const updateProject = useCallback(
     (id: string, patch: Partial<Project>, historyAction?: string) => {
+      if (userRoleRef.current !== "admin") return
       const current = projects.find((p) => p.id === id)
       if (!current) return
 
@@ -2890,6 +2898,7 @@ export function TechnikProvider({
 
   const setProjectStage = useCallback(
     (id: string, stage: ProjectStage) => {
+      if (userRoleRef.current !== "admin") return
       const d = today()
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
@@ -2930,6 +2939,7 @@ export function TechnikProvider({
 
   const setProjectPaymentMode = useCallback(
     (projectId: string, mode: PaymentMode) => {
+      if (userRoleRef.current !== "admin") return
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const label =
@@ -2975,6 +2985,7 @@ export function TechnikProvider({
       projectId: string,
       installment: Omit<ProjectInstallment, "id" | "paidAt">,
     ) => {
+      if (userRoleRef.current !== "admin") return
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const amountLabel = installment.amount.toLocaleString("es-MX", {
@@ -3037,6 +3048,7 @@ export function TechnikProvider({
         >
       >,
     ) => {
+      if (userRoleRef.current !== "admin") return
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       let historyAction: string | null = null
@@ -3116,6 +3128,9 @@ export function TechnikProvider({
 
   const removeProjectInstallment = useCallback(
     (projectId: string, installmentId: string) => {
+      if (userRoleRef.current !== "admin") {
+        return { ok: false as const, error: "Solo administración puede editar cobros." }
+      }
       const project = projects.find((p) => p.id === projectId)
       const target = project?.installments?.find((x) => x.id === installmentId)
       if (!target) return { ok: false as const, error: "Cuota no encontrada." }
@@ -3176,6 +3191,7 @@ export function TechnikProvider({
         invoiceDate?: string
       },
     ) => {
+      if (userRoleRef.current !== "admin") return
       const stamp = nowStamp()
       const actor = user?.name ?? "Usuario"
       const project = workspaceRef.current.projects.find((p) => p.id === projectId)
@@ -3251,6 +3267,7 @@ export function TechnikProvider({
 
   const addPaymentCorrectionNote = useCallback(
     (projectId: string, installmentId: string, note: string) => {
+      if (userRoleRef.current !== "admin") return
       const trimmed = note.trim()
       if (!trimmed) return
       const stamp = nowStamp()
