@@ -154,6 +154,7 @@ import {
   enqueueDeleteProjectInstallment,
   persistProjectDeletedAt,
   loadOpsWorkspace,
+  fetchStaffProjectCovers,
   persistApartadoMovement,
   persistExpense,
   persistInboxEvent,
@@ -469,6 +470,7 @@ export function TechnikProvider({
   const hydrateInFlightId = useRef<string | null>(null)
   const pullInFlightRef = useRef(false)
   const pullQueuedRef = useRef(false)
+  const pullKindQueuedRef = useRef<"full" | "ops">("ops")
   const lastPullAtRef = useRef(0)
   const saveJobsRef = useRef(new Map<string, () => Promise<PersistResult>>())
   const savePendingRef = useRef(0)
@@ -860,6 +862,24 @@ export function TechnikProvider({
     [persistProjectNow],
   )
 
+  const applySignedCovers = useCallback((map: Map<string, string>) => {
+    if (map.size === 0) return
+    setProjects((prev) => {
+      let changed = false
+      const next = prev.map((p) => {
+        const url = map.get(p.id)
+        if (!url || url === p.coverImageUrl) return p
+        changed = true
+        return { ...p, coverImageUrl: url }
+      })
+      return changed ? next : prev
+    })
+  }, [])
+
+  const hydrateProjectCovers = useCallback(() => {
+    void fetchStaffProjectCovers().then(applySignedCovers)
+  }, [applySignedCovers])
+
   const applyLoadedCore = useCallback(
     (core: Awaited<ReturnType<typeof loadCoreWorkspace>>) => {
       if (!core.departmentsError && core.departments.length > 0) {
@@ -1114,16 +1134,49 @@ export function TechnikProvider({
     const supabaseMode = isSupabaseConfigured()
     if (supabaseMode && !user?.authId) return
 
-    const pullFromSupabase = async () => {
+    const pullFromSupabase = async (kind: "full" | "ops" = "full") => {
       if (!supabaseMode) return
       if (pullInFlightRef.current) {
         pullQueuedRef.current = true
+        if (kind === "full" || pullKindQueuedRef.current === "full") pullKindQueuedRef.current = "full"
+        else pullKindQueuedRef.current = "ops"
         return
       }
       pullInFlightRef.current = true
       lastPullAtRef.current = Date.now()
       try {
-        const quotesRes = await loadQuotations(workspaceRef.current.users)
+        const applyOps = (
+          ops: Awaited<ReturnType<typeof loadOpsWorkspace>>,
+        ) => {
+          if (!ops.ok) return
+          applyLoadedOps(ops)
+          const inbox = !ops.inboxEventsError
+            ? adoptById(
+                workspaceRef.current.inboxEvents,
+                ops.inboxEvents,
+                (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
+              )
+            : workspaceRef.current.inboxEvents
+          setQuotations((prev) => {
+            const promoted = promoteInboxQueuedDrafts(prev, inbox)
+            return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
+          })
+        }
+
+        if (kind === "ops") {
+          const ops = await loadOpsWorkspace(workspaceRef.current.users)
+          if (cancelled) return
+          applyOps(ops)
+          hydrateProjectCovers()
+          setSyncStatus("live")
+          return
+        }
+
+        const [quotesRes, ops, core] = await Promise.all([
+          loadQuotations(workspaceRef.current.users),
+          loadOpsWorkspace(workspaceRef.current.users),
+          loadCoreWorkspace(),
+        ])
         if (cancelled) return
         if (quotesRes.ok) {
           const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
@@ -1131,37 +1184,24 @@ export function TechnikProvider({
             quotesSignature(live) === quotesSignature(remote) ? live : remote,
           )
         }
-        const ops = await loadOpsWorkspace(workspaceRef.current.users)
-        if (cancelled) return
-        if (ops.ok) applyLoadedOps(ops)
-        const inbox =
-          ops.ok && !ops.inboxEventsError
-            ? adoptById(
-                workspaceRef.current.inboxEvents,
-                ops.inboxEvents,
-                (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
-              )
-            : workspaceRef.current.inboxEvents
-        setQuotations((prev) => {
-          const promoted = promoteInboxQueuedDrafts(prev, inbox)
-          return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
-        })
-        const core = await loadCoreWorkspace()
-        if (cancelled) return
+        applyOps(ops)
         applyLoadedCore(core)
+        hydrateProjectCovers()
         setSyncStatus("live")
       } finally {
         pullInFlightRef.current = false
         if (pullQueuedRef.current && !cancelled) {
           pullQueuedRef.current = false
-          void pullFromSupabase()
+          const nextKind = pullKindQueuedRef.current
+          pullKindQueuedRef.current = "ops"
+          void pullFromSupabase(nextKind)
         }
       }
     }
 
     const pull = async (isBoot = false) => {
       if (supabaseMode) {
-        await pullFromSupabase()
+        await pullFromSupabase(isBoot ? "full" : "ops")
         if (isBoot) suppressPublishRef.current = false
         return
       }
@@ -1212,34 +1252,48 @@ export function TechnikProvider({
 
     let channel: ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | undefined
     let debounce: ReturnType<typeof setTimeout> | undefined
+    let pendingKind: "full" | "ops" = "ops"
     if (supabaseMode) {
       const supabase = getSupabaseBrowser()
-      const refresh = () => {
+      const schedule = (kind: "full" | "ops") => {
+        if (kind === "full") pendingKind = "full"
+        else if (pendingKind !== "full") pendingKind = "ops"
         window.clearTimeout(debounce)
+        const wait = pendingKind === "full" ? 750 : 280
         debounce = setTimeout(() => {
+          const nextKind = pendingKind
+          pendingKind = "ops"
           if (cancelled || pushingRef.current) return
           if (savePendingRef.current > 0) {
-            debounce = setTimeout(refresh, 500)
+            debounce = setTimeout(() => schedule(nextKind), 500)
             return
           }
-          void pullFromSupabase()
-        }, 750)
+          void pullFromSupabase(nextKind)
+        }, wait)
       }
+      const refresh = () => schedule("full")
+      const refreshOps = () => schedule("ops")
       channel = supabase
         .channel("technik-ops")
         .on("postgres_changes", { event: "*", schema: "public", table: "quotations" }, refresh)
         .on("postgres_changes", { event: "*", schema: "public", table: "quotation_visit_photos" }, refresh)
-        .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, refresh)
+        .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "project_installments" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "payment_events" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "treasury_months" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "treasury_separados" }, refreshOps)
+        .on("postgres_changes", { event: "*", schema: "public", table: "apartado_movements" }, refreshOps)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "inbox_events" }, (payload) => {
           const row = payload.new as { id?: string; title?: string; body?: string }
           if (row.id && row.id === lastAnnouncedInboxIdRef.current) {
-            refresh()
+            refreshOps()
             return
           }
           if (row.title && userRoleRef.current === "admin") {
             showNotice(row.body ? `${row.title} · ${row.body}` : row.title)
           }
-          refresh()
+          refreshOps()
         })
         .subscribe((status) => {
           if (status === "SUBSCRIBED") setSyncStatus("live")
@@ -1254,7 +1308,7 @@ export function TechnikProvider({
       if (channel) void getSupabaseBrowser().removeChannel(channel)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [user?.authId, applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice])
+  }, [user?.authId, applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, hydrateProjectCovers, showNotice])
 
   useEffect(() => {
     if (isSupabaseConfigured()) {
@@ -1635,7 +1689,10 @@ export function TechnikProvider({
           : workspaceRef.current.users.length > 0
             ? workspaceRef.current.users
             : [next]
-        const quotesRes = await loadQuotations(roster)
+        const [quotesRes, ops] = await Promise.all([
+          loadQuotations(roster),
+          loadOpsWorkspace(roster),
+        ])
         if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
         if (quotesRes.ok) {
           const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
@@ -1643,9 +1700,8 @@ export function TechnikProvider({
             quotesSignature(prev) === quotesSignature(remote) ? prev : remote,
           )
         }
-        const ops = await loadOpsWorkspace(roster)
-        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
         if (ops.ok) applyLoadedOps(ops)
+        hydrateProjectCovers()
         if (row.role === "admin") {
           const pendingIds = await fetchPendingInviteIds()
           if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
@@ -1674,7 +1730,7 @@ export function TechnikProvider({
         hydrateInFlightId.current = null
       }
     }
-  }, [applyLoadedOps, applyLoadedCore, fetchPendingInviteIds, withPendingInvites])
+  }, [applyLoadedOps, applyLoadedCore, hydrateProjectCovers, fetchPendingInviteIds, withPendingInvites])
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {

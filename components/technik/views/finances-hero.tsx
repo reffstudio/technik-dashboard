@@ -258,6 +258,7 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
                         fill="url(#finHeroCobrado)"
                         strokeWidth={2}
                         name="cobrado"
+                        isAnimationActive={false}
                       />
                       <Area
                         type="monotone"
@@ -266,6 +267,7 @@ export function FinancesHero({ yearMonth }: { yearMonth: string }) {
                         fill="url(#finHeroEsperado)"
                         strokeWidth={2}
                         name="esperado"
+                        isAnimationActive={false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
