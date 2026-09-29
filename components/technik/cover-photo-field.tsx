@@ -35,14 +35,25 @@ export function CoverImg({
   if (!src) return null
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      key={src}
-      src={src}
-      alt={alt}
-      className={className}
-      onError={() => setIndex((i) => (i < list.length - 1 ? i + 1 : i))}
-    />
+    <span className={`relative block overflow-hidden bg-muted ${className}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={DEFAULT_COVER_IMAGE}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      {src !== DEFAULT_COVER_IMAGE && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={src}
+          src={src}
+          alt={alt}
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => setIndex((i) => (i < list.length - 1 ? i + 1 : i))}
+        />
+      )}
+    </span>
   )
 }
 

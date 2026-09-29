@@ -92,3 +92,104 @@ export function extFromDataUrl(imageUrl: string) {
   if (imageUrl.includes("image/png")) return "png"
   return "jpg"
 }
+
+const VISIT_API_RE = /\/api\/quotes\/([^/?#]+)\/photos\/([^/?#]+)/
+const SIGNED_TTL_SEC = 60 * 60 * 12
+
+function visitRefFromCover(path: string): { quotationId: string; photoId: string } | null {
+  const api = path.match(VISIT_API_RE)
+  if (!api) return null
+  return {
+    quotationId: decodePath(api[1]),
+    photoId: decodePath(api[2]),
+  }
+}
+
+/** URLs firmadas para que el colaborador vea portadas sin abrir la cotización. */
+export async function resolveProjectCoverMap(
+  entries: { projectId: string; coverPath: string | null | undefined }[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const visitRefs: { projectId: string; quotationId: string; photoId: string }[] = []
+  const quoteImagePaths: { projectId: string; path: string }[] = []
+
+  for (const entry of entries) {
+    const raw = entry.coverPath?.trim()
+    if (!raw) continue
+    if (raw.startsWith("data:") || raw.startsWith("blob:") || raw.startsWith("/brand/")) {
+      out.set(entry.projectId, raw)
+      continue
+    }
+    const visit = visitRefFromCover(raw) ?? visitRefFromCover(visitCoverStorageRef(raw) ?? "")
+    if (visit) {
+      visitRefs.push({ projectId: entry.projectId, ...visit })
+      continue
+    }
+    if (raw.startsWith("http") && raw.includes("/object/sign/")) {
+      out.set(entry.projectId, raw)
+      continue
+    }
+    const stored = storagePathFromUrl(raw) ?? (raw.startsWith("http") || raw.startsWith("/") ? null : raw)
+    if (stored) {
+      quoteImagePaths.push({ projectId: entry.projectId, path: stored })
+      continue
+    }
+    out.set(entry.projectId, raw)
+  }
+
+  if (entries.length === 0) return out
+  const supabase = getSupabaseBrowser()
+
+  if (visitRefs.length > 0) {
+    const photoIds = [...new Set(visitRefs.map((item) => item.photoId))]
+    const { data: rows } = await supabase
+      .from("quotation_visit_photos")
+      .select("id, quotation_id, storage_path, thumb_path")
+      .in("id", photoIds)
+    const byId = new Map(
+      ((rows ?? []) as { id: string; storage_path: string; thumb_path: string | null }[]).map((row) => [
+        row.id,
+        row,
+      ]),
+    )
+    const storagePaths = [
+      ...new Set(
+        ((rows ?? []) as { storage_path: string; thumb_path: string | null }[]).flatMap((row) =>
+          [row.thumb_path, row.storage_path].filter(Boolean),
+        ),
+      ),
+    ] as string[]
+    const signed = new Map<string, string>()
+    if (storagePaths.length > 0) {
+      const { data: signedRows } = await supabase.storage
+        .from("visit-photos")
+        .createSignedUrls(storagePaths, SIGNED_TTL_SEC)
+      for (const item of signedRows ?? []) {
+        if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl)
+      }
+    }
+    for (const ref of visitRefs) {
+      const row = byId.get(ref.photoId)
+      const url =
+        (row?.thumb_path ? signed.get(row.thumb_path) : undefined) ||
+        (row?.storage_path ? signed.get(row.storage_path) : undefined)
+      if (url) out.set(ref.projectId, url)
+    }
+  }
+
+  if (quoteImagePaths.length > 0) {
+    const unique = [...new Set(quoteImagePaths.map((item) => item.path))]
+    const { data: signedRows } = await supabase.storage
+      .from("quote-images")
+      .createSignedUrls(unique, SIGNED_TTL_SEC)
+    const signed = new Map<string, string>()
+    for (const item of signedRows ?? []) {
+      if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl)
+    }
+    for (const item of quoteImagePaths) {
+      out.set(item.projectId, signed.get(item.path) || storagePublicUrl(item.path))
+    }
+  }
+
+  return out
+}

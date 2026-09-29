@@ -17,7 +17,7 @@ import {
   normalizeTreasurySeparado,
   projectTrashExpired,
 } from "./data"
-import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl } from "./cover-image"
+import { persistStorageImage, storagePublicUrl, coverPathForProject, extFromDataUrl, resolveProjectCoverMap } from "./cover-image"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
 import { isoDay } from "./dates"
@@ -132,6 +132,20 @@ export async function loadOpsWorkspace(users: User[]): Promise<
     return { ok: false, error: projectsRes.error.message }
   }
 
+  const coverByProject = new Map<string, string | null>()
+  const { data: workshopCovers } = await supabase.rpc("workshop_project_covers")
+  if (Array.isArray(workshopCovers)) {
+    for (const row of workshopCovers as { project_id?: string; cover_path?: string | null }[]) {
+      if (row.project_id) coverByProject.set(row.project_id, row.cover_path ?? null)
+    }
+  }
+  const resolvedCovers = await resolveProjectCoverMap(
+    ((projectsRes.data ?? []) as ProjectRow[]).map((row) => ({
+      projectId: row.id,
+      coverPath: coverByProject.get(row.id) ?? row.cover_image_path,
+    })),
+  )
+
   const deptsBy = new Map<string, string[]>()
   for (const row of (deptsRes.data ?? []) as { project_id: string; department_id: string }[]) {
     const list = deptsBy.get(row.project_id) ?? []
@@ -195,7 +209,9 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       createdAt: (row.created_at ?? "").slice(0, 10),
       updatedAt: row.updated_at?.slice(0, 16).replace("T", " ") ?? (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],
-      coverImageUrl: row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined,
+      coverImageUrl:
+        resolvedCovers.get(row.id) ||
+        (row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined),
       deletedAt: row.deleted_at ?? undefined,
     }),
   ).filter((p) => !projectTrashExpired(p))
