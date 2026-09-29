@@ -439,11 +439,14 @@ export function resolvedCoverUrl(
 ): string | undefined {
   const url = stored?.trim()
   if (!url) return undefined
-  const match = (visitPhotos ?? []).find(
+  const photos = visitPhotos ?? []
+  const match = photos.find(
     (p) => url === p.url || url === p.thumbUrl || (p.id && url.includes(p.id)),
   )
   if (match) return match.url || match.thumbUrl
-  if (isVisitPhotoCoverUrl(url)) return undefined
+  // Sin fotos de la cotización (colaborador) hay que mostrar la URL ya resuelta.
+  // Solo se oculta si la cotización está cargada y esa foto ya no existe.
+  if (photos.length > 0 && isVisitPhotoCoverUrl(url)) return undefined
   return url
 }
 

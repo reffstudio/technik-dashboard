@@ -9,7 +9,7 @@ import { AppShell } from "./app-shell"
 import { LoadingScreen } from "./loading-screen"
 
 function Gate({ forcePasswordSetup = false }: { forcePasswordSetup?: boolean }) {
-  const { authed, authReady, mustSetPassword } = useTechnik()
+  const { authed, authReady, workspaceReady, mustSetPassword } = useTechnik()
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => setHydrated(true), [])
 
@@ -17,6 +17,7 @@ function Gate({ forcePasswordSetup = false }: { forcePasswordSetup?: boolean }) 
   if (forcePasswordSetup && !authed && !authReady) return <SetPasswordScreen />
   if (!hydrated) return forcePasswordSetup ? <SetPasswordScreen /> : <LoadingScreen />
   if (!authReady) return <LoadingScreen />
+  if (authed && !workspaceReady) return <LoadingScreen />
   return authed ? <AppShell /> : <LoginScreen />
 }
 

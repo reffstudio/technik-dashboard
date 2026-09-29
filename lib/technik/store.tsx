@@ -199,6 +199,8 @@ interface TechnikState {
   updateSettings: (patch: Partial<WorkspaceSettings>) => void
   /** false mientras se restaura la sesión de Supabase */
   authReady: boolean
+  /** false hasta que cotizaciones y proyectos del workspace ya están en memoria */
+  workspaceReady: boolean
   /** true si el enlace de invitación/recuperación exige crear contraseña */
   mustSetPassword: boolean
   // auth
@@ -418,6 +420,7 @@ export function TechnikProvider({
   if (supabase) setSupabasePublicConfig(supabase)
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(false)
+  const [workspaceReady, setWorkspaceReady] = useState(() => !isSupabaseConfigured())
   const [mustSetPassword, setMustSetPassword] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [clients, setClients] = useState<Client[]>([])
@@ -464,6 +467,9 @@ export function TechnikProvider({
   const logoutIntentRef = useRef(false)
   const hydrateInFlight = useRef<Promise<{ ok: true } | { ok: false; error: string }> | null>(null)
   const hydrateInFlightId = useRef<string | null>(null)
+  const pullInFlightRef = useRef(false)
+  const pullQueuedRef = useRef(false)
+  const lastPullAtRef = useRef(0)
   const saveJobsRef = useRef(new Map<string, () => Promise<PersistResult>>())
   const savePendingRef = useRef(0)
   const saveDirtyRef = useRef(false)
@@ -800,6 +806,7 @@ export function TechnikProvider({
         const incomingIds = new Set(sourced.map((row) => row.id))
         const toRepersist: Project[] = []
         setProjects((prev) => {
+          const prevCover = new Map(prev.map((row) => [row.id, row.coverImageUrl]))
           const incoming =
             inflightIds.size > 0
               ? sourced.filter((p) => !inflightIds.has(p.id))
@@ -809,14 +816,21 @@ export function TechnikProvider({
             merged = merged.filter((p) => incomingIds.has(p.id))
           }
           return merged.map((p) => {
-            const intent = projectIntentRef.current.get(p.id)
-            if (!intent) return p
-            if (projectIntentSettled(p, intent)) {
-              projectIntentRef.current.delete(p.id)
-              return p
+            const oldCover = prevCover.get(p.id)
+            const sameAsset =
+              oldCover &&
+              p.coverImageUrl &&
+              oldCover !== p.coverImageUrl &&
+              oldCover.split("?")[0] === p.coverImageUrl.split("?")[0]
+            const row = sameAsset ? { ...p, coverImageUrl: oldCover } : p
+            const intent = projectIntentRef.current.get(row.id)
+            if (!intent) return row
+            if (projectIntentSettled(row, intent)) {
+              projectIntentRef.current.delete(row.id)
+              return row
             }
-            const pinned = applyProjectIntent(p, intent)
-            if (!inflightIds.has(p.id)) toRepersist.push(pinned)
+            const pinned = applyProjectIntent(row, intent)
+            if (!inflightIds.has(row.id)) toRepersist.push(pinned)
             return pinned
           })
         })
@@ -1094,40 +1108,55 @@ export function TechnikProvider({
   )
   flushPublishRef.current = flushPublish
 
-  // Hidratar desde Supabase (Realtime + poll de respaldo). Sin DB, el hub mock.
+  // Realtime + poll de respaldo. El boot de Supabase lo hace applyAuthUser (un solo hydrate).
   useEffect(() => {
     let cancelled = false
     const supabaseMode = isSupabaseConfigured()
+    if (supabaseMode && !user?.authId) return
 
     const pullFromSupabase = async () => {
       if (!supabaseMode) return
-      const quotesRes = await loadQuotations(workspaceRef.current.users)
-      if (cancelled) return
-      if (quotesRes.ok) {
-        const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
-        setQuotations((live) =>
-          quotesSignature(live) === quotesSignature(remote) ? live : remote,
-        )
+      if (pullInFlightRef.current) {
+        pullQueuedRef.current = true
+        return
       }
-      const ops = await loadOpsWorkspace(workspaceRef.current.users)
-      if (cancelled) return
-      if (ops.ok) applyLoadedOps(ops)
-      const inbox =
-        ops.ok && !ops.inboxEventsError
-          ? adoptById(
-              workspaceRef.current.inboxEvents,
-              ops.inboxEvents,
-              (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
-            )
-          : workspaceRef.current.inboxEvents
-      setQuotations((prev) => {
-        const promoted = promoteInboxQueuedDrafts(prev, inbox)
-        return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
-      })
-      const core = await loadCoreWorkspace()
-      if (cancelled) return
-      applyLoadedCore(core)
-      setSyncStatus("live")
+      pullInFlightRef.current = true
+      lastPullAtRef.current = Date.now()
+      try {
+        const quotesRes = await loadQuotations(workspaceRef.current.users)
+        if (cancelled) return
+        if (quotesRes.ok) {
+          const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
+          setQuotations((live) =>
+            quotesSignature(live) === quotesSignature(remote) ? live : remote,
+          )
+        }
+        const ops = await loadOpsWorkspace(workspaceRef.current.users)
+        if (cancelled) return
+        if (ops.ok) applyLoadedOps(ops)
+        const inbox =
+          ops.ok && !ops.inboxEventsError
+            ? adoptById(
+                workspaceRef.current.inboxEvents,
+                ops.inboxEvents,
+                (a, b) => ((a.at ?? "") >= (b.at ?? "") ? a : b),
+              )
+            : workspaceRef.current.inboxEvents
+        setQuotations((prev) => {
+          const promoted = promoteInboxQueuedDrafts(prev, inbox)
+          return quotesSignature(prev) === quotesSignature(promoted) ? prev : promoted
+        })
+        const core = await loadCoreWorkspace()
+        if (cancelled) return
+        applyLoadedCore(core)
+        setSyncStatus("live")
+      } finally {
+        pullInFlightRef.current = false
+        if (pullQueuedRef.current && !cancelled) {
+          pullQueuedRef.current = false
+          void pullFromSupabase()
+        }
+      }
     }
 
     const pull = async (isBoot = false) => {
@@ -1157,14 +1186,29 @@ export function TechnikProvider({
       if (isBoot) suppressPublishRef.current = false
     }
 
-    void pull(true)
+    if (supabaseMode) {
+      suppressPublishRef.current = false
+    } else {
+      void pull(true)
+    }
     const timer = window.setInterval(() => {
-      if (!pushingRef.current && savePendingRef.current === 0) void pull(false)
+      if (pushingRef.current || savePendingRef.current !== 0) return
+      if (supabaseMode && Date.now() - lastPullAtRef.current < 20_000) return
+      void pull(false)
     }, supabaseMode ? 30_000 : 4_000)
-    const onFocus = () => {
+
+    let hiddenAt = 0
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now()
+        return
+      }
+      if (!supabaseMode) return
+      if (hiddenAt && Date.now() - hiddenAt < 45_000) return
+      if (Date.now() - lastPullAtRef.current < 15_000) return
       if (!pushingRef.current && savePendingRef.current === 0) void pull(false)
     }
-    window.addEventListener("focus", onFocus)
+    document.addEventListener("visibilitychange", onVisibility)
 
     let channel: ReturnType<ReturnType<typeof getSupabaseBrowser>["channel"]> | undefined
     let debounce: ReturnType<typeof setTimeout> | undefined
@@ -1179,7 +1223,7 @@ export function TechnikProvider({
             return
           }
           void pullFromSupabase()
-        }, 280)
+        }, 750)
       }
       channel = supabase
         .channel("technik-ops")
@@ -1206,11 +1250,11 @@ export function TechnikProvider({
       cancelled = true
       window.clearInterval(timer)
       window.clearTimeout(debounce)
-      window.removeEventListener("focus", onFocus)
+      document.removeEventListener("visibilitychange", onVisibility)
       if (channel) void getSupabaseBrowser().removeChannel(channel)
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
-  }, [applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice])
+  }, [user?.authId, applySnapshot, maybeShowRemoteNotice, applyLoadedOps, applyLoadedCore, showNotice])
 
   useEffect(() => {
     if (isSupabaseConfigured()) {
@@ -1556,60 +1600,68 @@ export function TechnikProvider({
       }
       const next = userFromProfile(row)
       if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
-      setUser(next)
       const rosterAlreadyLoaded =
         rosterReadyForAuthId.current === authUserId && workspaceRef.current.users.length > 0
-      if (rosterAlreadyLoaded) return { ok: true as const }
+      if (rosterAlreadyLoaded) {
+        setWorkspaceReady(true)
+        setUser(next)
+        return { ok: true as const }
+      }
 
-      void (async () => {
-        try {
-          const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
-          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
-          if (rosterRes.ok) {
-            setUsers((prev) =>
-              dedupeUsers(
-                adoptByKey(
-                  prev.length > 0 ? prev : [next],
-                  rosterRes.users.length > 0 ? rosterRes.users : [next],
-                  (u) => u.authId || u.id,
-                  (_a, b) => b,
-                ),
+      pullInFlightRef.current = true
+      try {
+        const [rosterRes, core] = await Promise.all([loadProfiles(), loadCoreWorkspace()])
+        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+        if (rosterRes.ok) {
+          setUsers((prev) =>
+            dedupeUsers(
+              adoptByKey(
+                prev.length > 0 ? prev : [next],
+                rosterRes.users.length > 0 ? rosterRes.users : [next],
+                (u) => u.authId || u.id,
+                (_a, b) => b,
               ),
-            )
-            rosterReadyForAuthId.current = authUserId
-          } else {
-            setUsers((prev) => (prev.length > 0 ? prev : [next]))
-          }
-          applyLoadedCore(core)
-          const roster = rosterRes.ok
-            ? rosterRes.users.length > 0
-              ? rosterRes.users
-              : [next]
-            : workspaceRef.current.users.length > 0
-              ? workspaceRef.current.users
-              : [next]
-          const quotesRes = await loadQuotations(roster)
-          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
-          if (quotesRes.ok) {
-            const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
-            setQuotations((prev) =>
-              quotesSignature(prev) === quotesSignature(remote) ? prev : remote,
-            )
-          }
-          const ops = await loadOpsWorkspace(roster)
-          if (logoutIntentRef.current || gen !== authHydrateGen.current) return
-          if (ops.ok) applyLoadedOps(ops)
-          if (row.role === "admin") {
-            const pendingIds = await fetchPendingInviteIds()
-            if (logoutIntentRef.current || gen !== authHydrateGen.current) return
-            if (pendingIds.size > 0) {
-              setUsers((prev) => dedupeUsers(withPendingInvites(prev, pendingIds)))
-            }
-          }
-        } catch (err) {
-          console.error("[technik] No se pudo hidratar el workspace", err)
+            ),
+          )
+          rosterReadyForAuthId.current = authUserId
+        } else {
+          setUsers((prev) => (prev.length > 0 ? prev : [next]))
         }
-      })()
+        applyLoadedCore(core)
+        const roster = rosterRes.ok
+          ? rosterRes.users.length > 0
+            ? rosterRes.users
+            : [next]
+          : workspaceRef.current.users.length > 0
+            ? workspaceRef.current.users
+            : [next]
+        const quotesRes = await loadQuotations(roster)
+        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+        if (quotesRes.ok) {
+          const remote = quotesRes.quotations.filter((q) => !quotationTrashExpired(q))
+          setQuotations((prev) =>
+            quotesSignature(prev) === quotesSignature(remote) ? prev : remote,
+          )
+        }
+        const ops = await loadOpsWorkspace(roster)
+        if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+        if (ops.ok) applyLoadedOps(ops)
+        if (row.role === "admin") {
+          const pendingIds = await fetchPendingInviteIds()
+          if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+          if (pendingIds.size > 0) {
+            setUsers((prev) => dedupeUsers(withPendingInvites(prev, pendingIds)))
+          }
+        }
+      } catch (err) {
+        console.error("[technik] No se pudo hidratar el workspace", err)
+      } finally {
+        pullInFlightRef.current = false
+        lastPullAtRef.current = Date.now()
+      }
+      if (logoutIntentRef.current || gen !== authHydrateGen.current) return { ok: true as const }
+      setWorkspaceReady(true)
+      setUser(next)
 
       return { ok: true as const }
     })()
@@ -1659,6 +1711,7 @@ export function TechnikProvider({
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT" || !session?.user) {
         setUser(null)
+        setWorkspaceReady(false)
         if (!capturePasswordSetupHintFromLocation()) setMustSetPassword(false)
         rosterReadyForAuthId.current = null
         hydrateInFlight.current = null
@@ -1721,6 +1774,7 @@ export function TechnikProvider({
   const logout = useCallback(async () => {
     logoutIntentRef.current = true
     setUser(null)
+    setWorkspaceReady(false)
     setMustSetPassword(false)
     rosterReadyForAuthId.current = null
     authHydrateGen.current += 1
@@ -3498,6 +3552,7 @@ export function TechnikProvider({
     () => ({
       authed: !!user,
       authReady,
+      workspaceReady,
       mustSetPassword,
       user,
       users,
@@ -3586,6 +3641,7 @@ export function TechnikProvider({
     [
       user,
       authReady,
+      workspaceReady,
       mustSetPassword,
       users,
       clients,

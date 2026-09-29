@@ -22,6 +22,18 @@ import { activityEventKey, dedupeActivityHistory } from "./activity-history"
 import type { InboxEvent } from "./notifications"
 import { isoDay } from "./dates"
 import { resolveProjectStageForPersist } from "./live"
+import { authHeaders } from "@/lib/supabase/session-token"
+
+async function fetchStaffProjectCovers(): Promise<Map<string, string>> {
+  try {
+    const res = await fetch("/api/projects/covers", { headers: await authHeaders() })
+    const json = (await res.json()) as { ok?: boolean; covers?: Record<string, string> }
+    if (!json?.ok || !json.covers) return new Map()
+    return new Map(Object.entries(json.covers).filter(([, url]) => Boolean(url)))
+  } catch {
+    return new Map()
+  }
+}
 
 function num(value: number | string | null | undefined, fallback = 0) {
   const n = typeof value === "number" ? value : Number(value)
@@ -133,18 +145,25 @@ export async function loadOpsWorkspace(users: User[]): Promise<
   }
 
   const coverByProject = new Map<string, string | null>()
+  const staffCovers = await fetchStaffProjectCovers()
   const { data: workshopCovers } = await supabase.rpc("workshop_project_covers")
   if (Array.isArray(workshopCovers)) {
     for (const row of workshopCovers as { project_id?: string; cover_path?: string | null }[]) {
       if (row.project_id) coverByProject.set(row.project_id, row.cover_path ?? null)
     }
   }
-  const resolvedCovers = await resolveProjectCoverMap(
-    ((projectsRes.data ?? []) as ProjectRow[]).map((row) => ({
-      projectId: row.id,
-      coverPath: coverByProject.get(row.id) ?? row.cover_image_path,
-    })),
+  const unresolved = ((projectsRes.data ?? []) as ProjectRow[]).filter(
+    (row) => !staffCovers.get(row.id) && (coverByProject.get(row.id) || row.cover_image_path),
   )
+  const resolvedCovers =
+    unresolved.length > 0
+      ? await resolveProjectCoverMap(
+          unresolved.map((row) => ({
+            projectId: row.id,
+            coverPath: coverByProject.get(row.id) ?? row.cover_image_path,
+          })),
+        )
+      : new Map<string, string>()
 
   const deptsBy = new Map<string, string[]>()
   for (const row of (deptsRes.data ?? []) as { project_id: string; department_id: string }[]) {
@@ -210,6 +229,7 @@ export async function loadOpsWorkspace(users: User[]): Promise<
       updatedAt: row.updated_at?.slice(0, 16).replace("T", " ") ?? (row.updated_at ?? "").slice(0, 10),
       history: histBy.get(row.id) ?? [],
       coverImageUrl:
+        staffCovers.get(row.id) ||
         resolvedCovers.get(row.id) ||
         (row.cover_image_path ? storagePublicUrl(row.cover_image_path) : undefined),
       deletedAt: row.deleted_at ?? undefined,

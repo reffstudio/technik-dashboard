@@ -1,7 +1,8 @@
 import { describe, it } from "node:test"
 import assert from "node:assert/strict"
-import type { Project, ProjectInstallment } from "./data"
+import type { Project, ProjectInstallment, VisitPhoto } from "./data"
 import { adoptOpsProjects, preferProjectForPersist, applyProjectIntent, projectIntentSettled, resolveProjectStageForPersist } from "./live"
+import { resolvedCoverUrl } from "./data"
 
 function inst(partial: Partial<ProjectInstallment> & Pick<ProjectInstallment, "id">): ProjectInstallment {
   return {
@@ -162,6 +163,36 @@ describe("project intent + stage persist", () => {
         updatedAt: "2026-09-02 16:00",
       }),
       "en_proceso",
+    )
+  })
+})
+
+describe("resolvedCoverUrl", () => {
+  it("conserva la URL firmada si no hay fotos de visita (colaborador)", () => {
+    const signed =
+      "https://example.supabase.co/storage/v1/object/sign/visit-photos/Q-1/p1.jpg?token=abc"
+    assert.equal(resolvedCoverUrl(signed, undefined), signed)
+    assert.equal(resolvedCoverUrl("/api/quotes/Q-1/photos/p1", []), "/api/quotes/Q-1/photos/p1")
+  })
+
+  it("usa la foto vigente de la cotización si coincide", () => {
+    const photo = {
+      id: "p1",
+      quotationId: "Q-1",
+      url: "https://cdn.example/live.jpg",
+      thumbUrl: "https://cdn.example/thumb.jpg",
+      takenAt: "2026-09-01T00:00:00.000Z",
+      uploadedById: "u1",
+      uploadedBy: "Ana",
+      mime: "image/jpeg",
+      bytes: 10,
+      thumbBytes: 4,
+      width: 10,
+      height: 10,
+    } as VisitPhoto
+    assert.equal(
+      resolvedCoverUrl("/api/quotes/Q-1/photos/p1", [photo]),
+      "https://cdn.example/live.jpg",
     )
   })
 })

@@ -94,7 +94,58 @@ export function extFromDataUrl(imageUrl: string) {
 }
 
 const VISIT_API_RE = /\/api\/quotes\/([^/?#]+)\/photos\/([^/?#]+)/
-const SIGNED_TTL_SEC = 60 * 60 * 12
+export const SIGNED_TTL_SEC = 60 * 60 * 12
+/** Reusar la URL firmada hasta 2 min antes de que caduque (evita recargar todas las fotos). */
+const SIGNED_REUSE_SLACK_MS = 2 * 60 * 1000
+
+type SignedCacheEntry = { url: string; expiresAt: number }
+const signedUrlCache = new Map<string, SignedCacheEntry>()
+
+function signedCacheKey(bucket: string, path: string) {
+  return `${bucket}:${path}`
+}
+
+function cachedSignedUrl(bucket: string, path: string): string | undefined {
+  const hit = signedUrlCache.get(signedCacheKey(bucket, path))
+  if (!hit) return undefined
+  if (hit.expiresAt - Date.now() <= SIGNED_REUSE_SLACK_MS) {
+    signedUrlCache.delete(signedCacheKey(bucket, path))
+    return undefined
+  }
+  return hit.url
+}
+
+function rememberSignedUrl(bucket: string, path: string, url: string, ttlSec = SIGNED_TTL_SEC) {
+  signedUrlCache.set(signedCacheKey(bucket, path), {
+    url,
+    expiresAt: Date.now() + ttlSec * 1000,
+  })
+}
+
+/** Firma solo las rutas que no tienen una URL vigente en caché. */
+export async function signStoragePaths(
+  bucket: string,
+  paths: string[],
+  ttlSec = SIGNED_TTL_SEC,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const missing: string[] = []
+  for (const path of paths) {
+    const cached = cachedSignedUrl(bucket, path)
+    if (cached) out.set(path, cached)
+    else missing.push(path)
+  }
+  if (missing.length === 0) return out
+  const supabase = getSupabaseBrowser()
+  const { data } = await supabase.storage.from(bucket).createSignedUrls(missing, ttlSec)
+  for (const item of data ?? []) {
+    if (item.path && item.signedUrl && !item.error) {
+      rememberSignedUrl(bucket, item.path, item.signedUrl, ttlSec)
+      out.set(item.path, item.signedUrl)
+    }
+  }
+  return out
+}
 
 function visitRefFromCover(path: string): { quotationId: string; photoId: string } | null {
   const api = path.match(VISIT_API_RE)
@@ -138,9 +189,9 @@ export async function resolveProjectCoverMap(
   }
 
   if (entries.length === 0) return out
-  const supabase = getSupabaseBrowser()
 
   if (visitRefs.length > 0) {
+    const supabase = getSupabaseBrowser()
     const photoIds = [...new Set(visitRefs.map((item) => item.photoId))]
     const { data: rows } = await supabase
       .from("quotation_visit_photos")
@@ -159,15 +210,8 @@ export async function resolveProjectCoverMap(
         ),
       ),
     ] as string[]
-    const signed = new Map<string, string>()
-    if (storagePaths.length > 0) {
-      const { data: signedRows } = await supabase.storage
-        .from("visit-photos")
-        .createSignedUrls(storagePaths, SIGNED_TTL_SEC)
-      for (const item of signedRows ?? []) {
-        if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl)
-      }
-    }
+    const signed =
+      storagePaths.length > 0 ? await signStoragePaths("visit-photos", storagePaths) : new Map<string, string>()
     for (const ref of visitRefs) {
       const row = byId.get(ref.photoId)
       const url =
@@ -179,13 +223,7 @@ export async function resolveProjectCoverMap(
 
   if (quoteImagePaths.length > 0) {
     const unique = [...new Set(quoteImagePaths.map((item) => item.path))]
-    const { data: signedRows } = await supabase.storage
-      .from("quote-images")
-      .createSignedUrls(unique, SIGNED_TTL_SEC)
-    const signed = new Map<string, string>()
-    for (const item of signedRows ?? []) {
-      if (item.path && item.signedUrl && !item.error) signed.set(item.path, item.signedUrl)
-    }
+    const signed = await signStoragePaths("quote-images", unique)
     for (const item of quoteImagePaths) {
       out.set(item.projectId, signed.get(item.path) || storagePublicUrl(item.path))
     }

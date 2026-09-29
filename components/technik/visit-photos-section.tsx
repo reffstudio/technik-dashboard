@@ -78,13 +78,10 @@ export function VisitPhotosSection({
       }
     }
     void load()
-    const onFocus = () => void load()
-    window.addEventListener("focus", onFocus)
-    const tick = window.setInterval(() => void load(), 8000)
+    const tick = window.setInterval(() => void load(), 20_000)
     return () => {
       cancelled = true
       ac.abort()
-      window.removeEventListener("focus", onFocus)
       window.clearInterval(tick)
     }
   }, [hydrateVisitPhotos, quotationId])

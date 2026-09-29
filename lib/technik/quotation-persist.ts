@@ -16,7 +16,7 @@ import { isDuplicateQuoteKey, persistClientResponse, persistSentAt } from "./quo
 import { nextQuotationCode } from "./codes"
 import { nextServerCode } from "./core-persist"
 import { activityEventKey, dedupeActivityHistory } from "./activity-history"
-import { persistStorageImage, storagePublicUrl, coverPathForQuote, extFromDataUrl } from "./cover-image"
+import { persistStorageImage, storagePublicUrl, coverPathForQuote, extFromDataUrl, signStoragePaths } from "./cover-image"
 import { visitPhotoUrl } from "./visit-photos"
 
 const OPS_BACKUP_KEY = "technik-ops-backup-v1"
@@ -345,15 +345,8 @@ export async function loadQuotations(users: User[]): Promise<
       photoRows.flatMap((row) => [row.storage_path, row.thumb_path].filter(Boolean) as string[]),
     ),
   ]
-  const signedPhotoUrls = new Map<string, string>()
-  if (photoPaths.length > 0) {
-    const { data: signedRows } = await supabase.storage
-      .from("visit-photos")
-      .createSignedUrls(photoPaths, 60 * 60)
-    for (const row of signedRows ?? []) {
-      if (row.path && row.signedUrl && !row.error) signedPhotoUrls.set(row.path, row.signedUrl)
-    }
-  }
+  const signedPhotoUrls =
+    photoPaths.length > 0 ? await signStoragePaths("visit-photos", photoPaths) : new Map<string, string>()
 
   const photosByQuote = new Map<string, VisitPhoto[]>()
   for (const row of photoRows) {
